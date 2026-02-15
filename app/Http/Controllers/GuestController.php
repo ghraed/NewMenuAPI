@@ -6,6 +6,7 @@ use App\Models\AnalyticsEvent;
 use App\Models\Dish;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class GuestController extends Controller
 {
@@ -50,5 +51,25 @@ class GuestController extends Controller
         if (strpos($ua, 'iPhone') !== false) return 'ios';
         if (strpos($ua, 'Android') !== false) return 'android';
         return 'unknown';
+    }
+
+    function test()
+    {
+        return 123;
+    }
+
+    public function showTestDish($dishId)
+    {
+        $path = "dishes/{$dishId}/models/model.glb";
+        if (!Storage::disk('public')->exists($path)) {
+            abort(404);
+        }
+        $fullPath = Storage::disk('public')->path($path);
+
+        // Force download with a meaningful .glb filename
+        return response()->download($fullPath, "dish_{$dishId}.glb", [
+            'Content-Type' => 'model/gltf-binary',
+            'ngrok-skip-browser-warning' => 'true',  // 👈 Add directly here
+        ]);
     }
 }
