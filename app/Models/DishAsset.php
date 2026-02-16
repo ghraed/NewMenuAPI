@@ -12,6 +12,8 @@ class DishAsset extends Model
         'dish_id',
         'asset_type',
         'file_path',
+        'glb_path',
+        'usdz_path',
         'file_url',
         'file_size',
         'mime_type',

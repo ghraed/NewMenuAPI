@@ -36,7 +36,7 @@ class AssetController extends Controller
             'dish_id' => $dish->id,
             'asset_type' => $type,
             'file_path' => $path,
-            'file_url' => asset("storage/{$path}"), // Full URL
+            'file_url' => "/storage/{$path}", // Relative URL for dev proxy
             'file_size' => $file->getSize(),
         ]);
 
