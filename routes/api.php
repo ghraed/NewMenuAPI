@@ -9,17 +9,23 @@ use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\GuestController;
 
 // Public routes
+Route::post('/auth/login', [AuthController::class, 'login']);
 Route::get('/test', [GuestController::class, 'test']);
+Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
+Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishes']);
 Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 'showDish']);
 Route::post('/analytics/track', [AnalyticsController::class, 'track']);
-Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
-Route::apiResource('dishes', DishController::class);
+
 // Protected admin routes
 Route::middleware('auth:sanctum')->group(function () {
+    // Auth
+    Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::post('/auth/logout', [AuthController::class, 'logout']);
+
     // Dishes
+    Route::apiResource('dishes', DishController::class);
     Route::patch('/dishes/{dish}/publish', [DishController::class, 'publish']);
     Route::patch('/dishes/{dish}/unpublish', [DishController::class, 'unpublish']);
-    Route::get('/dishes/{dish}/model', [DishController::class, 'showDish']);
 
     // Assets
     Route::post('/dishes/{dish}/assets', [AssetController::class, 'upload']);
@@ -30,6 +36,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dishes/{dish}/qr-download', [QRCodeController::class, 'download']);
 
     // Analytics
-    Route::get('/analytics/overview', [AnalyticsController::class, 'overview']);
-    Route::get('/analytics/dish/{dish}', [AnalyticsController::class, 'dishStats']);
+    Route::get('/analytics/dashboard', [AnalyticsController::class, 'dashboard']);
 });
