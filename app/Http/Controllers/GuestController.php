@@ -4,16 +4,34 @@ namespace App\Http\Controllers;
 
 use App\Models\AnalyticsEvent;
 use App\Models\Dish;
+use App\Models\Restaurant;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class GuestController extends Controller
 {
+    public function listDishes(string $restaurant_slug)
+    {
+        $restaurant = Restaurant::where('slug', $restaurant_slug)->firstOrFail();
+
+        $dishes = Dish::where('restaurant_id', $restaurant->id)
+            ->where('status', 'published')
+            ->with('assets')
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'restaurant' => [
+                'id' => $restaurant->id,
+                'name' => $restaurant->name,
+                'slug' => $restaurant->slug,
+            ],
+            'dishes' => $dishes,
+        ]);
+    }
+
     public function showDish($restaurant_slug, $dish_id, Request $request)
     {
-        Log::info($restaurant_slug);
-        Log::info($dish_id);
         $dish = Dish::whereHas('restaurant', function ($q) use ($restaurant_slug) {
             $q->where('slug', $restaurant_slug);
         })
@@ -22,7 +40,6 @@ class GuestController extends Controller
             ->with('assets')
             ->firstOrFail();
 
-        // Track page view
         AnalyticsEvent::create([
             'uuid' => (string) \Illuminate\Support\Str::uuid(),
             'dish_id' => $dish->id,
@@ -53,7 +70,7 @@ class GuestController extends Controller
         return 'unknown';
     }
 
-    function test()
+    public function test()
     {
         return 123;
     }
@@ -66,10 +83,9 @@ class GuestController extends Controller
         }
         $fullPath = Storage::disk('public')->path($path);
 
-        // Force download with a meaningful .glb filename
         return response()->download($fullPath, "dish_{$dishId}.glb", [
             'Content-Type' => 'model/gltf-binary',
-            'ngrok-skip-browser-warning' => 'true',  // 👈 Add directly here
+            'ngrok-skip-browser-warning' => 'true',
         ]);
     }
 }
