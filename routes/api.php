@@ -26,6 +26,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('dishes', DishController::class);
     Route::patch('/dishes/{dish}/publish', [DishController::class, 'publish']);
     Route::patch('/dishes/{dish}/unpublish', [DishController::class, 'unpublish']);
+    Route::post('/dishes/{dish}/restore', [DishController::class, 'restore']);
+    Route::delete('/dishes/{dish}/force', [DishController::class, 'forceDelete']);
 
     // Assets
     Route::post('/dishes/{dish}/assets', [AssetController::class, 'upload']);

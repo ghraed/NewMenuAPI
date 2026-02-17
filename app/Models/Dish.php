@@ -5,9 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Dish extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'uuid',
         'restaurant_id',
@@ -24,6 +27,7 @@ class Dish extends Model
         'price' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'deleted_at' => 'datetime',
     ];
 
     public function restaurant(): BelongsTo
@@ -39,5 +43,12 @@ class Dish extends Model
     public function qrCodes(): HasMany
     {
         return $this->hasMany(QrCode::class);
+    }
+
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return $this->withTrashed()
+            ->where($field ?? $this->getRouteKeyName(), $value)
+            ->firstOrFail();
     }
 }

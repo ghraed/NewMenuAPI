@@ -14,6 +14,12 @@ class AssetController extends Controller
     {
         $this->assertDishBelongsToCurrentUser($request, $dish);
 
+        if ($dish->trashed()) {
+            return response()->json([
+                'message' => 'Cannot upload assets to a deleted dish. Restore it first.',
+            ], 422);
+        }
+
         $request->validate([
             'file' => 'required|file|mimes:usdz,glb,gltf|max:51200',
             'type' => 'required|in:usdz,glb',
