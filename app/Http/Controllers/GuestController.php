@@ -15,7 +15,6 @@ class GuestController extends Controller
         $restaurant = Restaurant::where('slug', $restaurant_slug)->firstOrFail();
 
         $dishes = Dish::where('restaurant_id', $restaurant->id)
-            ->where('status', 'published')
             ->with('assets')
             ->orderBy('name')
             ->get();
@@ -36,7 +35,6 @@ class GuestController extends Controller
             $q->where('slug', $restaurant_slug);
         })
             ->where('id', $dish_id)
-            ->where('status', 'published')
             ->with('assets')
             ->firstOrFail();
 
