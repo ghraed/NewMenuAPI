@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: menu_api_app
+    env_file:
+      - .env.production
+    environment:
+      RUN_MIGRATIONS: "true"
+      RUN_STORAGE_LINK: "true"
+      RUN_CONFIG_CACHE: "true"
+    ports:
+      - "127.0.0.1:8000:80"
+    volumes:
+      - storage_data:/var/www/storage
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.0
+    container_name: menu_api_db
+    command: --default-authentication-plugin=mysql_native_password
+    env_file:
+      - docker/db.env
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  storage_data:

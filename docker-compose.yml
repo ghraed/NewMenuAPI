@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: menu_api_app
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: https://rozer.fun
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: menu
+      DB_USERNAME: menu
+      DB_PASSWORD: menu_password
+      RUN_MIGRATIONS: "true"
+      RUN_STORAGE_LINK: "true"
+      RUN_CONFIG_CACHE: "true"
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www
+      - storage_data:/var/www/storage
+    depends_on:
+      - db
+
+  db:
+    image: mysql:8.0
+    container_name: menu_api_db
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_DATABASE: menu
+      MYSQL_USER: menu
+      MYSQL_PASSWORD: menu_password
+      MYSQL_ROOT_PASSWORD: root_password
+    volumes:
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data:
+  storage_data:
