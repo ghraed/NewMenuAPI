@@ -44,7 +44,9 @@ fi
 
 if [ "${RUN_CONFIG_CACHE:-true}" = "true" ]; then
   php artisan config:cache
-  php artisan view:cache || true
+  if [ -d "resources/views" ]; then
+    php artisan view:cache || true
+  fi
 fi
 
 exec apache2-foreground

@@ -6,7 +6,6 @@ use App\Models\User;
 use App\Models\Restaurant;
 use App\Models\Dish;
 use App\Models\DishAsset;
-use App\Models\QRCode;
 use App\Models\AnalyticsEvent;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
@@ -27,11 +26,8 @@ class DatabaseSeeder extends Seeder
         // Create dishes
         $this->createDishes();
 
-        // Create dish assets
-        $this->createDishAssets();
-
-        // Create QR codes
-        $this->createQrCodes();
+        // Create dish assets (disabled by default to avoid missing files)
+        // $this->createDishAssets();
 
         // Create analytics events
         $this->createAnalyticsEvents();
@@ -39,19 +35,19 @@ class DatabaseSeeder extends Seeder
 
     private function createUsers(): void
     {
-        User::factory()->create([
+        User::create([
             'name' => 'Test User',
             'email' => 'test@example.com',
             'password' => bcrypt('password'),
         ]);
 
-        User::factory()->create([
+        User::create([
             'name' => 'John Restaurant Owner',
             'email' => 'john@restaurant.com',
             'password' => bcrypt('password'),
         ]);
 
-        User::factory()->create([
+        User::create([
             'name' => 'Sarah Chef',
             'email' => 'sarah@eatery.com',
             'password' => bcrypt('password'),
@@ -271,28 +267,18 @@ class DatabaseSeeder extends Seeder
         }
     }
 
-    private function createQrCodes(): void
-    {
-        $dishes = Dish::all();
-
-        foreach ($dishes as $dish) {
-            $restaurant = $dish->restaurant;
-            $codeUrl = "https://ar.menu/{$restaurant->slug}/dish/{$dish->id}";
-
-            QrCode::create([
-                'uuid' => Str::uuid(),
-                'dish_id' => $dish->id,
-                'code_url' => $codeUrl,
-                // qr_data would be binary PNG data in production
-                'qr_data' => null,
-            ]);
-        }
-    }
-
     private function createAnalyticsEvents(): void
     {
         $dishes = Dish::all();
+        if ($dishes->isEmpty()) {
+            return;
+        }
+
         $restaurants = Restaurant::all();
+        if ($restaurants->isEmpty()) {
+            return;
+        }
+
         $deviceTypes = ['mobile', 'tablet', 'desktop'];
         $platforms = ['ios', 'android', 'unknown'];
 
@@ -351,16 +337,5 @@ class DatabaseSeeder extends Seeder
                 'updated_at' => now()->subDays(rand(0, 30)),
             ]);
         }
-
-        $dish = Dish::find(10);
-
-        DishAsset::create([
-            'uuid' => Str::uuid(),
-            'dish_id' => $dish->id,
-            'asset_type' => 'usdz',
-            'file_path' => "dishes/{$dish->id}/model.usdz",
-            'file_url' => asset("storage/dishes/{$dish->id}/model.usdz"),
-            'file_size' => filesize(storage_path("app/public/dishes/{$dish->id}/model.usdz")),
-        ]);
     }
 }

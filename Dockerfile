@@ -1,4 +1,4 @@
-FROM php:8.2-apache
+FROM php:8.4-apache
 
 # System deps
 RUN apt-get update \
@@ -23,15 +23,15 @@ COPY docker/php/custom.ini /usr/local/etc/php/conf.d/custom.ini
 
 WORKDIR /var/www
 
-# Install PHP deps first (better layer cache)
-COPY composer.json composer.lock ./
-RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
-
 # Copy app
 COPY . .
 
+# Install PHP deps (artisan exists now)
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+
 # Permissions
-RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
+RUN mkdir -p /var/www/storage /var/www/bootstrap/cache \
+  && chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint

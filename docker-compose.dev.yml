@@ -3,31 +3,32 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: menu_api_app
+    container_name: menu_api_app_dev
     env_file:
-      - .env.production
+      - .env
     environment:
       RUN_MIGRATIONS: "true"
       RUN_STORAGE_LINK: "true"
-      RUN_CONFIG_CACHE: "true"
+      RUN_CONFIG_CACHE: "false"
     ports:
-      - "127.0.0.1:8000:80"
+      - "8000:80"
     volumes:
+      - ./:/var/www
+      - vendor_data:/var/www/vendor
       - storage_data:/var/www/storage
     depends_on:
       - db
-    restart: unless-stopped
 
   db:
     image: mysql:8.0
-    container_name: menu_api_db
+    container_name: menu_api_db_dev
     command: --default-authentication-plugin=mysql_native_password
     env_file:
       - docker/db.env
     volumes:
       - db_data:/var/lib/mysql
-    restart: unless-stopped
 
 volumes:
   db_data:
   storage_data:
+  vendor_data:
