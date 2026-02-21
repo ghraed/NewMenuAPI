@@ -70,7 +70,7 @@ class GuestController extends Controller
 
     public function test()
     {
-        return 321;
+        return 1;
     }
 
     public function showTestDish($dishId)
