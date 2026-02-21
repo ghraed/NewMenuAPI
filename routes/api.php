@@ -7,6 +7,7 @@ use App\Http\Controllers\DishController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\GuestController;
+use App\Http\Controllers\RestaurantController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -39,4 +40,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Analytics
     Route::get('/analytics/dashboard', [AnalyticsController::class, 'dashboard']);
+
+    // Restaurant
+    Route::patch('/restaurant/name', [RestaurantController::class, 'updateName']);
 });
