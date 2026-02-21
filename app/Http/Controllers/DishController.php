@@ -7,6 +7,7 @@ use App\Models\DishAsset;
 use App\Models\Restaurant;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -36,6 +37,7 @@ class DishController extends Controller
 
     public function store(Request $request)
     {
+        Log::info($request->all());
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -43,8 +45,28 @@ class DishController extends Controller
             'category' => 'required|string|max:100',
             'status' => 'nullable|in:draft,published',
             'image_url' => 'nullable|url',
-            'glb_file' => 'nullable|file|mimes:glb,gltf|max:51200|required_without:usdz_file',
-            'usdz_file' => 'nullable|file|mimes:usdz|max:51200|required_without:glb_file',
+            'glb_file' => [
+                'nullable',
+                'file',
+                'max:51200',
+                'required_without:usdz_file',
+                function ($attribute, $value, $fail) {
+                    if ($value && !in_array(strtolower($value->getClientOriginalExtension()), ['glb', 'gltf'], true)) {
+                        $fail('The glb file must have a .glb or .gltf extension.');
+                    }
+                },
+            ],
+            'usdz_file' => [
+                'nullable',
+                'file',
+                'max:51200',
+                'required_without:glb_file',
+                function ($attribute, $value, $fail) {
+                    if ($value && strtolower($value->getClientOriginalExtension()) !== 'usdz') {
+                        $fail('The usdz file must have a .usdz extension.');
+                    }
+                },
+            ],
         ]);
 
         $restaurant = $this->getRestaurantForRequest($request);
