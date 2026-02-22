@@ -80,7 +80,12 @@ class DishController extends Controller
 
         if ($request->hasFile('glb_file')) {
             $file = $request->file('glb_file');
-            $path = $file->store("dishes/{$dish->id}", 'public');
+            $originalName = basename((string) $file->getClientOriginalName());
+            if ($originalName === '') {
+                $originalName = 'model.glb';
+            }
+
+            $path = $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
 
             DishAsset::create([
                 'uuid' => (string) Str::uuid(),
@@ -100,7 +105,12 @@ class DishController extends Controller
 
         if ($request->hasFile('usdz_file')) {
             $file = $request->file('usdz_file');
-            $path = $file->store("dishes/{$dish->id}", 'public');
+            $originalName = basename((string) $file->getClientOriginalName());
+            if ($originalName === '') {
+                $originalName = 'model.usdz';
+            }
+
+            $path = $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
 
             DishAsset::create([
                 'uuid' => (string) Str::uuid(),

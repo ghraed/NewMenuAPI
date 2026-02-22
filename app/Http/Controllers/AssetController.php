@@ -21,14 +21,50 @@ class AssetController extends Controller
         }
 
         $request->validate([
-            'file' => 'required|file|mimes:usdz,glb,gltf|max:51200',
+            'file' => [
+                'required',
+                'file',
+                'max:51200',
+                function ($attribute, $value, $fail) use ($request) {
+                    $ext = strtolower($value->getClientOriginalExtension());
+                    $type = $request->input('type');
+
+                    if ($type === 'glb') {
+                        if (!in_array($ext, ['glb', 'gltf'], true)) {
+                            $fail('The file field must be a file of type: glb, gltf.');
+                        }
+
+                        return;
+                    }
+
+                    if ($type === 'usdz' && $ext !== 'usdz') {
+                        $fail('The file field must be a file of type: usdz.');
+                    }
+                },
+            ],
             'type' => 'required|in:usdz,glb',
         ]);
 
         $file = $request->file('file');
         $type = $request->input('type');
 
-        $path = $file->store("dishes/{$dish->id}", 'public');
+        $originalName = basename((string) $file->getClientOriginalName());
+
+        if ($originalName === '') {
+            $originalName = $type === 'usdz' ? 'model.usdz' : 'model.glb';
+        }
+
+        $existingAssets = $dish->assets()->where('asset_type', $type)->get();
+
+        foreach ($existingAssets as $existingAsset) {
+            if ($existingAsset->file_path) {
+                Storage::disk('public')->delete($existingAsset->file_path);
+            }
+
+            $existingAsset->delete();
+        }
+
+        $path = $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
 
         $asset = DishAsset::create([
             'uuid' => (string) Str::uuid(),
