@@ -44,3 +44,4 @@ Route::middleware('auth:sanctum')->group(function () {
     // Restaurant
     Route::patch('/restaurant/name', [RestaurantController::class, 'updateName']);
 });
+// 123
