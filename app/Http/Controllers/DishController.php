@@ -37,7 +37,6 @@ class DishController extends Controller
 
     public function store(Request $request)
     {
-        Log::info($request->all());
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
