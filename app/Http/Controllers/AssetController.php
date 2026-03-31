@@ -57,10 +57,7 @@ class AssetController extends Controller
         $existingAssets = $dish->assets()->where('asset_type', $type)->get();
 
         foreach ($existingAssets as $existingAsset) {
-            if ($existingAsset->file_path) {
-                Storage::disk('public')->delete($existingAsset->file_path);
-            }
-
+            $this->deleteStoredAssetFile($existingAsset);
             $existingAsset->delete();
         }
 
@@ -70,16 +67,21 @@ class AssetController extends Controller
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $type,
+            'storage_disk' => 'public',
             'file_path' => $path,
             'glb_path' => $type === 'glb' ? $path : null,
             'usdz_path' => $type === 'usdz' ? $path : null,
-            'file_url' => "/storage/{$path}",
+            'file_url' => '',
             'file_size' => $file->getSize(),
             'mime_type' => $type === 'glb' ? 'model/gltf-binary' : 'model/vnd.usdz+zip',
             'metadata' => [
                 'uploaded_at' => now()->toIso8601String(),
                 'file_name' => $file->getClientOriginalName(),
             ],
+        ]);
+
+        $asset->update([
+            'file_url' => route('api.assets.show', ['asset' => $asset->id]),
         ]);
 
         return response()->json($asset, 201);
@@ -94,10 +96,7 @@ class AssetController extends Controller
             abort(404);
         }
 
-        if ($asset->file_path) {
-            Storage::disk('public')->delete($asset->file_path);
-        }
-
+        $this->deleteStoredAssetFile($asset);
         $asset->delete();
 
         return response()->noContent();
@@ -110,6 +109,21 @@ class AssetController extends Controller
 
         if (!$ownerRestaurantId || $dish->restaurant_id !== $ownerRestaurantId) {
             abort(404);
+        }
+    }
+
+    private function deleteStoredAssetFile(DishAsset $asset): void
+    {
+        if (! $asset->file_path) {
+            return;
+        }
+
+        $disk = $asset->storage_disk ?: 'public';
+
+        try {
+            Storage::disk($disk)->delete($asset->file_path);
+        } catch (\Throwable) {
+            // Best-effort cleanup; keep DB deletion successful if file is already gone.
         }
     }
 }

@@ -11,6 +11,7 @@ class DishAsset extends Model
         'uuid',
         'dish_id',
         'asset_type',
+        'storage_disk',
         'file_path',
         'glb_path',
         'usdz_path',
@@ -31,6 +32,11 @@ class DishAsset extends Model
         'file_size' => 'integer',
         'created_at' => 'datetime',
     ];
+
+    public function getRouteKeyName(): string
+    {
+        return 'id';
+    }
 
     /**
      * Get the dish that owns the asset.

@@ -5,21 +5,21 @@ namespace App\Http\Controllers;
 use App\Models\Dish;
 use App\Models\DishAsset;
 use App\Models\Restaurant;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class DishController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $includeDeleted = filter_var($request->query('include_deleted', '1'), FILTER_VALIDATE_BOOL);
         $onlyDeleted = filter_var($request->query('only_deleted', '0'), FILTER_VALIDATE_BOOL);
 
-        $query = $restaurant->dishes()->with('assets');
+        $query = $restaurant->dishes()->with(['assets', 'latestScan']);
 
         if ($onlyDeleted) {
             $query->onlyTrashed();
@@ -35,7 +35,7 @@ class DishController extends Controller
         );
     }
 
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -48,7 +48,6 @@ class DishController extends Controller
                 'nullable',
                 'file',
                 'max:51200',
-                'required_without:usdz_file',
                 function ($attribute, $value, $fail) {
                     if ($value && !in_array(strtolower($value->getClientOriginalExtension()), ['glb', 'gltf'], true)) {
                         $fail('The glb file must have a .glb or .gltf extension.');
@@ -59,7 +58,6 @@ class DishController extends Controller
                 'nullable',
                 'file',
                 'max:51200',
-                'required_without:glb_file',
                 function ($attribute, $value, $fail) {
                     if ($value && strtolower($value->getClientOriginalExtension()) !== 'usdz') {
                         $fail('The usdz file must have a .usdz extension.');
@@ -78,67 +76,25 @@ class DishController extends Controller
         );
 
         if ($request->hasFile('glb_file')) {
-            $file = $request->file('glb_file');
-            $originalName = basename((string) $file->getClientOriginalName());
-            if ($originalName === '') {
-                $originalName = 'model.glb';
-            }
-
-            $path = $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
-
-            DishAsset::create([
-                'uuid' => (string) Str::uuid(),
-                'dish_id' => $dish->id,
-                'asset_type' => 'glb',
-                'file_path' => $path,
-                'glb_path' => $path,
-                'file_url' => "/storage/{$path}",
-                'file_size' => $file->getSize(),
-                'mime_type' => 'model/gltf-binary',
-                'metadata' => [
-                    'uploaded_at' => now()->toIso8601String(),
-                    'file_name' => $file->getClientOriginalName(),
-                ],
-            ]);
+            $this->storeUploadedAsset($dish, $request->file('glb_file'), 'glb');
         }
 
         if ($request->hasFile('usdz_file')) {
-            $file = $request->file('usdz_file');
-            $originalName = basename((string) $file->getClientOriginalName());
-            if ($originalName === '') {
-                $originalName = 'model.usdz';
-            }
-
-            $path = $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
-
-            DishAsset::create([
-                'uuid' => (string) Str::uuid(),
-                'dish_id' => $dish->id,
-                'asset_type' => 'usdz',
-                'file_path' => $path,
-                'usdz_path' => $path,
-                'file_url' => "/storage/{$path}",
-                'file_size' => $file->getSize(),
-                'mime_type' => 'model/vnd.usdz+zip',
-                'metadata' => [
-                    'uploaded_at' => now()->toIso8601String(),
-                    'file_name' => $file->getClientOriginalName(),
-                ],
-            ]);
+            $this->storeUploadedAsset($dish, $request->file('usdz_file'), 'usdz');
         }
 
-        return response()->json($dish->load('assets'), 201);
+        return response()->json($dish->load(['assets', 'latestScan']), 201);
     }
 
-    public function show(Request $request, Dish $dish)
+    public function show(Request $request, Dish $dish): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
 
-        return response()->json($dish->load('assets'));
+        return response()->json($dish->load(['assets', 'latestScan']));
     }
 
-    public function update(Request $request, Dish $dish)
+    public function update(Request $request, Dish $dish): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
@@ -160,10 +116,10 @@ class DishController extends Controller
 
         $dish->update($validated);
 
-        return response()->json($dish->load('assets'));
+        return response()->json($dish->load(['assets', 'latestScan']));
     }
 
-    public function destroy(Request $request, Dish $dish)
+    public function destroy(Request $request, Dish $dish): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
@@ -185,7 +141,7 @@ class DishController extends Controller
         ]);
     }
 
-    public function restore(Request $request, Dish $dish)
+    public function restore(Request $request, Dish $dish): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
@@ -198,13 +154,13 @@ class DishController extends Controller
 
         $dish->restore();
 
-        return response()->json([
-            'message' => 'Dish restored successfully.',
-            'dish' => $dish->fresh()->load('assets'),
-        ]);
+            return response()->json([
+                'message' => 'Dish restored successfully.',
+                'dish' => $dish->fresh()->load(['assets', 'latestScan']),
+            ]);
     }
 
-    public function forceDelete(Request $request, Dish $dish)
+    public function forceDelete(Request $request, Dish $dish): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
@@ -224,7 +180,7 @@ class DishController extends Controller
         ]);
     }
 
-    public function publish(Request $request, Dish $dish)
+    public function publish(Request $request, Dish $dish): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
@@ -235,21 +191,12 @@ class DishController extends Controller
             ], 422);
         }
 
-        if (
-            !$dish->assets()->where('asset_type', 'glb')->exists() &&
-            !$dish->assets()->where('asset_type', 'usdz')->exists()
-        ) {
-            return response()->json([
-                'message' => 'Cannot publish dish without 3D assets'
-            ], 422);
-        }
-
         $dish->update(['status' => 'published']);
 
-        return response()->json($dish->load('assets'));
+        return response()->json($dish->load(['assets', 'latestScan']));
     }
 
-    public function unpublish(Request $request, Dish $dish)
+    public function unpublish(Request $request, Dish $dish): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
@@ -262,23 +209,73 @@ class DishController extends Controller
 
         $dish->update(['status' => 'draft']);
 
-        return response()->json($dish->load('assets'));
+        return response()->json($dish->load(['assets', 'latestScan']));
     }
 
     private function deleteDishAssets(Dish $dish): void
     {
         foreach ($dish->assets as $asset) {
-            if ($asset->file_path) {
-                Storage::disk('public')->delete($asset->file_path);
-            }
-
+            $this->deleteStoredAssetFile($asset);
             $asset->delete();
         }
+    }
+
+    private function storeUploadedAsset(Dish $dish, \Illuminate\Http\UploadedFile $file, string $type): DishAsset
+    {
+        $originalName = basename((string) $file->getClientOriginalName());
+        if ($originalName === '') {
+            $originalName = $type === 'usdz' ? 'model.usdz' : 'model.glb';
+        }
+
+        $path = $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
+
+        $dish->assets()->where('asset_type', $type)->get()->each(function (DishAsset $existingAsset): void {
+            $this->deleteStoredAssetFile($existingAsset);
+            $existingAsset->delete();
+        });
+
+        $asset = DishAsset::create([
+            'uuid' => (string) Str::uuid(),
+            'dish_id' => $dish->id,
+            'asset_type' => $type,
+            'storage_disk' => 'public',
+            'file_path' => $path,
+            'glb_path' => $type === 'glb' ? $path : null,
+            'usdz_path' => $type === 'usdz' ? $path : null,
+            'file_url' => '',
+            'file_size' => $file->getSize(),
+            'mime_type' => $type === 'glb' ? 'model/gltf-binary' : 'model/vnd.usdz+zip',
+            'metadata' => [
+                'uploaded_at' => now()->toIso8601String(),
+                'file_name' => $file->getClientOriginalName(),
+            ],
+        ]);
+
+        $asset->update([
+            'file_url' => route('api.assets.show', ['asset' => $asset->id]),
+        ]);
+
+        return $asset;
     }
 
     private function cleanupAt(?Carbon $deletedAt): ?string
     {
         return $deletedAt?->copy()->addDays(7)->toIso8601String();
+    }
+
+    private function deleteStoredAssetFile(DishAsset $asset): void
+    {
+        if (! $asset->file_path) {
+            return;
+        }
+
+        $disk = $asset->storage_disk ?: 'public';
+
+        try {
+            Storage::disk($disk)->delete($asset->file_path);
+        } catch (\Throwable) {
+            // Keep DB cleanup resilient if the backing file is already missing.
+        }
     }
 
     private function getRestaurantForRequest(Request $request): Restaurant

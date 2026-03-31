@@ -15,6 +15,10 @@ class GuestController extends Controller
         $restaurant = Restaurant::where('slug', $restaurant_slug)->firstOrFail();
 
         $dishes = Dish::where('restaurant_id', $restaurant->id)
+            ->where('status', 'published')
+            ->whereHas('assets', function ($query) {
+                $query->where('asset_type', 'glb');
+            })
             ->with('assets')
             ->orderBy('name')
             ->get();
@@ -35,6 +39,10 @@ class GuestController extends Controller
             $q->where('slug', $restaurant_slug);
         })
             ->where('id', $dish_id)
+            ->where('status', 'published')
+            ->whereHas('assets', function ($query) {
+                $query->where('asset_type', 'glb');
+            })
             ->with('assets')
             ->firstOrFail();
 

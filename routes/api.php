@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DishController;
 use App\Http\Controllers\AssetController;
+use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\GuestController;
 use App\Http\Controllers\RestaurantController;
@@ -15,6 +16,8 @@ Route::get('/test', [GuestController::class, 'test']);
 Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
 Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishes']);
 Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 'showDish']);
+Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
+    ->name('api.assets.show');
 Route::post('/analytics/track', [AnalyticsController::class, 'track']);
 
 // Protected admin routes
