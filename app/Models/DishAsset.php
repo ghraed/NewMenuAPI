@@ -45,4 +45,13 @@ class DishAsset extends Model
     {
         return $this->belongsTo(Dish::class);
     }
+
+    public function getFileUrlAttribute(?string $value): ?string
+    {
+        if (! $this->exists || ! $this->getKey()) {
+            return $value;
+        }
+
+        return route('api.assets.show', ['asset' => $this->getKey()], false);
+    }
 }

@@ -81,7 +81,7 @@ class AssetController extends Controller
         ]);
 
         $asset->update([
-            'file_url' => route('api.assets.show', ['asset' => $asset->id]),
+            'file_url' => route('api.assets.show', ['asset' => $asset->id], false),
         ]);
 
         return response()->json($asset, 201);

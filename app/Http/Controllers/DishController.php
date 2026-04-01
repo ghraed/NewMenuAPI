@@ -317,7 +317,7 @@ class DishController extends Controller
         ]);
 
         $asset->update([
-            'file_url' => route('api.assets.show', ['asset' => $asset->id]),
+            'file_url' => route('api.assets.show', ['asset' => $asset->id], false),
         ]);
 
         return $asset;
@@ -360,7 +360,7 @@ class DishController extends Controller
         ]);
 
         $asset->update([
-            'file_url' => route('api.assets.show', ['asset' => $asset->id]),
+            'file_url' => route('api.assets.show', ['asset' => $asset->id], false),
         ]);
 
         return $asset;
