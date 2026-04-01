@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class DishController extends Controller
 {
@@ -92,6 +93,62 @@ class DishController extends Controller
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
 
         return response()->json($dish->load(['assets', 'latestScan']));
+    }
+
+    public function copyModel(Request $request, Dish $dish): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertDishBelongsToRestaurant($dish, $restaurant);
+
+        if ($dish->trashed()) {
+            return response()->json([
+                'message' => 'Cannot copy a model onto a deleted dish. Restore it first.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'source_dish_id' => ['required', 'integer', 'exists:dishes,id'],
+        ]);
+
+        $sourceDish = Dish::query()
+            ->with('assets')
+            ->findOrFail((int) $validated['source_dish_id']);
+        $this->assertDishBelongsToRestaurant($sourceDish, $restaurant);
+
+        if ($sourceDish->trashed()) {
+            return response()->json([
+                'message' => 'Cannot copy a model from a deleted dish.',
+            ], 422);
+        }
+
+        if ($sourceDish->id === $dish->id) {
+            return response()->json([
+                'message' => 'Choose a different dish as the model source.',
+            ], 422);
+        }
+
+        $sourceAssets = $sourceDish->assets
+            ->whereIn('asset_type', ['glb', 'usdz', 'preview_image'])
+            ->keyBy('asset_type');
+
+        if (! $sourceAssets->has('glb')) {
+            return response()->json([
+                'message' => 'The selected source dish does not have a reusable 3D model yet.',
+            ], 422);
+        }
+
+        foreach (['glb', 'usdz', 'preview_image'] as $assetType) {
+            $this->clearDishAssetType($dish, $assetType);
+
+            $sourceAsset = $sourceAssets->get($assetType);
+            if (! $sourceAsset) {
+                continue;
+            }
+
+            $this->copyAssetToDish($dish, $sourceAsset);
+        }
+
+        return response()->json($dish->fresh()->load(['assets', 'latestScan']));
     }
 
     public function update(Request $request, Dish $dish): JsonResponse
@@ -220,6 +277,14 @@ class DishController extends Controller
         }
     }
 
+    private function clearDishAssetType(Dish $dish, string $assetType): void
+    {
+        $dish->assets()->where('asset_type', $assetType)->get()->each(function (DishAsset $existingAsset): void {
+            $this->deleteStoredAssetFile($existingAsset);
+            $existingAsset->delete();
+        });
+    }
+
     private function storeUploadedAsset(Dish $dish, \Illuminate\Http\UploadedFile $file, string $type): DishAsset
     {
         $originalName = basename((string) $file->getClientOriginalName());
@@ -256,6 +321,68 @@ class DishController extends Controller
         ]);
 
         return $asset;
+    }
+
+    private function copyAssetToDish(Dish $dish, DishAsset $sourceAsset): DishAsset
+    {
+        $sourcePath = $sourceAsset->file_path;
+        if (! $sourcePath) {
+            throw new RuntimeException('Source asset file path is missing.');
+        }
+
+        $disk = $sourceAsset->storage_disk ?: 'public';
+        $storage = Storage::disk($disk);
+        $fileName = $this->resolveAssetFileName($sourceAsset);
+        $destinationPath = "dishes/{$dish->id}/{$sourceAsset->asset_type}-".Str::uuid()."-{$fileName}";
+
+        if (! $storage->copy($sourcePath, $destinationPath)) {
+            throw new RuntimeException('Failed to copy the selected model asset.');
+        }
+
+        $asset = DishAsset::create([
+            'uuid' => (string) Str::uuid(),
+            'dish_id' => $dish->id,
+            'asset_type' => $sourceAsset->asset_type,
+            'storage_disk' => $disk,
+            'file_path' => $destinationPath,
+            'glb_path' => $sourceAsset->asset_type === 'glb' ? $destinationPath : null,
+            'usdz_path' => $sourceAsset->asset_type === 'usdz' ? $destinationPath : null,
+            'file_url' => '',
+            'file_size' => $sourceAsset->file_size,
+            'mime_type' => $sourceAsset->mime_type,
+            'metadata' => array_filter([
+                ...($sourceAsset->metadata ?? []),
+                'source' => 'copied_from_existing_model',
+                'source_dish_id' => $sourceAsset->dish_id,
+                'copied_at' => now()->toIso8601String(),
+                'file_name' => $fileName,
+            ], static fn ($value) => $value !== null && $value !== ''),
+        ]);
+
+        $asset->update([
+            'file_url' => route('api.assets.show', ['asset' => $asset->id]),
+        ]);
+
+        return $asset;
+    }
+
+    private function resolveAssetFileName(DishAsset $asset): string
+    {
+        $metaFileName = $asset->metadata['file_name'] ?? null;
+        if (is_string($metaFileName) && trim($metaFileName) !== '') {
+            return basename($metaFileName);
+        }
+
+        $pathName = basename((string) $asset->file_path);
+        if ($pathName !== '') {
+            return $pathName;
+        }
+
+        return match ($asset->asset_type) {
+            'usdz' => 'model.usdz',
+            'preview_image' => 'preview.jpg',
+            default => 'model.glb',
+        };
     }
 
     private function cleanupAt(?Carbon $deletedAt): ?string
