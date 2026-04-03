@@ -27,7 +27,6 @@ class CopyDishModelTest extends TestCase
 
         Storage::disk('public')->put("dishes/{$sourceDish->id}/model.glb", 'glb-data');
         Storage::disk('public')->put("dishes/{$sourceDish->id}/model.usdz", 'usdz-data');
-        Storage::disk('public')->put("dishes/{$sourceDish->id}/preview.jpg", 'preview-data');
 
         DishAsset::query()->create([
             'uuid' => (string) Str::uuid(),
@@ -55,18 +54,6 @@ class CopyDishModelTest extends TestCase
             'metadata' => ['file_name' => 'model.usdz'],
         ]);
 
-        DishAsset::query()->create([
-            'uuid' => (string) Str::uuid(),
-            'dish_id' => $sourceDish->id,
-            'asset_type' => 'preview_image',
-            'storage_disk' => 'public',
-            'file_path' => "dishes/{$sourceDish->id}/preview.jpg",
-            'file_url' => '/api/assets/source-preview/file',
-            'file_size' => 12,
-            'mime_type' => 'image/jpeg',
-            'metadata' => ['file_name' => 'preview.jpg'],
-        ]);
-
         Sanctum::actingAs($user);
 
         $response = $this->postJson("/api/dishes/{$targetDish->id}/copy-model", [
@@ -75,7 +62,7 @@ class CopyDishModelTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('id', $targetDish->id)
-            ->assertJsonCount(3, 'assets');
+            ->assertJsonCount(2, 'assets');
 
         $targetAssets = DishAsset::query()
             ->where('dish_id', $targetDish->id)
@@ -84,7 +71,7 @@ class CopyDishModelTest extends TestCase
 
         $this->assertTrue($targetAssets->has('glb'));
         $this->assertTrue($targetAssets->has('usdz'));
-        $this->assertTrue($targetAssets->has('preview_image'));
+        $this->assertFalse($targetAssets->has('preview_image'));
 
         $this->assertSame('copied_from_existing_model', $targetAssets['glb']->metadata['source']);
         $this->assertSame($sourceDish->id, $targetAssets['glb']->metadata['source_dish_id']);
@@ -99,7 +86,6 @@ class CopyDishModelTest extends TestCase
 
         Storage::disk('public')->assertExists($targetAssets['glb']->file_path);
         Storage::disk('public')->assertExists($targetAssets['usdz']->file_path);
-        Storage::disk('public')->assertExists($targetAssets['preview_image']->file_path);
 
         $response->assertJsonFragment([
             'file_url' => "/api/assets/{$targetAssets['glb']->id}/file",

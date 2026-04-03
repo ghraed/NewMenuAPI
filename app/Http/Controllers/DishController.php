@@ -128,7 +128,7 @@ class DishController extends Controller
         }
 
         $sourceAssets = $sourceDish->assets
-            ->whereIn('asset_type', ['glb', 'usdz', 'preview_image'])
+            ->whereIn('asset_type', ['glb', 'usdz'])
             ->keyBy('asset_type');
 
         if (! $sourceAssets->has('glb')) {
@@ -137,7 +137,7 @@ class DishController extends Controller
             ], 422);
         }
 
-        foreach (['glb', 'usdz', 'preview_image'] as $assetType) {
+        foreach (['glb', 'usdz'] as $assetType) {
             $this->clearDishAssetType($dish, $assetType);
 
             $sourceAsset = $sourceAssets->get($assetType);

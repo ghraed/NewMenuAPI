@@ -39,10 +39,15 @@ class AssetController extends Controller
 
                     if ($type === 'usdz' && $ext !== 'usdz') {
                         $fail('The file field must be a file of type: usdz.');
+                        return;
+                    }
+
+                    if ($type === 'preview_image' && !in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'], true)) {
+                        $fail('The file field must be an image of type: jpg, jpeg, png, webp, heic, heif.');
                     }
                 },
             ],
-            'type' => 'required|in:usdz,glb',
+            'type' => 'required|in:usdz,glb,preview_image',
         ]);
 
         $file = $request->file('file');
@@ -51,7 +56,11 @@ class AssetController extends Controller
         $originalName = basename((string) $file->getClientOriginalName());
 
         if ($originalName === '') {
-            $originalName = $type === 'usdz' ? 'model.usdz' : 'model.glb';
+            $originalName = match ($type) {
+                'usdz' => 'model.usdz',
+                'preview_image' => 'preview.jpg',
+                default => 'model.glb',
+            };
         }
 
         $existingAssets = $dish->assets()->where('asset_type', $type)->get();
@@ -73,7 +82,7 @@ class AssetController extends Controller
             'usdz_path' => $type === 'usdz' ? $path : null,
             'file_url' => '',
             'file_size' => $file->getSize(),
-            'mime_type' => $type === 'glb' ? 'model/gltf-binary' : 'model/vnd.usdz+zip',
+            'mime_type' => $this->resolveMimeType($file, $type),
             'metadata' => [
                 'uploaded_at' => now()->toIso8601String(),
                 'file_name' => $file->getClientOriginalName(),
@@ -125,5 +134,18 @@ class AssetController extends Controller
         } catch (\Throwable) {
             // Best-effort cleanup; keep DB deletion successful if file is already gone.
         }
+    }
+
+    private function resolveMimeType(\Illuminate\Http\UploadedFile $file, string $type): string
+    {
+        if ($type === 'glb') {
+            return 'model/gltf-binary';
+        }
+
+        if ($type === 'usdz') {
+            return 'model/vnd.usdz+zip';
+        }
+
+        return $file->getMimeType() ?: 'image/jpeg';
     }
 }
