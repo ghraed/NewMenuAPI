@@ -7,6 +7,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DishAsset extends Model
 {
+    public const TYPE_USDZ = 'usdz';
+    public const TYPE_GLB = 'glb';
+    public const TYPE_PREVIEW_IMAGE = 'preview_image';
+    public const TYPE_INGREDIENT_IMAGE = 'ingredient_image';
+
     protected $fillable = [
         'uuid',
         'dish_id',

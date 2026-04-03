@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Assets
     Route::post('/dishes/{dish}/assets', [AssetController::class, 'upload']);
+    Route::patch('/assets/{asset}', [AssetController::class, 'update']);
     Route::delete('/assets/{asset}', [AssetController::class, 'delete']);
 
     // QR Codes
