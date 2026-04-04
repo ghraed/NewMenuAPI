@@ -8,6 +8,7 @@ use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\GuestController;
+use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\RestaurantController;
 
 // Public routes
@@ -48,5 +49,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Restaurant
     Route::patch('/restaurant/name', [RestaurantController::class, 'updateName']);
+
+    // Ingredient library
+    Route::get('/ingredients', [IngredientLibraryController::class, 'index']);
+    Route::post('/ingredients/bulk-upload', [IngredientLibraryController::class, 'bulkUpload']);
+    Route::delete('/ingredients', [IngredientLibraryController::class, 'destroyAll']);
 });
 // 123
