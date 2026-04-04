@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Dish;
 use App\Models\DishAsset;
+use App\Models\Ingredient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -23,10 +24,14 @@ class AssetController extends Controller
 
         $request->validate([
             'file' => [
-                'required',
+                'nullable',
                 'file',
                 'max:51200',
                 function ($attribute, $value, $fail) use ($request) {
+                    if ($value === null) {
+                        return;
+                    }
+
                     $ext = strtolower($value->getClientOriginalExtension());
                     $type = $request->input('type');
 
@@ -52,18 +57,30 @@ class AssetController extends Controller
             'label' => 'nullable|string|max:120',
             'quantity' => 'nullable|string|max:60',
             'order_index' => 'nullable|integer|min:0|max:999',
+            'ingredient_library_id' => 'nullable|integer|min:1',
         ]);
 
         $file = $request->file('file');
         $type = $request->input('type');
+        $sourceIngredient = $type === 'ingredient_image'
+            ? $this->resolveIngredientLibrarySelection($request, $dish, $request->input('ingredient_library_id'))
+            : null;
 
-        if ($type === 'ingredient_image' && $this->normalizeOptionalString($request->input('label')) === null) {
+        if (! $file && ! $sourceIngredient) {
+            return response()->json([
+                'message' => $type === 'ingredient_image'
+                    ? 'Ingredient image uploads require either a file or a saved ingredient selection.'
+                    : 'The file field is required.',
+            ], 422);
+        }
+
+        if ($type === 'ingredient_image' && ! $sourceIngredient && $this->normalizeOptionalString($request->input('label')) === null) {
             return response()->json([
                 'message' => 'Ingredient image uploads require a label.',
             ], 422);
         }
 
-        $originalName = basename((string) $file->getClientOriginalName());
+        $originalName = $this->resolveOriginalName($file, $type, $sourceIngredient);
 
         if ($originalName === '') {
             $originalName = match ($type) {
@@ -84,7 +101,7 @@ class AssetController extends Controller
         }
 
         $path = $type === 'ingredient_image'
-            ? $file->storeAs("dishes/{$dish->id}/ingredients", Str::uuid().'-'.$originalName, 'public')
+            ? $this->storeIngredientAssetFile($dish, $originalName, $file, $sourceIngredient)
             : $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
 
         $asset = DishAsset::create([
@@ -96,9 +113,9 @@ class AssetController extends Controller
             'glb_path' => $type === 'glb' ? $path : null,
             'usdz_path' => $type === 'usdz' ? $path : null,
             'file_url' => '',
-            'file_size' => $file->getSize(),
-            'mime_type' => $this->resolveMimeType($file, $type),
-            'metadata' => $this->buildAssetMetadata($request, $file, $type),
+            'file_size' => $file?->getSize() ?? $sourceIngredient?->file_size ?? 0,
+            'mime_type' => $this->resolveMimeType($file, $type, $sourceIngredient),
+            'metadata' => $this->buildAssetMetadata($request, $file, $type, $sourceIngredient),
         ]);
 
         $asset->update([
@@ -122,12 +139,19 @@ class AssetController extends Controller
             'label' => 'required|string|max:120',
             'quantity' => 'nullable|string|max:60',
             'order_index' => 'nullable|integer|min:0|max:999',
+            'ingredient_library_id' => 'nullable|integer|min:1',
         ]);
+
+        $ingredientLibraryId = $this->normalizeOptionalInteger($validated['ingredient_library_id'] ?? null);
+        if ($ingredientLibraryId !== null) {
+            $this->assertIngredientBelongsToCurrentRestaurant($request, $ingredientLibraryId);
+        }
 
         $metadata = is_array($asset->metadata) ? $asset->metadata : [];
         $metadata['label'] = trim((string) $validated['label']);
         $metadata['quantity'] = $this->normalizeOptionalString($validated['quantity'] ?? null);
         $metadata['order_index'] = (int) ($validated['order_index'] ?? 0);
+        $metadata['ingredient_library_id'] = $ingredientLibraryId;
 
         $asset->update([
             'metadata' => $metadata,
@@ -181,7 +205,7 @@ class AssetController extends Controller
         }
     }
 
-    private function resolveMimeType(\Illuminate\Http\UploadedFile $file, string $type): string
+    private function resolveMimeType(?\Illuminate\Http\UploadedFile $file, string $type, ?Ingredient $sourceIngredient = null): string
     {
         if ($type === 'glb') {
             return 'model/gltf-binary';
@@ -191,7 +215,7 @@ class AssetController extends Controller
             return 'model/vnd.usdz+zip';
         }
 
-        return $file->getMimeType() ?: 'image/jpeg';
+        return $file?->getMimeType() ?: $sourceIngredient?->mime_type ?: 'image/jpeg';
     }
 
     private function replacesExistingAsset(string $type): bool
@@ -199,22 +223,116 @@ class AssetController extends Controller
         return in_array($type, ['glb', 'usdz', 'preview_image'], true);
     }
 
-    private function buildAssetMetadata(Request $request, \Illuminate\Http\UploadedFile $file, string $type): array
+    private function buildAssetMetadata(
+        Request $request,
+        ?\Illuminate\Http\UploadedFile $file,
+        string $type,
+        ?Ingredient $sourceIngredient = null
+    ): array
     {
         $metadata = [
             'uploaded_at' => now()->toIso8601String(),
-            'file_name' => $file->getClientOriginalName(),
+            'file_name' => $file?->getClientOriginalName()
+                ?: $sourceIngredient?->source_file_name
+                ?: ($sourceIngredient?->file_path ? basename($sourceIngredient->file_path) : 'asset'),
         ];
 
         if ($type !== 'ingredient_image') {
             return $metadata;
         }
 
-        $metadata['label'] = trim((string) $request->input('label'));
+        $metadata['label'] = $sourceIngredient?->name ?: trim((string) $request->input('label'));
         $metadata['quantity'] = $this->normalizeOptionalString($request->input('quantity'));
         $metadata['order_index'] = (int) $request->input('order_index', 0);
+        $metadata['ingredient_library_id'] = $sourceIngredient?->id ?? $this->normalizeOptionalInteger($request->input('ingredient_library_id'));
 
         return $metadata;
+    }
+
+    private function resolveIngredientLibrarySelection(Request $request, Dish $dish, mixed $ingredientLibraryId): ?Ingredient
+    {
+        $normalizedId = $this->normalizeOptionalInteger($ingredientLibraryId);
+
+        if ($normalizedId === null) {
+            return null;
+        }
+
+        $ingredient = Ingredient::query()
+            ->whereKey($normalizedId)
+            ->where('restaurant_id', $dish->restaurant_id)
+            ->first();
+
+        if (! $ingredient) {
+            abort(404);
+        }
+
+        return $ingredient;
+    }
+
+    private function assertIngredientBelongsToCurrentRestaurant(Request $request, int $ingredientId): void
+    {
+        $ownerRestaurantId = $request->user()?->restaurant?->id;
+
+        if (! $ownerRestaurantId) {
+            abort(404);
+        }
+
+        $ingredientExists = Ingredient::query()
+            ->whereKey($ingredientId)
+            ->where('restaurant_id', $ownerRestaurantId)
+            ->exists();
+
+        if (! $ingredientExists) {
+            abort(404);
+        }
+    }
+
+    private function resolveOriginalName(
+        ?\Illuminate\Http\UploadedFile $file,
+        string $type,
+        ?Ingredient $sourceIngredient = null
+    ): string {
+        if ($file) {
+            return basename((string) $file->getClientOriginalName());
+        }
+
+        if ($sourceIngredient?->source_file_name) {
+            return basename($sourceIngredient->source_file_name);
+        }
+
+        if ($sourceIngredient?->file_path) {
+            return basename($sourceIngredient->file_path);
+        }
+
+        return match ($type) {
+            'usdz' => 'model.usdz',
+            'preview_image' => 'preview.jpg',
+            'ingredient_image' => 'ingredient.jpg',
+            default => 'model.glb',
+        };
+    }
+
+    private function storeIngredientAssetFile(
+        Dish $dish,
+        string $originalName,
+        ?\Illuminate\Http\UploadedFile $file,
+        ?Ingredient $sourceIngredient = null
+    ): string {
+        $path = "dishes/{$dish->id}/ingredients/".Str::uuid().'-'.$originalName;
+
+        if ($file) {
+            return $file->storeAs("dishes/{$dish->id}/ingredients", basename($path), 'public');
+        }
+
+        if (! $sourceIngredient?->file_path) {
+            throw new \RuntimeException('Missing source ingredient file.');
+        }
+
+        $sourceDisk = $sourceIngredient->storage_disk ?: 'public';
+        $contents = Storage::disk($sourceDisk)->get($sourceIngredient->file_path);
+        Storage::disk('public')->put($path, $contents);
+
+        return $path;
     }
 
     private function normalizeOptionalString(mixed $value): ?string
@@ -226,5 +344,22 @@ class AssetController extends Controller
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function normalizeOptionalInteger(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && is_numeric($value)) {
+            return (int) $value;
+        }
+
+        return null;
     }
 }

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Dish;
 use App\Models\DishAsset;
+use App\Models\Ingredient;
 use App\Models\Restaurant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -120,6 +121,55 @@ class IngredientImageAssetTest extends TestCase
         $this->assertSame('Crisp Lettuce', $asset->metadata['label'] ?? null);
         $this->assertSame('2 leaves', $asset->metadata['quantity'] ?? null);
         $this->assertSame(1, $asset->metadata['order_index'] ?? null);
+    }
+
+    public function test_authenticated_admin_can_create_dish_ingredient_from_saved_library_image(): void
+    {
+        Storage::fake('public');
+
+        $user = User::factory()->create();
+        $restaurant = $this->createRestaurant($user);
+        $dish = $this->createDish($restaurant, 'Ingredient Library Bowl');
+
+        $ingredient = Ingredient::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'fresh mint leaves',
+            'storage_disk' => 'public',
+            'file_path' => "ingredients/{$restaurant->id}/fresh-mint-leaves.png",
+            'source_file_name' => 'fresh-mint-leaves.png',
+            'file_size' => 2048,
+            'mime_type' => 'image/png',
+        ]);
+
+        Storage::disk('public')->put($ingredient->file_path, 'mint-library-image');
+
+        Sanctum::actingAs($user);
+
+        $response = $this->post('/api/dishes/'.$dish->id.'/assets', [
+            'type' => 'ingredient_image',
+            'ingredient_library_id' => $ingredient->id,
+            'quantity' => '80 g',
+            'order_index' => 4,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('asset_type', 'ingredient_image')
+            ->assertJsonPath('metadata.label', 'fresh mint leaves')
+            ->assertJsonPath('metadata.quantity', '80 g')
+            ->assertJsonPath('metadata.order_index', 4)
+            ->assertJsonPath('metadata.ingredient_library_id', $ingredient->id);
+
+        $asset = DishAsset::query()
+            ->where('dish_id', $dish->id)
+            ->where('asset_type', 'ingredient_image')
+            ->latest('id')
+            ->firstOrFail();
+
+        $this->assertNotSame($ingredient->file_path, $asset->file_path);
+        Storage::disk('public')->assertExists($asset->file_path);
+        $this->assertSame('fresh mint leaves', $asset->metadata['label'] ?? null);
+        $this->assertSame($ingredient->id, $asset->metadata['ingredient_library_id'] ?? null);
     }
 
     private function createRestaurant(User $user): Restaurant
