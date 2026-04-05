@@ -82,6 +82,26 @@ class Dish extends Model
         )->withTimestamps();
     }
 
+    public function relatedDishes(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Dish::class,
+            'dish_related_dishes',
+            'dish_id',
+            'related_dish_id'
+        )->withTimestamps();
+    }
+
+    public function relatedByDishes(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Dish::class,
+            'dish_related_dishes',
+            'related_dish_id',
+            'dish_id'
+        )->withTimestamps();
+    }
+
     public function resolveRouteBinding($value, $field = null)
     {
         return $this->withTrashed()

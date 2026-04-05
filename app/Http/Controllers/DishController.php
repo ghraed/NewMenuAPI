@@ -22,7 +22,7 @@ class DishController extends Controller
         $onlyDeleted = filter_var($request->query('only_deleted', '0'), FILTER_VALIDATE_BOOL);
         $perPage = max(1, min((int) $request->query('per_page', 15), 200));
 
-        $query = $restaurant->dishes()->with(['assets', 'latestScan', 'suggestedDishes']);
+        $query = $restaurant->dishes()->with(['assets', 'latestScan', 'suggestedDishes', 'relatedDishes']);
 
         if ($onlyDeleted) {
             $query->onlyTrashed();
@@ -49,6 +49,8 @@ class DishController extends Controller
             'image_url' => 'nullable|url',
             'suggested_dish_ids' => 'sometimes|array',
             'suggested_dish_ids.*' => 'integer',
+            'related_dish_ids' => 'sometimes|array',
+            'related_dish_ids.*' => 'integer',
             'glb_file' => [
                 'nullable',
                 'file',
@@ -77,12 +79,15 @@ class DishController extends Controller
         $status = $validated['status'] ?? 'published';
         unset($validated['status']);
         $suggestedDishIds = array_values(array_unique(array_map('intval', $validated['suggested_dish_ids'] ?? [])));
+        $relatedDishIds = array_values(array_unique(array_map('intval', $validated['related_dish_ids'] ?? [])));
         unset($validated['suggested_dish_ids']);
+        unset($validated['related_dish_ids']);
         $dish = $restaurant->dishes()->create(
             array_merge($validated, ['status' => $status])
         );
 
         $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
+        $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
 
         if ($request->hasFile('glb_file')) {
             $this->storeUploadedAsset($dish, $request->file('glb_file'), 'glb');
@@ -92,7 +97,7 @@ class DishController extends Controller
             $this->storeUploadedAsset($dish, $request->file('usdz_file'), 'usdz');
         }
 
-        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets']), 201);
+        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets', 'relatedDishes.assets']), 201);
     }
 
     public function show(Request $request, Dish $dish): JsonResponse
@@ -100,7 +105,7 @@ class DishController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
 
-        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets']));
+        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets', 'relatedDishes.assets']));
     }
 
     public function copyModel(Request $request, Dish $dish): JsonResponse
@@ -179,6 +184,8 @@ class DishController extends Controller
             'image_url' => 'nullable|url',
             'suggested_dish_ids' => 'sometimes|array',
             'suggested_dish_ids.*' => 'integer',
+            'related_dish_ids' => 'sometimes|array',
+            'related_dish_ids.*' => 'integer',
         ]);
 
         $suggestedDishIds = null;
@@ -187,13 +194,23 @@ class DishController extends Controller
             unset($validated['suggested_dish_ids']);
         }
 
+        $relatedDishIds = null;
+        if (array_key_exists('related_dish_ids', $validated)) {
+            $relatedDishIds = array_values(array_unique(array_map('intval', $validated['related_dish_ids'] ?? [])));
+            unset($validated['related_dish_ids']);
+        }
+
         $dish->update($validated);
 
         if ($suggestedDishIds !== null) {
             $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
         }
 
-        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets']));
+        if ($relatedDishIds !== null) {
+            $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
+        }
+
+        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets', 'relatedDishes.assets']));
     }
 
     public function destroy(Request $request, Dish $dish): JsonResponse
@@ -446,14 +463,44 @@ class DishController extends Controller
 
     private function syncSuggestedDishes(Dish $dish, Restaurant $restaurant, array $suggestedDishIds): void
     {
-        $filteredIds = array_values(array_unique(array_filter(
+        $validIds = $this->validateRelatedDishIds(
+            $dish,
+            $restaurant,
             $suggestedDishIds,
-            fn (int $suggestedDishId) => $suggestedDishId !== $dish->id
+            'suggested_dish_ids',
+            'Suggested dishes must belong to the same restaurant and cannot be deleted.'
+        );
+
+        $dish->suggestedDishes()->sync($validIds);
+    }
+
+    private function syncRelatedDishes(Dish $dish, Restaurant $restaurant, array $relatedDishIds): void
+    {
+        $validIds = $this->validateRelatedDishIds(
+            $dish,
+            $restaurant,
+            $relatedDishIds,
+            'related_dish_ids',
+            'Related dishes must belong to the same restaurant and cannot be deleted.'
+        );
+
+        $dish->relatedDishes()->sync($validIds);
+    }
+
+    private function validateRelatedDishIds(
+        Dish $dish,
+        Restaurant $restaurant,
+        array $dishIds,
+        string $field,
+        string $message
+    ): array {
+        $filteredIds = array_values(array_unique(array_filter(
+            $dishIds,
+            fn (int $candidateDishId) => $candidateDishId !== $dish->id
         )));
 
         if ($filteredIds === []) {
-            $dish->suggestedDishes()->sync([]);
-            return;
+            return [];
         }
 
         $validIds = Dish::query()
@@ -466,10 +513,10 @@ class DishController extends Controller
 
         if (count($validIds) !== count($filteredIds)) {
             throw ValidationException::withMessages([
-                'suggested_dish_ids' => 'Suggested dishes must belong to the same restaurant and cannot be deleted.',
+                $field => $message,
             ]);
         }
 
-        $dish->suggestedDishes()->sync($validIds);
+        return $validIds;
     }
 }

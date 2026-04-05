@@ -84,6 +84,15 @@ class SharedProductFlowTest extends TestCase
             'category' => 'Side',
             'status' => 'published',
         ]);
+        $relatedDish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Related Starter',
+            'description' => 'Fits the same mood',
+            'price' => 7.50,
+            'category' => 'Starter',
+            'status' => 'published',
+        ]);
 
         Sanctum::actingAs($user);
 
@@ -94,6 +103,7 @@ class SharedProductFlowTest extends TestCase
             'category' => 'Special',
             'status' => 'draft',
             'suggested_dish_ids' => [$suggestedDish->id],
+            'related_dish_ids' => [$relatedDish->id],
         ]);
 
         $response->assertCreated()
@@ -102,7 +112,8 @@ class SharedProductFlowTest extends TestCase
             ->assertJsonPath('model_state', 'none')
             ->assertJsonPath('is_model_ready', false)
             ->assertJsonCount(0, 'assets')
-            ->assertJsonPath('suggested_dishes.0.id', $suggestedDish->id);
+            ->assertJsonPath('suggested_dishes.0.id', $suggestedDish->id)
+            ->assertJsonPath('related_dishes.0.id', $relatedDish->id);
 
         $this->assertDatabaseHas('dishes', [
             'restaurant_id' => $restaurant->id,
@@ -112,6 +123,10 @@ class SharedProductFlowTest extends TestCase
         $this->assertDatabaseHas('dish_suggestions', [
             'dish_id' => $response->json('id'),
             'suggested_dish_id' => $suggestedDish->id,
+        ]);
+        $this->assertDatabaseHas('dish_related_dishes', [
+            'dish_id' => $response->json('id'),
+            'related_dish_id' => $relatedDish->id,
         ]);
     }
 
@@ -173,6 +188,66 @@ class SharedProductFlowTest extends TestCase
             ->assertJsonCount(1, 'suggested_dishes')
             ->assertJsonPath('suggested_dishes.0.id', $suggestedDish->id)
             ->assertJsonMissing(['name' => 'Hidden Draft Suggestion']);
+    }
+
+    public function test_guest_dish_details_include_related_dishes(): void
+    {
+        $restaurant = $this->createRestaurant();
+
+        $mainDish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Main Dish',
+            'description' => 'Visible to guests',
+            'price' => 18.50,
+            'category' => 'Main',
+            'status' => 'published',
+        ]);
+
+        $relatedDish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Related Course',
+            'description' => 'Guests may also like this',
+            'price' => 12.50,
+            'category' => 'Main',
+            'status' => 'published',
+        ]);
+
+        $hiddenRelatedDish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Hidden Draft Related',
+            'description' => 'Should not appear for guests',
+            'price' => 10.00,
+            'category' => 'Main',
+            'status' => 'draft',
+        ]);
+
+        foreach ([$mainDish, $relatedDish] as $index => $dish) {
+            DishAsset::query()->create([
+                'uuid' => (string) Str::uuid(),
+                'dish_id' => $dish->id,
+                'asset_type' => 'glb',
+                'storage_disk' => 'public',
+                'file_path' => "dishes/{$dish->id}/model.glb",
+                'glb_path' => "dishes/{$dish->id}/model.glb",
+                'file_url' => "/api/assets/".($index + 20)."/file",
+                'file_size' => 1024,
+                'mime_type' => 'model/gltf-binary',
+                'metadata' => ['uploaded_at' => now()->toIso8601String()],
+            ]);
+        }
+
+        $mainDish->relatedDishes()->sync([$relatedDish->id, $hiddenRelatedDish->id]);
+
+        $response = $this->getJson("/api/menu/{$restaurant->slug}/dish/{$mainDish->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('id', $mainDish->id)
+            ->assertJsonCount(1, 'related_dishes')
+            ->assertJsonPath('related_dishes.0.id', $relatedDish->id)
+            ->assertJsonMissing(['name' => 'Hidden Draft Related']);
     }
 
     private function createRestaurant(?User $user = null): Restaurant
