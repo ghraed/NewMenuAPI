@@ -8,6 +8,7 @@ use App\Models\Restaurant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -19,8 +20,9 @@ class DishController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
         $includeDeleted = filter_var($request->query('include_deleted', '1'), FILTER_VALIDATE_BOOL);
         $onlyDeleted = filter_var($request->query('only_deleted', '0'), FILTER_VALIDATE_BOOL);
+        $perPage = max(1, min((int) $request->query('per_page', 15), 200));
 
-        $query = $restaurant->dishes()->with(['assets', 'latestScan']);
+        $query = $restaurant->dishes()->with(['assets', 'latestScan', 'suggestedDishes']);
 
         if ($onlyDeleted) {
             $query->onlyTrashed();
@@ -32,7 +34,7 @@ class DishController extends Controller
             $query
                 ->orderByRaw('deleted_at IS NOT NULL')
                 ->orderByDesc('updated_at')
-                ->paginate(15)
+                ->paginate($perPage)
         );
     }
 
@@ -45,6 +47,8 @@ class DishController extends Controller
             'category' => 'required|string|max:100',
             'status' => 'nullable|in:draft,published',
             'image_url' => 'nullable|url',
+            'suggested_dish_ids' => 'sometimes|array',
+            'suggested_dish_ids.*' => 'integer',
             'glb_file' => [
                 'nullable',
                 'file',
@@ -72,9 +76,13 @@ class DishController extends Controller
         $validated['uuid'] = (string) Str::uuid();
         $status = $validated['status'] ?? 'published';
         unset($validated['status']);
+        $suggestedDishIds = array_values(array_unique(array_map('intval', $validated['suggested_dish_ids'] ?? [])));
+        unset($validated['suggested_dish_ids']);
         $dish = $restaurant->dishes()->create(
             array_merge($validated, ['status' => $status])
         );
+
+        $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
 
         if ($request->hasFile('glb_file')) {
             $this->storeUploadedAsset($dish, $request->file('glb_file'), 'glb');
@@ -84,7 +92,7 @@ class DishController extends Controller
             $this->storeUploadedAsset($dish, $request->file('usdz_file'), 'usdz');
         }
 
-        return response()->json($dish->load(['assets', 'latestScan']), 201);
+        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets']), 201);
     }
 
     public function show(Request $request, Dish $dish): JsonResponse
@@ -92,7 +100,7 @@ class DishController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
 
-        return response()->json($dish->load(['assets', 'latestScan']));
+        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets']));
     }
 
     public function copyModel(Request $request, Dish $dish): JsonResponse
@@ -169,11 +177,23 @@ class DishController extends Controller
             'category' => 'sometimes|string|max:100',
             'status' => 'sometimes|in:draft,published',
             'image_url' => 'nullable|url',
+            'suggested_dish_ids' => 'sometimes|array',
+            'suggested_dish_ids.*' => 'integer',
         ]);
+
+        $suggestedDishIds = null;
+        if (array_key_exists('suggested_dish_ids', $validated)) {
+            $suggestedDishIds = array_values(array_unique(array_map('intval', $validated['suggested_dish_ids'] ?? [])));
+            unset($validated['suggested_dish_ids']);
+        }
 
         $dish->update($validated);
 
-        return response()->json($dish->load(['assets', 'latestScan']));
+        if ($suggestedDishIds !== null) {
+            $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
+        }
+
+        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets']));
     }
 
     public function destroy(Request $request, Dish $dish): JsonResponse
@@ -422,5 +442,34 @@ class DishController extends Controller
         if ($dish->restaurant_id !== $restaurant->id) {
             abort(404);
         }
+    }
+
+    private function syncSuggestedDishes(Dish $dish, Restaurant $restaurant, array $suggestedDishIds): void
+    {
+        $filteredIds = array_values(array_unique(array_filter(
+            $suggestedDishIds,
+            fn (int $suggestedDishId) => $suggestedDishId !== $dish->id
+        )));
+
+        if ($filteredIds === []) {
+            $dish->suggestedDishes()->sync([]);
+            return;
+        }
+
+        $validIds = Dish::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereNull('deleted_at')
+            ->whereIn('id', $filteredIds)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if (count($validIds) !== count($filteredIds)) {
+            throw ValidationException::withMessages([
+                'suggested_dish_ids' => 'Suggested dishes must belong to the same restaurant and cannot be deleted.',
+            ]);
+        }
+
+        $dish->suggestedDishes()->sync($validIds);
     }
 }

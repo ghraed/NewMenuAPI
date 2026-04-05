@@ -57,6 +57,17 @@ class GuestController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
+        $dish->load([
+            'suggestedDishes' => function ($query) {
+                $query->where('status', 'published')
+                    ->whereHas('assets', function ($assetQuery) {
+                        $assetQuery->where('asset_type', 'glb');
+                    })
+                    ->with('assets')
+                    ->orderBy('name');
+            },
+        ]);
+
         return response()->json($dish);
     }
 

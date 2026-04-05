@@ -75,6 +75,15 @@ class SharedProductFlowTest extends TestCase
     {
         $user = User::factory()->create();
         $restaurant = $this->createRestaurant($user);
+        $suggestedDish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Suggested Side',
+            'description' => 'Pairs with the main dish',
+            'price' => 9.25,
+            'category' => 'Side',
+            'status' => 'published',
+        ]);
 
         Sanctum::actingAs($user);
 
@@ -84,6 +93,7 @@ class SharedProductFlowTest extends TestCase
             'price' => 11.75,
             'category' => 'Special',
             'status' => 'draft',
+            'suggested_dish_ids' => [$suggestedDish->id],
         ]);
 
         $response->assertCreated()
@@ -91,13 +101,78 @@ class SharedProductFlowTest extends TestCase
             ->assertJsonPath('status', 'draft')
             ->assertJsonPath('model_state', 'none')
             ->assertJsonPath('is_model_ready', false)
-            ->assertJsonCount(0, 'assets');
+            ->assertJsonCount(0, 'assets')
+            ->assertJsonPath('suggested_dishes.0.id', $suggestedDish->id);
 
         $this->assertDatabaseHas('dishes', [
             'restaurant_id' => $restaurant->id,
             'name' => 'Mobile Created Dish',
             'status' => 'draft',
         ]);
+        $this->assertDatabaseHas('dish_suggestions', [
+            'dish_id' => $response->json('id'),
+            'suggested_dish_id' => $suggestedDish->id,
+        ]);
+    }
+
+    public function test_guest_dish_details_include_restaurant_suggested_dishes(): void
+    {
+        $restaurant = $this->createRestaurant();
+
+        $mainDish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Main Dish',
+            'description' => 'Visible to guests',
+            'price' => 18.50,
+            'category' => 'Main',
+            'status' => 'published',
+        ]);
+
+        $suggestedDish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Suggested Dessert',
+            'description' => 'Recommended after the main course',
+            'price' => 8.50,
+            'category' => 'Dessert',
+            'status' => 'published',
+        ]);
+
+        $hiddenSuggestedDish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Hidden Draft Suggestion',
+            'description' => 'Should not appear for guests',
+            'price' => 7.00,
+            'category' => 'Dessert',
+            'status' => 'draft',
+        ]);
+
+        foreach ([$mainDish, $suggestedDish] as $index => $dish) {
+            DishAsset::query()->create([
+                'uuid' => (string) Str::uuid(),
+                'dish_id' => $dish->id,
+                'asset_type' => 'glb',
+                'storage_disk' => 'public',
+                'file_path' => "dishes/{$dish->id}/model.glb",
+                'glb_path' => "dishes/{$dish->id}/model.glb",
+                'file_url' => "/api/assets/".($index + 10)."/file",
+                'file_size' => 1024,
+                'mime_type' => 'model/gltf-binary',
+                'metadata' => ['uploaded_at' => now()->toIso8601String()],
+            ]);
+        }
+
+        $mainDish->suggestedDishes()->sync([$suggestedDish->id, $hiddenSuggestedDish->id]);
+
+        $response = $this->getJson("/api/menu/{$restaurant->slug}/dish/{$mainDish->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('id', $mainDish->id)
+            ->assertJsonCount(1, 'suggested_dishes')
+            ->assertJsonPath('suggested_dishes.0.id', $suggestedDish->id)
+            ->assertJsonMissing(['name' => 'Hidden Draft Suggestion']);
     }
 
     private function createRestaurant(?User $user = null): Restaurant

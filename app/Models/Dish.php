@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -59,6 +60,26 @@ class Dish extends Model
     public function qrCodes(): HasMany
     {
         return $this->hasMany(QrCode::class);
+    }
+
+    public function suggestedDishes(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Dish::class,
+            'dish_suggestions',
+            'dish_id',
+            'suggested_dish_id'
+        )->withTimestamps();
+    }
+
+    public function suggestedByDishes(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Dish::class,
+            'dish_suggestions',
+            'suggested_dish_id',
+            'dish_id'
+        )->withTimestamps();
     }
 
     public function resolveRouteBinding($value, $field = null)
