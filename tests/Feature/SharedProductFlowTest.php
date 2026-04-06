@@ -100,6 +100,7 @@ class SharedProductFlowTest extends TestCase
             'name' => 'Mobile Created Dish',
             'description' => 'Created before scanning finishes',
             'price' => 11.75,
+            'calories' => 420,
             'category' => 'Special',
             'status' => 'draft',
             'suggested_dish_ids' => [$suggestedDish->id],
@@ -109,6 +110,7 @@ class SharedProductFlowTest extends TestCase
         $response->assertCreated()
             ->assertJsonPath('name', 'Mobile Created Dish')
             ->assertJsonPath('status', 'draft')
+            ->assertJsonPath('calories', 420)
             ->assertJsonPath('model_state', 'none')
             ->assertJsonPath('is_model_ready', false)
             ->assertJsonCount(0, 'assets')
@@ -118,6 +120,7 @@ class SharedProductFlowTest extends TestCase
         $this->assertDatabaseHas('dishes', [
             'restaurant_id' => $restaurant->id,
             'name' => 'Mobile Created Dish',
+            'calories' => 420,
             'status' => 'draft',
         ]);
         $this->assertDatabaseHas('dish_suggestions', [

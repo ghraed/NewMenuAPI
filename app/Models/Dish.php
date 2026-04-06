@@ -24,6 +24,7 @@ class Dish extends Model
         'name',
         'description',
         'price',
+        'calories',
         'category',
         'status',
         'image_url',
@@ -32,6 +33,7 @@ class Dish extends Model
     protected $casts = [
         'uuid' => 'string',
         'price' => 'decimal:2',
+        'calories' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
