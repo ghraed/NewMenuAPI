@@ -64,6 +64,11 @@ class Dish extends Model
         return $this->hasMany(QrCode::class);
     }
 
+    public function orderItems(): HasMany
+    {
+        return $this->hasMany(OrderItem::class);
+    }
+
     public function suggestedDishes(): BelongsToMany
     {
         return $this->belongsToMany(

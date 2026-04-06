@@ -23,15 +23,16 @@ class AuthController extends Controller
             ], 401);
         }
 
-        $user->loadMissing('restaurant');
+        $user->loadMissing('restaurant', 'staffRestaurants');
+        $restaurant = $user->currentRestaurant();
 
-        if (!$user->restaurant) {
+        if (!$restaurant) {
             return response()->json([
                 'message' => 'No restaurant is linked to this account',
             ], 403);
         }
 
-        $token = $user->createToken('admin-token')->plainTextToken;
+        $token = $user->createToken(($user->role ?? 'admin').'-token')->plainTextToken;
 
         return response()->json([
             'token' => $token,
@@ -39,10 +40,11 @@ class AuthController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'role' => $user->role,
                 'restaurant' => [
-                    'id' => $user->restaurant->id,
-                    'name' => $user->restaurant->name,
-                    'slug' => $user->restaurant->slug,
+                    'id' => $restaurant->id,
+                    'name' => $restaurant->name,
+                    'slug' => $restaurant->slug,
                 ],
             ],
         ]);
@@ -51,17 +53,19 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user = $request->user();
-        $user->loadMissing('restaurant');
+        $user->loadMissing('restaurant', 'staffRestaurants');
+        $restaurant = $user->currentRestaurant();
 
         return response()->json([
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
-                'restaurant' => $user->restaurant ? [
-                    'id' => $user->restaurant->id,
-                    'name' => $user->restaurant->name,
-                    'slug' => $user->restaurant->slug,
+                'role' => $user->role,
+                'restaurant' => $restaurant ? [
+                    'id' => $restaurant->id,
+                    'name' => $restaurant->name,
+                    'slug' => $restaurant->slug,
                 ] : null,
             ],
         ]);
