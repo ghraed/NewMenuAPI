@@ -56,6 +56,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Restaurant
         Route::patch('/restaurant/name', [RestaurantController::class, 'updateName']);
+        Route::post('/restaurant/staff', [RestaurantController::class, 'storeStaff']);
 
         // Ingredient library
         Route::get('/ingredients', [IngredientLibraryController::class, 'index']);
