@@ -1,16 +1,16 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\AuthController;
-use App\Http\Controllers\DishController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AssetFileController;
-use App\Http\Controllers\QRCodeController;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DishController;
 use App\Http\Controllers\GuestController;
 use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\RestaurantController;
+use Illuminate\Support\Facades\Route;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -18,6 +18,7 @@ Route::get('/test', [GuestController::class, 'test']);
 Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
 Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishes']);
 Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 'showDish']);
+Route::get('/menu/{restaurant_slug}/tables', [GuestController::class, 'listTables']);
 Route::post('/menu/{restaurant_slug}/orders', [OrderController::class, 'store']);
 Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
     ->name('api.assets.show');
@@ -31,9 +32,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin,staff')->group(function () {
         Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
         Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
+        Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     });
 
     Route::middleware('role:admin')->group(function () {
+        Route::get('/orders/accounting', [OrderController::class, 'accounting']);
+        Route::post('/orders/{order}/account', [OrderController::class, 'account']);
+
         // Dishes
         Route::apiResource('dishes', DishController::class);
         Route::post('/dishes/{dish}/copy-model', [DishController::class, 'copyModel']);

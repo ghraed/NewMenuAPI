@@ -24,6 +24,13 @@ class Restaurant extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        static::created(function (Restaurant $restaurant) {
+            $restaurant->ensureDefaultTables();
+        });
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
@@ -48,5 +55,36 @@ class Restaurant extends Model
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
+    }
+
+    public function tables(): HasMany
+    {
+        return $this->hasMany(RestaurantTable::class);
+    }
+
+    public function ensureDefaultTables(): void
+    {
+        $existingTableNames = $this->tables()
+            ->pluck('name')
+            ->all();
+
+        $missingTableNames = array_values(array_diff(self::defaultTableNames(), $existingTableNames));
+
+        if ($missingTableNames === []) {
+            return;
+        }
+
+        $this->tables()->createMany(array_map(
+            fn (string $tableName) => ['name' => $tableName],
+            $missingTableNames
+        ));
+    }
+
+    public static function defaultTableNames(): array
+    {
+        return array_map(
+            fn (int $number) => sprintf('T%02d', $number),
+            range(1, 10)
+        );
     }
 }

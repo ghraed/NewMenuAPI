@@ -6,6 +6,8 @@ use App\Models\Dish;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
+use App\Models\RestaurantTable;
+use App\Models\User;
 use App\Services\OrderInvoiceCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,9 +23,7 @@ class OrderController extends Controller
         OrderInvoiceCalculator $invoiceCalculator
     ): JsonResponse {
         $validated = $request->validate([
-            'guest_name' => 'required|string|max:255',
-            'guest_phone' => 'nullable|string|max:40',
-            'guest_email' => 'nullable|email|max:255',
+            'table_reference' => 'required|string|max:40',
             'notes' => 'nullable|string|max:1000',
             'items' => 'required|array|min:1',
             'items.*.dish_id' => 'required|integer|distinct',
@@ -31,19 +31,29 @@ class OrderController extends Controller
         ]);
 
         $restaurant = Restaurant::query()
+            ->with('tables')
             ->where('slug', $restaurant_slug)
             ->firstOrFail();
+
+        $restaurantTable = $restaurant->tables
+            ->firstWhere('name', trim($validated['table_reference']));
+
+        if (! $restaurantTable) {
+            throw ValidationException::withMessages([
+                'table_reference' => 'Select a valid table reference for this restaurant.',
+            ]);
+        }
 
         $preparedItems = $this->prepareOrderItems($restaurant, $validated['items']);
         $invoice = $invoiceCalculator->calculate($preparedItems);
 
-        $order = DB::transaction(function () use ($restaurant, $validated, $preparedItems, $invoice) {
+        $order = DB::transaction(function () use ($restaurant, $restaurantTable, $validated, $preparedItems, $invoice) {
             $order = $restaurant->orders()->create([
                 'uuid' => (string) Str::uuid(),
-                'status' => Order::STATUS_PENDING_CONFIRMATION,
-                'guest_name' => trim($validated['guest_name']),
-                'guest_phone' => $this->normalizeOptionalString($validated['guest_phone'] ?? null),
-                'guest_email' => $this->normalizeOptionalString($validated['guest_email'] ?? null),
+                'restaurant_table_id' => $restaurantTable->id,
+                'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
+                'guest_name' => $restaurantTable->name,
+                'table_reference' => $restaurantTable->name,
                 'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
                 ...$invoice,
             ]);
@@ -63,11 +73,11 @@ class OrderController extends Controller
                 'order_number' => $this->formatOrderNumber($order),
             ]);
 
-            return $order->fresh(['restaurant', 'items']);
+            return $order->fresh(['restaurant', 'restaurantTable', 'items']);
         });
 
         return response()->json([
-            'message' => 'Order created successfully and is awaiting confirmation.',
+            'message' => 'Order created successfully and is awaiting staff confirmation.',
             'order' => $this->formatOrder($order),
         ], 201);
     }
@@ -78,17 +88,84 @@ class OrderController extends Controller
 
         $orders = Order::query()
             ->where('restaurant_id', $restaurant->id)
-            ->where('status', Order::STATUS_PENDING_CONFIRMATION)
-            ->with(['restaurant', 'items'])
+            ->where('status', Order::STATUS_PENDING_STAFF_CONFIRMATION)
+            ->with(['restaurant', 'restaurantTable', 'items'])
             ->latest()
             ->get();
 
         return response()->json([
-            'orders' => $orders->map(fn (Order $order) => $this->formatOrder($order)),
+            'orders' => $orders->map(fn (Order $order) => $this->formatOrder($order))->values(),
         ]);
     }
 
-    public function confirm(
+    public function confirm(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+
+        if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
+            return response()->json([
+                'message' => 'Only orders waiting for staff confirmation can be confirmed.',
+            ], 422);
+        }
+
+        $order->update([
+            'status' => Order::STATUS_STAFF_CONFIRMED,
+            'confirmed_by' => $request->user()->id,
+            'confirmed_at' => now(),
+        ]);
+
+        $order = $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy']);
+
+        return response()->json([
+            'message' => 'Order confirmed and sent to accounting.',
+            'order' => $this->formatOrder($order),
+        ]);
+    }
+
+    public function cancel(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+
+        if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
+            return response()->json([
+                'message' => 'Only orders waiting for staff confirmation can be cancelled.',
+            ], 422);
+        }
+
+        $order->update([
+            'status' => Order::STATUS_STAFF_CANCELLED,
+            'cancelled_by' => $request->user()->id,
+            'cancelled_at' => now(),
+        ]);
+
+        $order = $order->fresh(['restaurant', 'restaurantTable', 'items', 'cancelledBy']);
+
+        return response()->json([
+            'message' => 'Order request cancelled successfully.',
+            'order' => $this->formatOrder($order),
+        ]);
+    }
+
+    public function accounting(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $orders = Order::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('status', Order::STATUS_STAFF_CONFIRMED)
+            ->with(['restaurant', 'restaurantTable', 'items', 'confirmedBy'])
+            ->orderByDesc('confirmed_at')
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'orders' => $orders->map(fn (Order $order) => $this->formatOrder($order))->values(),
+        ]);
+    }
+
+    public function account(
         Request $request,
         Order $order,
         OrderInvoiceCalculator $invoiceCalculator
@@ -96,9 +173,9 @@ class OrderController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertOrderBelongsToRestaurant($order, $restaurant);
 
-        if ($order->status === Order::STATUS_CONFIRMED) {
+        if ($order->status !== Order::STATUS_STAFF_CONFIRMED) {
             return response()->json([
-                'message' => 'Order has already been confirmed.',
+                'message' => 'Only staff-confirmed orders can be processed by accounting.',
             ], 422);
         }
 
@@ -117,7 +194,7 @@ class OrderController extends Controller
             ]);
         }
 
-        $order->loadMissing('items', 'restaurant', 'confirmedBy');
+        $order->loadMissing('items', 'restaurant', 'restaurantTable', 'confirmedBy', 'accountedBy');
 
         $invoice = $invoiceCalculator->calculate(
             $order->items->map(fn (OrderItem $item) => [
@@ -131,18 +208,18 @@ class OrderController extends Controller
 
         $order = DB::transaction(function () use ($request, $order, $invoice) {
             $order->update([
-                'status' => Order::STATUS_CONFIRMED,
-                'invoice_number' => $this->formatInvoiceNumber($order),
-                'confirmed_by' => $request->user()->id,
-                'confirmed_at' => now(),
+                'status' => Order::STATUS_ACCOUNTED,
+                'invoice_number' => $order->invoice_number ?: $this->formatInvoiceNumber($order),
+                'accounted_by' => $request->user()->id,
+                'accounted_at' => now(),
                 ...$invoice,
             ]);
 
-            return $order->fresh(['restaurant', 'items', 'confirmedBy']);
+            return $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
         });
 
         return response()->json([
-            'message' => 'Order confirmed successfully.',
+            'message' => 'Order accounted successfully.',
             'order' => $this->formatOrder($order),
         ]);
     }
@@ -205,7 +282,7 @@ class OrderController extends Controller
 
     private function formatOrder(Order $order): array
     {
-        $order->loadMissing('restaurant', 'items', 'confirmedBy');
+        $order->loadMissing('restaurant', 'restaurantTable', 'items', 'confirmedBy', 'cancelledBy', 'accountedBy');
 
         return [
             'id' => $order->id,
@@ -213,12 +290,16 @@ class OrderController extends Controller
             'order_number' => $order->order_number,
             'invoice_number' => $order->invoice_number,
             'status' => $order->status,
-            'guest_name' => $order->guest_name,
-            'guest_phone' => $order->guest_phone,
-            'guest_email' => $order->guest_email,
+            'table_reference' => $order->table_reference ?: $order->guest_name,
+            'table' => $order->restaurantTable ? [
+                'id' => $order->restaurantTable->id,
+                'name' => $order->restaurantTable->name,
+            ] : null,
             'notes' => $order->notes,
             'created_at' => $order->created_at?->toIso8601String(),
             'confirmed_at' => $order->confirmed_at?->toIso8601String(),
+            'cancelled_at' => $order->cancelled_at?->toIso8601String(),
+            'accounted_at' => $order->accounted_at?->toIso8601String(),
             'restaurant' => [
                 'id' => $order->restaurant->id,
                 'name' => $order->restaurant->name,
@@ -242,12 +323,24 @@ class OrderController extends Controller
                 'vat_amount' => $order->vat_amount,
                 'total' => $order->total,
             ],
-            'confirmed_by' => $order->confirmedBy ? [
-                'id' => $order->confirmedBy->id,
-                'name' => $order->confirmedBy->name,
-                'email' => $order->confirmedBy->email,
-                'role' => $order->confirmedBy->role,
-            ] : null,
+            'confirmed_by' => $this->formatActor($order->confirmedBy),
+            'cancelled_by' => $this->formatActor($order->cancelledBy),
+            'accounted_by' => $this->formatActor($order->accountedBy),
+        ];
+    }
+
+    private function formatActor(?User $user): ?array
+    {
+        if (! $user) {
+            return null;
+        }
+
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'role' => $user->role,
         ];
     }
 
