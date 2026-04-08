@@ -17,12 +17,14 @@ class StaffManagementTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $restaurant = $this->createRestaurant($admin);
+        $assignedTableIds = $restaurant->tables()->whereIn('name', ['T01', 'T02'])->pluck('id')->all();
 
         Sanctum::actingAs($admin);
 
         $response = $this->postJson('/api/restaurant/staff', [
             'name' => 'Maya Hassan',
             'email' => 'maya@example.com',
+            'table_ids' => $assignedTableIds,
         ]);
 
         $response->assertCreated()
@@ -30,10 +32,12 @@ class StaffManagementTest extends TestCase
             ->assertJsonPath('staff.email', 'maya@example.com')
             ->assertJsonPath('staff.phone', null)
             ->assertJsonPath('staff.role', User::ROLE_STAFF)
+            ->assertJsonCount(2, 'staff.assigned_tables')
+            ->assertJsonPath('staff.assigned_tables.0.name', 'T01')
             ->assertJsonStructure([
                 'message',
                 'temporary_password',
-                'staff' => ['id', 'name', 'email', 'phone', 'role', 'created_at'],
+                'staff' => ['id', 'name', 'email', 'phone', 'role', 'created_at', 'assigned_tables'],
             ]);
 
         $staffId = $response->json('staff.id');
@@ -46,6 +50,10 @@ class StaffManagementTest extends TestCase
         ]);
         $this->assertDatabaseHas('restaurant_user', [
             'restaurant_id' => $restaurant->id,
+            'user_id' => $staffId,
+        ]);
+        $this->assertDatabaseHas('restaurant_table_user', [
+            'restaurant_table_id' => $assignedTableIds[0],
             'user_id' => $staffId,
         ]);
     }
@@ -103,6 +111,46 @@ class StaffManagementTest extends TestCase
         ]);
 
         $response->assertForbidden();
+    }
+
+    public function test_admin_can_list_staff_members_and_update_their_table_assignments(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $restaurant = $this->createRestaurant($admin);
+        $staff = User::factory()->staff()->create([
+            'name' => 'Assigned Staff',
+        ]);
+        $restaurant->staffUsers()->attach($staff->id);
+
+        $initialTableIds = $restaurant->tables()->whereIn('name', ['T03', 'T04'])->pluck('id')->all();
+        $staff->assignedTables()->sync($initialTableIds);
+
+        Sanctum::actingAs($admin);
+
+        $listResponse = $this->getJson('/api/restaurant/staff');
+
+        $listResponse->assertOk()
+            ->assertJsonCount(1, 'staff')
+            ->assertJsonPath('staff.0.name', 'Assigned Staff')
+            ->assertJsonCount(2, 'staff.0.assigned_tables');
+
+        $nextTableIds = $restaurant->tables()->whereIn('name', ['T05', 'T06', 'T07'])->pluck('id')->all();
+
+        $updateResponse = $this->patchJson("/api/restaurant/staff/{$staff->id}/tables", [
+            'table_ids' => $nextTableIds,
+        ]);
+
+        $updateResponse->assertOk()
+            ->assertJsonPath('staff.id', $staff->id)
+            ->assertJsonCount(3, 'staff.assigned_tables')
+            ->assertJsonPath('staff.assigned_tables.0.name', 'T05');
+
+        foreach ($nextTableIds as $tableId) {
+            $this->assertDatabaseHas('restaurant_table_user', [
+                'restaurant_table_id' => $tableId,
+                'user_id' => $staff->id,
+            ]);
+        }
     }
 
     private function createRestaurant(User $owner): Restaurant

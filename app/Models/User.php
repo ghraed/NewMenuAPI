@@ -65,6 +65,12 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    public function assignedTables(): BelongsToMany
+    {
+        return $this->belongsToMany(RestaurantTable::class)
+            ->withTimestamps();
+    }
+
     public function currentRestaurant(): ?Restaurant
     {
         if ($this->relationLoaded('restaurant') && $this->restaurant) {
@@ -96,5 +102,20 @@ class User extends Authenticatable
     public function isStaff(): bool
     {
         return $this->hasRole(self::ROLE_STAFF);
+    }
+
+    public function hasTableAssignmentFor(int $tableId): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        if ($this->relationLoaded('assignedTables')) {
+            return $this->assignedTables->contains('id', $tableId);
+        }
+
+        return $this->assignedTables()
+            ->where('restaurant_tables.id', $tableId)
+            ->exists();
     }
 }

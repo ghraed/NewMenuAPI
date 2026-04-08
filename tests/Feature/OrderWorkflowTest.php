@@ -82,8 +82,9 @@ class OrderWorkflowTest extends TestCase
     {
         $restaurant = $this->createRestaurant();
         $otherRestaurant = $this->createRestaurant();
-        $staff = $this->createStaffUser($restaurant);
+        $staff = $this->createStaffUser($restaurant, ['T02']);
         $ownedOrder = $this->createPendingOrder($restaurant, 'T02');
+        $this->createPendingOrder($restaurant, 'T03');
         $this->createPendingOrder($otherRestaurant, 'T03');
 
         Sanctum::actingAs($staff);
@@ -100,7 +101,7 @@ class OrderWorkflowTest extends TestCase
     public function test_staff_can_confirm_pending_orders_without_accounting_fields(): void
     {
         $restaurant = $this->createRestaurant();
-        $staff = $this->createStaffUser($restaurant);
+        $staff = $this->createStaffUser($restaurant, ['T04']);
         $order = $this->createPendingOrder($restaurant, 'T04', [
             ['name' => 'Burger Deluxe', 'price' => 10.00, 'quantity' => 2],
             ['name' => 'Fresh Juice', 'price' => 5.00, 'quantity' => 1],
@@ -132,7 +133,7 @@ class OrderWorkflowTest extends TestCase
     public function test_staff_can_cancel_pending_orders(): void
     {
         $restaurant = $this->createRestaurant();
-        $staff = $this->createStaffUser($restaurant);
+        $staff = $this->createStaffUser($restaurant, ['T05']);
         $order = $this->createPendingOrder($restaurant, 'T05');
 
         Sanctum::actingAs($staff);
@@ -148,6 +149,25 @@ class OrderWorkflowTest extends TestCase
             'id' => $order->id,
             'status' => Order::STATUS_STAFF_CANCELLED,
             'cancelled_by' => $staff->id,
+        ]);
+    }
+
+    public function test_staff_cannot_confirm_orders_for_unassigned_tables(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $order = $this->createPendingOrder($restaurant, 'T02');
+
+        Sanctum::actingAs($staff);
+
+        $response = $this->postJson("/api/orders/{$order->id}/confirm");
+
+        $response->assertForbidden();
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
+            'confirmed_by' => null,
         ]);
     }
 
@@ -242,10 +262,19 @@ class OrderWorkflowTest extends TestCase
         ]);
     }
 
-    private function createStaffUser(Restaurant $restaurant): User
+    private function createStaffUser(Restaurant $restaurant, array $tableNames = []): User
     {
         $staff = User::factory()->staff()->create();
         $restaurant->staffUsers()->attach($staff->id);
+
+        if ($tableNames !== []) {
+            $tableIds = $restaurant->tables()
+                ->whereIn('name', $tableNames)
+                ->pluck('id')
+                ->all();
+
+            $staff->assignedTables()->sync($tableIds);
+        }
 
         return $staff;
     }

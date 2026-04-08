@@ -84,14 +84,28 @@ class OrderController extends Controller
 
     public function pendingConfirmation(Request $request): JsonResponse
     {
+        $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
 
-        $orders = Order::query()
+        $ordersQuery = Order::query()
             ->where('restaurant_id', $restaurant->id)
             ->where('status', Order::STATUS_PENDING_STAFF_CONFIRMATION)
             ->with(['restaurant', 'restaurantTable', 'items'])
-            ->latest()
-            ->get();
+            ->latest();
+
+        if ($user->isStaff()) {
+            $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
+
+            if ($assignedTableIds === []) {
+                return response()->json([
+                    'orders' => [],
+                ]);
+            }
+
+            $ordersQuery->whereIn('restaurant_table_id', $assignedTableIds);
+        }
+
+        $orders = $ordersQuery->get();
 
         return response()->json([
             'orders' => $orders->map(fn (Order $order) => $this->formatOrder($order))->values(),
@@ -100,8 +114,10 @@ class OrderController extends Controller
 
     public function confirm(Request $request, Order $order): JsonResponse
     {
+        $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertOrderBelongsToRestaurant($order, $restaurant);
+        $this->assertStaffCanAccessOrder($user, $order, $restaurant);
 
         if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
             return response()->json([
@@ -125,8 +141,10 @@ class OrderController extends Controller
 
     public function cancel(Request $request, Order $order): JsonResponse
     {
+        $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertOrderBelongsToRestaurant($order, $restaurant);
+        $this->assertStaffCanAccessOrder($user, $order, $restaurant);
 
         if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
             return response()->json([
@@ -278,6 +296,34 @@ class OrderController extends Controller
         if ($order->restaurant_id !== $restaurant->id) {
             abort(404);
         }
+    }
+
+    private function assertStaffCanAccessOrder(User $user, Order $order, Restaurant $restaurant): void
+    {
+        if (! $user->isStaff()) {
+            return;
+        }
+
+        $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
+
+        if (
+            $order->restaurant_table_id === null
+            || ! in_array($order->restaurant_table_id, $assignedTableIds, true)
+        ) {
+            abort(403, 'This staff account is not assigned to that table.');
+        }
+    }
+
+    private function getAccessibleStaffTableIds(User $user, Restaurant $restaurant): array
+    {
+        $user->loadMissing(['assignedTables' => function ($query) use ($restaurant) {
+            $query->where('restaurant_id', $restaurant->id);
+        }]);
+
+        return $user->assignedTables
+            ->pluck('id')
+            ->map(fn ($tableId) => (int) $tableId)
+            ->all();
     }
 
     private function formatOrder(Order $order): array
