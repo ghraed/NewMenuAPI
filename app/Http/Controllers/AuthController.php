@@ -79,6 +79,14 @@ class AuthController extends Controller
 
     private function formatAuthenticatedUser(User $user, mixed $restaurant): array
     {
+        $user->loadMissing(['assignedTables' => function ($query) use ($restaurant) {
+            if ($restaurant) {
+                $query->where('restaurant_id', $restaurant->id);
+            }
+
+            $query->orderBy('name');
+        }]);
+
         return [
             'id' => $user->id,
             'name' => $user->name,
@@ -90,6 +98,10 @@ class AuthController extends Controller
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
             ] : null,
+            'assigned_tables' => $user->assignedTables->map(fn ($table) => [
+                'id' => $table->id,
+                'name' => $table->name,
+            ])->values(),
         ];
     }
 

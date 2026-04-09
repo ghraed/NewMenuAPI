@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\TableWaveCreated;
+use App\Events\TableWaveResolved;
 use App\Models\Restaurant;
 use App\Models\TableWave;
 use App\Models\User;
@@ -55,9 +57,12 @@ class WaveController extends Controller
             'table_reference' => $restaurantTable->name,
         ])->fresh(['restaurant', 'restaurantTable']);
 
+        $formattedWave = $this->formatWave($wave);
+        event(new TableWaveCreated($wave, $formattedWave));
+
         return response()->json([
             'message' => 'Wave sent to the staff team.',
-            'wave' => $this->formatWave($wave),
+            'wave' => $formattedWave,
         ], 201);
     }
 
@@ -109,10 +114,12 @@ class WaveController extends Controller
         ]);
 
         $wave = $wave->fresh(['restaurant', 'restaurantTable', 'resolvedBy']);
+        $formattedWave = $this->formatWave($wave);
+        event(new TableWaveResolved($wave, $formattedWave));
 
         return response()->json([
             'message' => 'Wave marked as handled.',
-            'wave' => $this->formatWave($wave),
+            'wave' => $formattedWave,
         ]);
     }
 
