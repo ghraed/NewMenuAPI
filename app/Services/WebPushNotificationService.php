@@ -108,8 +108,10 @@ class WebPushNotificationService
             }
 
             Log::warning('Web push delivery failed for a staff subscription.', [
+                'user_id' => $storedSubscription->user_id,
                 'endpoint' => $endpoint,
                 'reason' => $report->getReason(),
+                'expired' => $report->isSubscriptionExpired(),
             ]);
 
             if ($report->isSubscriptionExpired()) {
