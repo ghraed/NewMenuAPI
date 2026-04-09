@@ -77,6 +77,11 @@ class User extends Authenticatable
         return $this->hasMany(TableWave::class, 'resolved_by');
     }
 
+    public function pushSubscriptions(): HasMany
+    {
+        return $this->hasMany(PushSubscription::class);
+    }
+
     public function currentRestaurant(): ?Restaurant
     {
         if ($this->relationLoaded('restaurant') && $this->restaurant) {

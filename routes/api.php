@@ -8,6 +8,7 @@ use App\Http\Controllers\DishController;
 use App\Http\Controllers\GuestController;
 use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\RestaurantController;
 use App\Http\Controllers\WaveController;
@@ -37,6 +38,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
         Route::get('/waves/pending', [WaveController::class, 'pending']);
         Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
+        Route::get('/push/config', [PushSubscriptionController::class, 'config']);
+        Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store']);
     });
 
     Route::middleware('role:admin')->group(function () {

@@ -7,8 +7,10 @@ use App\Events\TableWaveResolved;
 use App\Models\Restaurant;
 use App\Models\TableWave;
 use App\Models\User;
+use App\Services\WebPushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -43,9 +45,12 @@ class WaveController extends Controller
             ->first();
 
         if ($existingWave) {
+            $formattedWave = $this->formatWave($existingWave);
+            $this->dispatchStaffAlerts($existingWave, $formattedWave, true);
+
             return response()->json([
                 'message' => 'A wave from this table is already waiting for staff.',
-                'wave' => $this->formatWave($existingWave),
+                'wave' => $formattedWave,
             ]);
         }
 
@@ -58,7 +63,7 @@ class WaveController extends Controller
         ])->fresh(['restaurant', 'restaurantTable']);
 
         $formattedWave = $this->formatWave($wave);
-        event(new TableWaveCreated($wave, $formattedWave));
+        $this->dispatchStaffAlerts($wave, $formattedWave);
 
         return response()->json([
             'message' => 'Wave sent to the staff team.',
@@ -115,7 +120,14 @@ class WaveController extends Controller
 
         $wave = $wave->fresh(['restaurant', 'restaurantTable', 'resolvedBy']);
         $formattedWave = $this->formatWave($wave);
-        event(new TableWaveResolved($wave, $formattedWave));
+        try {
+            event(new TableWaveResolved($wave, $formattedWave));
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to broadcast a resolved table wave event.', [
+                'wave_id' => $wave->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'message' => 'Wave marked as handled.',
@@ -200,5 +212,26 @@ class WaveController extends Controller
                 'role' => $wave->resolvedBy->role,
             ] : null,
         ];
+    }
+
+    private function dispatchStaffAlerts(TableWave $wave, array $formattedWave, bool $isReminder = false): void
+    {
+        try {
+            event(new TableWaveCreated($wave, $formattedWave));
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to broadcast a table wave event.', [
+                'wave_id' => $wave->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+
+        try {
+            app(WebPushNotificationService::class)->notifyWaveCreated($wave, $isReminder);
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to send web push notifications for a table wave.', [
+                'wave_id' => $wave->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 }
