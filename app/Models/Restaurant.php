@@ -62,6 +62,11 @@ class Restaurant extends Model
         return $this->hasMany(RestaurantTable::class);
     }
 
+    public function tableWaves(): HasMany
+    {
+        return $this->hasMany(TableWave::class);
+    }
+
     public function ensureDefaultTables(): void
     {
         $existingTableNames = $this->tables()

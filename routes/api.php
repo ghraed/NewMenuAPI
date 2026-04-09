@@ -10,6 +10,7 @@ use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\RestaurantController;
+use App\Http\Controllers\WaveController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
@@ -20,6 +21,7 @@ Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishe
 Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 'showDish']);
 Route::get('/menu/{restaurant_slug}/tables', [GuestController::class, 'listTables']);
 Route::post('/menu/{restaurant_slug}/orders', [OrderController::class, 'store']);
+Route::post('/menu/{restaurant_slug}/waves', [WaveController::class, 'store']);
 Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
     ->name('api.assets.show');
 Route::post('/analytics/track', [AnalyticsController::class, 'track']);
@@ -33,6 +35,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
         Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
         Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+        Route::get('/waves/pending', [WaveController::class, 'pending']);
+        Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
     });
 
     Route::middleware('role:admin')->group(function () {

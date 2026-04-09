@@ -29,6 +29,11 @@ class RestaurantTable extends Model
         return $this->hasMany(Order::class);
     }
 
+    public function waves(): HasMany
+    {
+        return $this->hasMany(TableWave::class);
+    }
+
     public function staffUsers(): BelongsToMany
     {
         return $this->belongsToMany(User::class)
