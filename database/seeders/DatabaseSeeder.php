@@ -31,6 +31,9 @@ class DatabaseSeeder extends Seeder
 
         // Create analytics events
         $this->createAnalyticsEvents();
+
+        // Optional large dummy dataset:
+        // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
 
     private function createUsers(): void

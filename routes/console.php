@@ -1,7 +1,9 @@
 <?php
 
+use App\Models\Dish;
 use App\Models\Restaurant;
 use App\Models\User;
+use Database\Seeders\DummyDishesSeeder;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
@@ -57,3 +59,24 @@ Artisan::command('seed:prod', function () {
 })->purpose('Create or update a production admin user and restaurant.');
 
 Schedule::command('dishes:cleanup-deleted-assets')->dailyAt('02:00');
+
+Artisan::command('dishes:purge-dummy', function () {
+    $dummyDishes = Dish::query()
+        ->where('description', 'like', DummyDishesSeeder::descriptionMarker().'%')
+        ->get();
+
+    if ($dummyDishes->isEmpty()) {
+        $this->info('No dummy dishes found.');
+        return 0;
+    }
+
+    $count = $dummyDishes->count();
+
+    Dish::query()
+        ->whereIn('id', $dummyDishes->pluck('id'))
+        ->delete();
+
+    $this->info(sprintf('Deleted %d dummy dishes.', $count));
+
+    return 0;
+})->purpose('Delete all dummy dishes created by the DummyDishesSeeder.');
