@@ -34,8 +34,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('role:admin,staff')->group(function () {
         Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
+        Route::patch('/orders/{order}', [OrderController::class, 'update']);
         Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
         Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+        Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
         Route::get('/waves/pending', [WaveController::class, 'pending']);
         Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
         Route::get('/push/config', [PushSubscriptionController::class, 'config']);

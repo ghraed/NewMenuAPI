@@ -112,6 +112,101 @@ class OrderController extends Controller
         ]);
     }
 
+    public function publishedDishes(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $dishes = Dish::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('status', 'published')
+            ->orderBy('category')
+            ->orderBy('name')
+            ->get(['id', 'name', 'price', 'category'])
+            ->map(fn (Dish $dish) => [
+                'id' => $dish->id,
+                'name' => $dish->name,
+                'price' => (float) $dish->price,
+                'category' => $dish->category,
+            ])
+            ->values();
+
+        return response()->json([
+            'dishes' => $dishes,
+        ]);
+    }
+
+    public function update(
+        Request $request,
+        Order $order,
+        OrderInvoiceCalculator $invoiceCalculator
+    ): JsonResponse {
+        $user = $request->user();
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+        $this->assertStaffCanAccessOrder($user, $order, $restaurant);
+
+        if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
+            return response()->json([
+                'message' => 'Only orders waiting for staff confirmation can be edited.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.dish_id' => 'required|integer|distinct',
+            'items.*.quantity' => 'required|integer|min:1|max:99',
+        ]);
+
+        $order->loadMissing('items', 'restaurant', 'restaurantTable');
+
+        $preparedItems = $this->preparePendingOrderUpdateItems(
+            $restaurant,
+            $order,
+            $validated['items']
+        );
+
+        $invoice = $invoiceCalculator->calculate($preparedItems);
+
+        $order = DB::transaction(function () use ($order, $preparedItems, $invoice) {
+            $existingItemsByDishId = $order->items
+                ->filter(fn (OrderItem $item) => $item->dish_id !== null)
+                ->keyBy(fn (OrderItem $item) => (string) $item->dish_id);
+
+            $retainedItemIds = [];
+
+            foreach ($preparedItems as $preparedItem) {
+                $dishId = (int) $preparedItem['dish_id'];
+                $existingItem = $existingItemsByDishId->get((string) $dishId);
+
+                if ($existingItem) {
+                    $existingItem->update([
+                        'quantity' => $preparedItem['quantity'],
+                        'line_subtotal' => $preparedItem['line_subtotal'],
+                    ]);
+
+                    $retainedItemIds[] = $existingItem->id;
+                    continue;
+                }
+
+                $createdItem = $order->items()->create($preparedItem);
+                $retainedItemIds[] = $createdItem->id;
+            }
+
+            $order->items()
+                ->whereNotIn('id', $retainedItemIds)
+                ->delete();
+
+            $order->update($invoice);
+
+            return $order->fresh(['restaurant', 'restaurantTable', 'items']);
+        });
+
+        return response()->json([
+            'message' => 'Order updated successfully.',
+            'order' => $this->formatOrder($order),
+        ]);
+    }
+
     public function confirm(Request $request, Order $order): JsonResponse
     {
         $user = $request->user();
@@ -240,6 +335,70 @@ class OrderController extends Controller
             'message' => 'Order accounted successfully.',
             'order' => $this->formatOrder($order),
         ]);
+    }
+
+    private function preparePendingOrderUpdateItems(Restaurant $restaurant, Order $order, array $requestedItems): array
+    {
+        if ($order->items->contains(fn (OrderItem $item) => $item->dish_id === null)) {
+            throw ValidationException::withMessages([
+                'items' => 'This order contains legacy items and cannot be edited.',
+            ]);
+        }
+
+        $existingItemsByDishId = $order->items
+            ->keyBy(fn (OrderItem $item) => (string) $item->dish_id);
+
+        $newDishIds = collect($requestedItems)
+            ->pluck('dish_id')
+            ->map(fn ($dishId) => (int) $dishId)
+            ->filter(fn (int $dishId) => ! $existingItemsByDishId->has((string) $dishId))
+            ->values()
+            ->all();
+
+        $publishedDishes = $newDishIds === []
+            ? collect()
+            : Dish::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('status', 'published')
+                ->whereIn('id', $newDishIds)
+                ->get()
+                ->keyBy('id');
+
+        return array_map(function (array $item) use ($existingItemsByDishId, $publishedDishes): array {
+            $dishId = (int) $item['dish_id'];
+            $quantity = (int) $item['quantity'];
+            $existingItem = $existingItemsByDishId->get((string) $dishId);
+
+            if ($existingItem) {
+                $unitPrice = (float) $existingItem->unit_price;
+
+                return [
+                    'dish_id' => $dishId,
+                    'dish_name' => $existingItem->dish_name,
+                    'unit_price' => number_format($unitPrice, 2, '.', ''),
+                    'quantity' => $quantity,
+                    'line_subtotal' => number_format($unitPrice * $quantity, 2, '.', ''),
+                ];
+            }
+
+            $dish = $publishedDishes->get($dishId);
+
+            if (! $dish) {
+                throw ValidationException::withMessages([
+                    'items' => 'Orders can only include existing order items or currently published dishes from this restaurant.',
+                ]);
+            }
+
+            $unitPrice = (float) $dish->price;
+
+            return [
+                'dish_id' => $dish->id,
+                'dish_name' => $dish->name,
+                'unit_price' => number_format($unitPrice, 2, '.', ''),
+                'quantity' => $quantity,
+                'line_subtotal' => number_format($unitPrice * $quantity, 2, '.', ''),
+            ];
+        }, $requestedItems);
     }
 
     private function prepareOrderItems(Restaurant $restaurant, array $requestedItems): array

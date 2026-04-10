@@ -130,6 +130,80 @@ class OrderWorkflowTest extends TestCase
         ]);
     }
 
+    public function test_staff_can_update_pending_orders_by_editing_quantities_removing_items_and_adding_new_dishes(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T03']);
+        $burger = $this->createDish($restaurant, 'Classic Burger', 10.00, 'published');
+        $juice = $this->createDish($restaurant, 'Fresh Juice', 5.00, 'published');
+        $salad = $this->createDish($restaurant, 'Garden Salad', 7.50, 'published');
+
+        $order = $this->createEditablePendingOrder($restaurant, 'T03', [
+            ['dish' => $burger, 'quantity' => 1, 'unit_price' => 9.00],
+            ['dish' => $juice, 'quantity' => 2],
+        ]);
+
+        $burger->update(['price' => 15.00]);
+        $salad->update(['price' => 8.50]);
+
+        Sanctum::actingAs($staff);
+
+        $response = $this->patchJson("/api/orders/{$order->id}", [
+            'items' => [
+                [
+                    'dish_id' => $burger->id,
+                    'quantity' => 3,
+                ],
+                [
+                    'dish_id' => $salad->id,
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('order.status', Order::STATUS_PENDING_STAFF_CONFIRMATION)
+            ->assertJsonPath('order.invoice.subtotal', '35.50')
+            ->assertJsonPath('order.invoice.total', '35.50')
+            ->assertJsonCount(2, 'order.items')
+            ->assertJsonPath('order.items.0.dish_id', $burger->id)
+            ->assertJsonPath('order.items.0.unit_price', '9.00')
+            ->assertJsonPath('order.items.0.quantity', 3)
+            ->assertJsonPath('order.items.0.line_subtotal', '27.00')
+            ->assertJsonPath('order.items.1.dish_id', $salad->id)
+            ->assertJsonPath('order.items.1.unit_price', '8.50')
+            ->assertJsonPath('order.items.1.quantity', 1)
+            ->assertJsonPath('order.items.1.line_subtotal', '8.50');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
+            'subtotal' => '35.50',
+            'total' => '35.50',
+        ]);
+
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $order->id,
+            'dish_id' => $burger->id,
+            'unit_price' => '9.00',
+            'quantity' => 3,
+            'line_subtotal' => '27.00',
+        ]);
+
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $order->id,
+            'dish_id' => $salad->id,
+            'unit_price' => '8.50',
+            'quantity' => 1,
+            'line_subtotal' => '8.50',
+        ]);
+
+        $this->assertDatabaseMissing('order_items', [
+            'order_id' => $order->id,
+            'dish_id' => $juice->id,
+        ]);
+    }
+
     public function test_staff_can_cancel_pending_orders(): void
     {
         $restaurant = $this->createRestaurant();
@@ -169,6 +243,118 @@ class OrderWorkflowTest extends TestCase
             'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
             'confirmed_by' => null,
         ]);
+    }
+
+    public function test_staff_can_list_published_dishes_for_the_waiter_editor(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T02']);
+        $otherRestaurant = $this->createRestaurant();
+
+        $published = $this->createDish($restaurant, 'Burger Deluxe', 12.50, 'published');
+        $this->createDish($restaurant, 'Draft Soup', 7.00, 'draft');
+        $otherDish = $this->createDish($otherRestaurant, 'Other Burger', 15.00, 'published');
+
+        Sanctum::actingAs($staff);
+
+        $response = $this->getJson('/api/dishes/published');
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'dishes')
+            ->assertJsonPath('dishes.0.id', $published->id)
+            ->assertJsonPath('dishes.0.name', 'Burger Deluxe')
+            ->assertJsonPath('dishes.0.price', 12.5)
+            ->assertJsonMissing(['id' => $otherDish->id]);
+    }
+
+    public function test_staff_cannot_update_orders_for_unassigned_tables(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $burger = $this->createDish($restaurant, 'Classic Burger', 12.50, 'published');
+        $order = $this->createEditablePendingOrder($restaurant, 'T02', [
+            ['dish' => $burger, 'quantity' => 1],
+        ]);
+
+        Sanctum::actingAs($staff);
+
+        $response = $this->patchJson("/api/orders/{$order->id}", [
+            'items' => [
+                [
+                    'dish_id' => $burger->id,
+                    'quantity' => 2,
+                ],
+            ],
+        ]);
+
+        $response->assertForbidden();
+
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $order->id,
+            'dish_id' => $burger->id,
+            'quantity' => 1,
+        ]);
+    }
+
+    public function test_only_pending_orders_can_be_edited(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T07']);
+        $burger = $this->createDish($restaurant, 'Classic Burger', 12.50, 'published');
+
+        $statuses = [
+            Order::STATUS_STAFF_CONFIRMED,
+            Order::STATUS_STAFF_CANCELLED,
+            Order::STATUS_ACCOUNTED,
+        ];
+
+        foreach ($statuses as $status) {
+            $order = $this->createEditablePendingOrder($restaurant, 'T07', [
+                ['dish' => $burger, 'quantity' => 1],
+            ]);
+            $order->update(['status' => $status]);
+
+            Sanctum::actingAs($staff);
+
+            $response = $this->patchJson("/api/orders/{$order->id}", [
+                'items' => [
+                    [
+                        'dish_id' => $burger->id,
+                        'quantity' => 2,
+                    ],
+                ],
+            ]);
+
+            $response->assertStatus(422)
+                ->assertJsonPath('message', 'Only orders waiting for staff confirmation can be edited.');
+
+            $this->assertDatabaseHas('orders', [
+                'id' => $order->id,
+                'status' => $status,
+            ]);
+        }
+    }
+
+    public function test_legacy_pending_orders_with_null_dish_ids_cannot_be_edited(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T08']);
+        $burger = $this->createDish($restaurant, 'Classic Burger', 12.50, 'published');
+        $order = $this->createPendingOrder($restaurant, 'T08');
+
+        Sanctum::actingAs($staff);
+
+        $response = $this->patchJson("/api/orders/{$order->id}", [
+            'items' => [
+                [
+                    'dish_id' => $burger->id,
+                    'quantity' => 2,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('items');
     }
 
     public function test_admin_can_still_manage_dishes_and_process_accounting(): void
@@ -313,6 +499,49 @@ class OrderWorkflowTest extends TestCase
                 'unit_price' => number_format($itemDefinition['price'], 2, '.', ''),
                 'quantity' => $itemDefinition['quantity'],
                 'line_subtotal' => number_format($itemDefinition['price'] * $itemDefinition['quantity'], 2, '.', ''),
+            ]);
+        }
+
+        return $order;
+    }
+
+    private function createEditablePendingOrder(Restaurant $restaurant, string $tableReference, array $items): Order
+    {
+        $tableId = $restaurant->tables()
+            ->where('name', $tableReference)
+            ->value('id');
+
+        $subtotal = collect($items)->sum(function (array $item): float {
+            $unitPrice = (float) ($item['unit_price'] ?? $item['dish']->price);
+
+            return $unitPrice * $item['quantity'];
+        });
+
+        $order = Order::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'restaurant_table_id' => $tableId,
+            'order_number' => 'ORD-TEST-'.Str::upper(Str::random(6)),
+            'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
+            'guest_name' => $tableReference,
+            'table_reference' => $tableReference,
+            'subtotal' => number_format($subtotal, 2, '.', ''),
+            'taxable_subtotal' => number_format($subtotal, 2, '.', ''),
+            'total' => number_format($subtotal, 2, '.', ''),
+        ]);
+
+        foreach ($items as $item) {
+            /** @var Dish $dish */
+            $dish = $item['dish'];
+            $unitPrice = (float) ($item['unit_price'] ?? $dish->price);
+
+            OrderItem::query()->create([
+                'order_id' => $order->id,
+                'dish_id' => $dish->id,
+                'dish_name' => $dish->name,
+                'unit_price' => number_format($unitPrice, 2, '.', ''),
+                'quantity' => $item['quantity'],
+                'line_subtotal' => number_format($unitPrice * $item['quantity'], 2, '.', ''),
             ]);
         }
 
