@@ -20,9 +20,6 @@ class GuestController extends Controller
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurant->id)
             ->where('status', 'published')
-            ->whereHas('assets', function ($query) {
-                $query->where('asset_type', 'glb');
-            })
             ->with('assets')
             ->orderBy('name')
             ->get();
@@ -45,9 +42,6 @@ class GuestController extends Controller
             })
             ->where('id', $dish_id)
             ->where('status', 'published')
-            ->whereHas('assets', function ($query) {
-                $query->where('asset_type', 'glb');
-            })
             ->with('assets')
             ->firstOrFail();
 
@@ -65,17 +59,11 @@ class GuestController extends Controller
         $dish->load([
             'suggestedDishes' => function ($query) {
                 $query->where('status', 'published')
-                    ->whereHas('assets', function ($assetQuery) {
-                        $assetQuery->where('asset_type', 'glb');
-                    })
                     ->with('assets')
                     ->orderBy('name');
             },
             'relatedDishes' => function ($query) {
                 $query->where('status', 'published')
-                    ->whereHas('assets', function ($assetQuery) {
-                        $assetQuery->where('asset_type', 'glb');
-                    })
                     ->with('assets')
                     ->orderBy('name');
             },
