@@ -32,7 +32,7 @@ class WaveController extends Controller
 
         if (! $restaurantTable) {
             throw ValidationException::withMessages([
-                'table_reference' => 'Select a valid table reference for this restaurant.',
+                'table_reference' => __('messages.waves.invalid_table'),
             ]);
         }
 
@@ -49,7 +49,7 @@ class WaveController extends Controller
             $this->dispatchStaffAlerts($existingWave, $formattedWave, true);
 
             return response()->json([
-                'message' => 'A wave from this table is already waiting for staff.',
+                'message' => __('messages.waves.already_pending'),
                 'wave' => $formattedWave,
             ]);
         }
@@ -66,7 +66,7 @@ class WaveController extends Controller
         $this->dispatchStaffAlerts($wave, $formattedWave);
 
         return response()->json([
-            'message' => 'Wave sent to the staff team.',
+            'message' => __('messages.waves.sent'),
             'wave' => $formattedWave,
         ], 201);
     }
@@ -108,7 +108,7 @@ class WaveController extends Controller
 
         if ($wave->status !== TableWave::STATUS_PENDING) {
             return response()->json([
-                'message' => 'Only pending waves can be resolved.',
+                'message' => __('messages.waves.resolve_only_pending'),
             ], 422);
         }
 
@@ -130,7 +130,7 @@ class WaveController extends Controller
         }
 
         return response()->json([
-            'message' => 'Wave marked as handled.',
+            'message' => __('messages.waves.resolved'),
             'wave' => $formattedWave,
         ]);
     }

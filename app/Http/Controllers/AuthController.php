@@ -33,7 +33,7 @@ class AuthController extends Controller
 
         if (! $user || ! Hash::check($validated['password'], $user->password)) {
             return response()->json([
-                'message' => 'Invalid email, phone number, or password',
+                'message' => __('messages.auth.invalid_credentials'),
             ], 401);
         }
 
@@ -42,7 +42,7 @@ class AuthController extends Controller
 
         if (! $restaurant) {
             return response()->json([
-                'message' => 'No restaurant is linked to this account',
+                'message' => __('messages.auth.missing_restaurant'),
             ], 403);
         }
 
@@ -73,7 +73,7 @@ class AuthController extends Controller
         }
 
         return response()->json([
-            'message' => 'Logged out successfully',
+            'message' => __('messages.auth.logged_out'),
         ]);
     }
 

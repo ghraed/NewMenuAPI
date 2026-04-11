@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Avoid route('login') dependency for unauthenticated requests.
         $middleware->redirectGuestsTo('/');
+        $middleware->appendToGroup('api', \App\Http\Middleware\SetRequestLocale::class);
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
         ]);
@@ -30,7 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (AuthenticationException $e, Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json(['message' => 'Unauthenticated.'], 401);
+                return response()->json(['message' => __('messages.auth.unauthenticated')], 401);
             }
 
             return null;

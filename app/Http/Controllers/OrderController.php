@@ -40,7 +40,7 @@ class OrderController extends Controller
 
         if (! $restaurantTable) {
             throw ValidationException::withMessages([
-                'table_reference' => 'Select a valid table reference for this restaurant.',
+                'table_reference' => __('messages.orders.invalid_table'),
             ]);
         }
 
@@ -77,7 +77,7 @@ class OrderController extends Controller
         });
 
         return response()->json([
-            'message' => 'Order created successfully and is awaiting staff confirmation.',
+            'message' => __('messages.orders.created'),
             'order' => $this->formatOrder($order),
         ], 201);
     }
@@ -147,7 +147,7 @@ class OrderController extends Controller
 
         if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
             return response()->json([
-                'message' => 'Only orders waiting for staff confirmation can be edited.',
+                'message' => __('messages.orders.edit_only_pending'),
             ], 422);
         }
 
@@ -202,7 +202,7 @@ class OrderController extends Controller
         });
 
         return response()->json([
-            'message' => 'Order updated successfully.',
+            'message' => __('messages.orders.updated'),
             'order' => $this->formatOrder($order),
         ]);
     }
@@ -216,7 +216,7 @@ class OrderController extends Controller
 
         if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
             return response()->json([
-                'message' => 'Only orders waiting for staff confirmation can be confirmed.',
+                'message' => __('messages.orders.confirm_only_pending'),
             ], 422);
         }
 
@@ -229,7 +229,7 @@ class OrderController extends Controller
         $order = $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy']);
 
         return response()->json([
-            'message' => 'Order confirmed and sent to accounting.',
+            'message' => __('messages.orders.confirmed'),
             'order' => $this->formatOrder($order),
         ]);
     }
@@ -243,7 +243,7 @@ class OrderController extends Controller
 
         if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
             return response()->json([
-                'message' => 'Only orders waiting for staff confirmation can be cancelled.',
+                'message' => __('messages.orders.cancel_only_pending'),
             ], 422);
         }
 
@@ -256,7 +256,7 @@ class OrderController extends Controller
         $order = $order->fresh(['restaurant', 'restaurantTable', 'items', 'cancelledBy']);
 
         return response()->json([
-            'message' => 'Order request cancelled successfully.',
+            'message' => __('messages.orders.cancelled'),
             'order' => $this->formatOrder($order),
         ]);
     }
@@ -288,7 +288,7 @@ class OrderController extends Controller
 
         if ($order->status !== Order::STATUS_STAFF_CONFIRMED) {
             return response()->json([
-                'message' => 'Only staff-confirmed orders can be processed by accounting.',
+                'message' => __('messages.orders.account_only_confirmed'),
             ], 422);
         }
 
@@ -303,7 +303,7 @@ class OrderController extends Controller
 
         if ($discountType === null && $discountValue > 0) {
             throw ValidationException::withMessages([
-                'discount_type' => 'A discount type is required when a discount value is provided.',
+                'discount_type' => __('messages.orders.discount_type_required'),
             ]);
         }
 
@@ -332,7 +332,7 @@ class OrderController extends Controller
         });
 
         return response()->json([
-            'message' => 'Order accounted successfully.',
+            'message' => __('messages.orders.accounted'),
             'order' => $this->formatOrder($order),
         ]);
     }
