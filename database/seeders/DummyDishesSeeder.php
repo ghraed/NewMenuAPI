@@ -12,11 +12,52 @@ class DummyDishesSeeder extends Seeder
 {
     private const DISH_COUNT = 200;
     private const DESCRIPTION_MARKER = '[dummy-dishes-seeder]';
-    private const DEFAULT_IMAGE_URL = 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&q=80';
 
-    /**
-     * Seed a large set of dummy dishes across existing restaurants.
-     */
+    private const IMAGE_URLS = [
+        // Pizza
+        'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1548365328-9f547fb0953b?auto=format&fit=crop&w=1200&q=80',
+
+        // Burgers
+        'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1553979459-d2229ba7433b?auto=format&fit=crop&w=1200&q=80',
+
+        // Pasta
+        'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1621996346565-e3dbc353d2e5?auto=format&fit=crop&w=1200&q=80',
+
+        // Salads
+        'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=1200&q=80',
+
+        // Sandwiches
+        'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1550507992-eb63ffee0847?auto=format&fit=crop&w=1200&q=80',
+
+        // Appetizers / sides
+        'https://images.unsplash.com/photo-1521389508051-d7ffb5dc8f70?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1604908176997-4318c48b3a6b?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1571091718767-18b5b1457add?auto=format&fit=crop&w=1200&q=80',
+
+        // Desserts
+        'https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1505253213348-cd54c92b37c6?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1499636136210-6f4ee915583e?auto=format&fit=crop&w=1200&q=80',
+
+        // Drinks
+        'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1551024506-0bccd828d307?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80',
+
+        // General food
+        'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1600891964599-f61ba0e24092?auto=format&fit=crop&w=1200&q=80',
+    ];
+
     public function run(): void
     {
         $restaurants = Restaurant::query()
@@ -91,7 +132,7 @@ class DummyDishesSeeder extends Seeder
                 'calories' => 280 + (($index * 17) % 520),
                 'category' => $category,
                 'status' => 'published',
-                'image_url' => self::DEFAULT_IMAGE_URL,
+                'image_url' => $this->imageForIndex($index),
             ]);
 
             $created++;
@@ -102,20 +143,9 @@ class DummyDishesSeeder extends Seeder
         $this->command?->info(sprintf('Created %d dummy dishes.', $created));
     }
 
-    /**
-     * Returns the marker used by the cleanup command.
-     */
     public static function descriptionMarker(): string
     {
         return self::DESCRIPTION_MARKER;
-    }
-
-    /**
-     * Returns the shared image URL used by the seeded dishes.
-     */
-    public static function imageUrl(): string
-    {
-        return self::DEFAULT_IMAGE_URL;
     }
 
     private function attachDishLinks(Collection $restaurants): void
@@ -123,7 +153,7 @@ class DummyDishesSeeder extends Seeder
         foreach ($restaurants as $restaurant) {
             $dishes = Dish::query()
                 ->where('restaurant_id', $restaurant->id)
-                ->where('description', 'like', self::DESCRIPTION_MARKER.'%')
+                ->where('description', 'like', self::DESCRIPTION_MARKER . '%')
                 ->orderBy('id')
                 ->get();
 
@@ -136,7 +166,7 @@ class DummyDishesSeeder extends Seeder
                 $relatedIds = $dishes
                     ->slice(max(0, $position - 2), 2)
                     ->pluck('id')
-                    ->filter(fn (int $id): bool => $id !== $dish->id)
+                    ->filter(fn(int $id): bool => $id !== $dish->id)
                     ->values()
                     ->all();
 
@@ -154,5 +184,10 @@ class DummyDishesSeeder extends Seeder
     private function priceForIndex(int $index): float
     {
         return round(6.50 + (($index * 1.37) % 18), 2);
+    }
+
+    private function imageForIndex(int $index): string
+    {
+        return self::IMAGE_URLS[$index % count(self::IMAGE_URLS)];
     }
 }
