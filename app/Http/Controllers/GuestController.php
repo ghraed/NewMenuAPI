@@ -30,7 +30,7 @@ class GuestController extends Controller
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
             ],
-            'dishes' => $dishes,
+            'dishes' => $this->localizeDishes($dishes),
         ]);
     }
 
@@ -69,7 +69,7 @@ class GuestController extends Controller
             },
         ]);
 
-        return response()->json($dish);
+        return response()->json($this->localizeDish($dish));
     }
 
     public function listTables(string $restaurant_slug): JsonResponse
@@ -126,6 +126,29 @@ class GuestController extends Controller
     public function test(): int
     {
         return 2;
+    }
+
+    private function localizeDishes($dishes): array
+    {
+        return $dishes
+            ->map(fn (Dish $dish) => $this->localizeDish($dish))
+            ->values()
+            ->all();
+    }
+
+    private function localizeDish(Dish $dish): array
+    {
+        $localized = $dish->toLocalizedArray();
+
+        if ($dish->relationLoaded('suggestedDishes')) {
+            $localized['suggested_dishes'] = $this->localizeDishes($dish->suggestedDishes);
+        }
+
+        if ($dish->relationLoaded('relatedDishes')) {
+            $localized['related_dishes'] = $this->localizeDishes($dish->relatedDishes);
+        }
+
+        return $localized;
     }
 
     public function showTestDish(int $dishId)

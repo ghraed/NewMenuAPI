@@ -42,10 +42,13 @@ class DishController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'name_ar' => 'nullable|string|max:255',
             'description' => 'nullable|string',
+            'description_ar' => 'nullable|string',
             'price' => 'required|numeric|min:0',
             'calories' => 'nullable|integer|min:0',
             'category' => 'required|string|max:100',
+            'category_ar' => 'nullable|string|max:100',
             'status' => 'nullable|in:draft,published',
             'image_url' => 'nullable|url',
             'suggested_dish_ids' => 'sometimes|array',
@@ -178,10 +181,13 @@ class DishController extends Controller
 
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
+            'name_ar' => 'nullable|string|max:255',
             'description' => 'nullable|string',
+            'description_ar' => 'nullable|string',
             'price' => 'sometimes|numeric|min:0',
             'calories' => 'nullable|integer|min:0',
             'category' => 'sometimes|string|max:100',
+            'category_ar' => 'nullable|string|max:100',
             'status' => 'sometimes|in:draft,published',
             'image_url' => 'nullable|url',
             'suggested_dish_ids' => 'sometimes|array',

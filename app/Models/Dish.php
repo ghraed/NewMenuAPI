@@ -22,10 +22,13 @@ class Dish extends Model
         'uuid',
         'restaurant_id',
         'name',
+        'name_ar',
         'description',
+        'description_ar',
         'price',
         'calories',
         'category',
+        'category_ar',
         'status',
         'image_url',
     ];
@@ -144,5 +147,253 @@ class Dish extends Model
             'error', 'canceled' => 'error',
             default => 'none',
         };
+    }
+
+    public function toLocalizedArray(?string $locale = null): array
+    {
+        $locale = $locale ?: app()->getLocale();
+        $attributes = $this->toArray();
+
+        if ($locale !== 'ar') {
+            return $attributes;
+        }
+
+        $attributes['name'] = $this->name_ar ?: $this->translateDishNameToArabic($this->name);
+        $attributes['description'] = $this->description_ar ?: $this->translateDescriptionToArabic($this->description);
+        $attributes['category'] = $this->category_ar ?: $this->translateCategoryToArabic($this->category);
+
+        return $attributes;
+    }
+
+    private function translateDishNameToArabic(?string $name): ?string
+    {
+        if (! $name) {
+            return $name;
+        }
+
+        if (! preg_match('/^(.*?)(\s+\d{3})$/u', $name, $matches)) {
+            return $this->dishNameTranslations()[$name] ?? $name;
+        }
+
+        $baseName = trim($matches[1]);
+        $suffix = $matches[2];
+
+        return ($this->dishNameTranslations()[$baseName] ?? $baseName) . $suffix;
+    }
+
+    private function translateDescriptionToArabic(?string $description): ?string
+    {
+        if (! $description) {
+            return $description;
+        }
+
+        if (! preg_match('/^\[dummy-dishes-seeder\] Seeded sample dish (\d+) for (.+) in the (.+) category\. Prepared with (.+)\.$/', $description, $matches)) {
+            return $description;
+        }
+
+        $sequence = $matches[1];
+        $restaurantName = $matches[2];
+        $category = $matches[3];
+        $ingredients = array_map('trim', explode(',', $matches[4]));
+        $translatedIngredients = array_map(
+            fn (string $ingredient) => $this->ingredientTranslations()[$ingredient] ?? $ingredient,
+            $ingredients
+        );
+
+        return sprintf(
+            '[dummy-dishes-seeder] طبق تجريبي رقم %s لمطعم %s ضمن فئة %s. يُحضَّر باستخدام %s.',
+            $sequence,
+            $restaurantName,
+            $this->translateCategoryToArabic($category),
+            implode('، ', $translatedIngredients)
+        );
+    }
+
+    private function translateCategoryToArabic(?string $category): ?string
+    {
+        if (! $category) {
+            return $category;
+        }
+
+        return $this->categoryTranslations()[$category] ?? $category;
+    }
+
+    private function categoryTranslations(): array
+    {
+        return [
+            'Pizza' => 'بيتزا',
+            'Specialty Pizza' => 'بيتزا خاصة',
+            'Burgers' => 'برغر',
+            'Sandwiches' => 'ساندويتشات',
+            'Pasta' => 'باستا',
+            'Salads' => 'سلطات',
+            'Appetizers' => 'مقبلات',
+            'Sides' => 'أطباق جانبية',
+            'Desserts' => 'حلويات',
+            'Drinks' => 'مشروبات',
+        ];
+    }
+
+    private function dishNameTranslations(): array
+    {
+        return [
+            'Margherita Pizza' => 'بيتزا مارغريتا',
+            'Pepperoni Pizza' => 'بيتزا بيبروني',
+            'Vegetarian Pizza' => 'بيتزا نباتية',
+            'Four Cheese Pizza' => 'بيتزا الأربع أجبان',
+            'BBQ Chicken Pizza' => 'بيتزا دجاج باربكيو',
+            'Buffalo Chicken Pizza' => 'بيتزا دجاج بافلو',
+            'Truffle Mushroom Pizza' => 'بيتزا الفطر بالكمأة',
+            'Meat Lovers Pizza' => 'بيتزا عشاق اللحوم',
+            'Classic Beef Burger' => 'برغر لحم كلاسيكي',
+            'Mushroom Swiss Burger' => 'برغر مشروم وسويس',
+            'Spicy Jalapeño Burger' => 'برغر هالبينو حار',
+            'Crispy Chicken Burger' => 'برغر دجاج مقرمش',
+            'Grilled Chicken Sandwich' => 'ساندويتش دجاج مشوي',
+            'Turkey Club Sandwich' => 'ساندويتش كلوب ديك رومي',
+            'Philly Cheesesteak' => 'فيلي تشيزستيك',
+            'Tuna Melt Sandwich' => 'ساندويتش تونا ميلت',
+            'Chicken Alfredo Pasta' => 'باستا ألفريدو بالدجاج',
+            'Spaghetti Bolognese' => 'سباغيتي بولونيز',
+            'Pesto Penne Pasta' => 'باستا بيني بالبيستو',
+            'Shrimp Arrabbiata' => 'أرابياتا بالروبيان',
+            'Caesar Salad' => 'سلطة سيزر',
+            'Greek Salad' => 'سلطة يونانية',
+            'Grilled Chicken Salad' => 'سلطة دجاج مشوي',
+            'Avocado Quinoa Salad' => 'سلطة كينوا بالأفوكادو',
+            'Mozzarella Sticks' => 'أصابع موزاريلا',
+            'Chicken Wings' => 'أجنحة دجاج',
+            'Loaded Nachos' => 'ناتشوز محملة',
+            'Garlic Bread' => 'خبز بالثوم',
+            'French Fries' => 'بطاطا مقلية',
+            'Cheesy Fries' => 'بطاطا بالجبنة',
+            'Onion Rings' => 'حلقات بصل',
+            'Coleslaw' => 'كولسلو',
+            'Chocolate Lava Cake' => 'كيكة لافا بالشوكولاتة',
+            'New York Cheesecake' => 'تشيزكيك نيويورك',
+            'Tiramisu' => 'تيراميسو',
+            'Brownie Sundae' => 'براوني صنداي',
+            'Fresh Lemon Mint' => 'ليمون نعناع طازج',
+            'Iced Coffee' => 'قهوة مثلجة',
+            'Strawberry Milkshake' => 'ميلك شيك الفراولة',
+            'Mango Smoothie' => 'سموثي المانجو',
+        ];
+    }
+
+    private function ingredientTranslations(): array
+    {
+        return [
+            'pizza dough' => 'عجينة بيتزا',
+            'tomato sauce' => 'صلصة طماطم',
+            'mozzarella' => 'موزاريلا',
+            'fresh basil' => 'ريحان طازج',
+            'olive oil' => 'زيت زيتون',
+            'pepperoni' => 'بيبروني',
+            'oregano' => 'أوريغانو',
+            'mushrooms' => 'فطر',
+            'bell peppers' => 'فليفلة حلوة',
+            'olives' => 'زيتون',
+            'red onions' => 'بصل أحمر',
+            'parmesan' => 'بارميزان',
+            'gorgonzola' => 'غورغونزولا',
+            'cheddar' => 'شيدر',
+            'bbq sauce' => 'صلصة باربكيو',
+            'grilled chicken' => 'دجاج مشوي',
+            'cilantro' => 'كزبرة',
+            'buffalo sauce' => 'صلصة بافلو',
+            'chicken' => 'دجاج',
+            'ranch drizzle' => 'صلصة رانش',
+            'cream sauce' => 'صلصة كريمية',
+            'truffle oil' => 'زيت الكمأة',
+            'sausage' => 'نقانق',
+            'beef bacon' => 'بيف بيكون',
+            'beef patty' => 'قطعة لحم بقري',
+            'burger bun' => 'خبز برغر',
+            'lettuce' => 'خس',
+            'tomato' => 'طماطم',
+            'pickles' => 'مخلل',
+            'burger sauce' => 'صلصة برغر',
+            'swiss cheese' => 'جبنة سويسرية',
+            'caramelized onions' => 'بصل مكرمل',
+            'mayonnaise' => 'مايونيز',
+            'jalapeños' => 'هالبينو',
+            'pepper jack cheese' => 'جبنة بيبر جاك',
+            'spicy mayo' => 'مايونيز حار',
+            'fried chicken fillet' => 'فيليه دجاج مقرمش',
+            'garlic mayo' => 'مايونيز بالثوم',
+            'ciabatta bread' => 'خبز تشاباتا',
+            'garlic aioli' => 'آيولي بالثوم',
+            'turkey' => 'ديك رومي',
+            'toast bread' => 'خبز توست',
+            'beef strips' => 'شرائح لحم بقري',
+            'hoagie roll' => 'خبز هوجي',
+            'onions' => 'بصل',
+            'provolone' => 'بروفولون',
+            'tuna' => 'تونا',
+            'fettuccine' => 'فيتوتشيني',
+            'cream' => 'كريمة',
+            'garlic' => 'ثوم',
+            'butter' => 'زبدة',
+            'spaghetti' => 'سباغيتي',
+            'ground beef' => 'لحم بقري مفروم',
+            'basil pesto' => 'بيستو الريحان',
+            'cherry tomatoes' => 'طماطم كرزية',
+            'penne' => 'بيني',
+            'shrimp' => 'روبيان',
+            'chili flakes' => 'رقائق فلفل حار',
+            'parsley' => 'بقدونس',
+            'romaine lettuce' => 'خس روماني',
+            'croutons' => 'خبز محمص',
+            'caesar dressing' => 'صلصة سيزر',
+            'cucumber' => 'خيار',
+            'feta' => 'فيتا',
+            'mixed greens' => 'خضار مشكلة',
+            'corn' => 'ذرة',
+            'vinaigrette' => 'صلصة فينيغريت',
+            'quinoa' => 'كينوا',
+            'avocado' => 'أفوكادو',
+            'lemon dressing' => 'صلصة ليمون',
+            'breadcrumbs' => 'بقسماط',
+            'eggs' => 'بيض',
+            'flour' => 'طحين',
+            'marinara sauce' => 'صلصة مارينارا',
+            'chicken wings' => 'أجنحة دجاج',
+            'tortilla chips' => 'رقائق تورتيلا',
+            'salsa' => 'سالسا',
+            'guacamole' => 'غواكامولي',
+            'sour cream' => 'كريمة حامضة',
+            'baguette' => 'باغيت',
+            'garlic butter' => 'زبدة بالثوم',
+            'potatoes' => 'بطاطا',
+            'salt' => 'ملح',
+            'vegetable oil' => 'زيت نباتي',
+            'cheddar sauce' => 'صلصة شيدر',
+            'oil' => 'زيت',
+            'cabbage' => 'ملفوف',
+            'carrots' => 'جزر',
+            'vinegar' => 'خل',
+            'sugar' => 'سكر',
+            'dark chocolate' => 'شوكولاتة داكنة',
+            'cream cheese' => 'جبنة كريمية',
+            'biscuits' => 'بسكويت',
+            'mascarpone' => 'ماسكاربوني',
+            'ladyfingers' => 'أصابع بسكويت',
+            'espresso' => 'إسبريسو',
+            'cocoa powder' => 'بودرة كاكاو',
+            'brownie' => 'براوني',
+            'vanilla ice cream' => 'آيس كريم فانيلا',
+            'chocolate sauce' => 'صلصة شوكولاتة',
+            'nuts' => 'مكسرات',
+            'lemon juice' => 'عصير ليمون',
+            'mint' => 'نعناع',
+            'sugar syrup' => 'شراب السكر',
+            'ice water' => 'ماء مثلج',
+            'milk' => 'حليب',
+            'ice' => 'ثلج',
+            'strawberries' => 'فراولة',
+            'mango' => 'مانجو',
+            'yogurt' => 'زبادي',
+            'honey' => 'عسل',
+        ];
     }
 }
