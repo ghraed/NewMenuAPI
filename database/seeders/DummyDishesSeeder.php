@@ -13,32 +13,57 @@ class DummyDishesSeeder extends Seeder
     private const DISH_COUNT = 200;
     private const DESCRIPTION_MARKER = '[dummy-dishes-seeder]';
 
-    private const IMAGE_URLS = [
-        'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1548365328-9f547fb0953b?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1553979459-d2229ba7433b?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1621996346565-e3dbc353d2e5?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1550507992-eb63ffee0847?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1521389508051-d7ffb5dc8f70?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1604908176997-4318c48b3a6b?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1571091718767-18b5b1457add?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1505253213348-cd54c92b37c6?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1499636136210-6f4ee915583e?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1551024506-0bccd828d307?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1600891964599-f61ba0e24092?auto=format&fit=crop&w=1200&q=80',
+    private const CATEGORY_IMAGE_URLS = [
+        'Pizza' => [
+            'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1548365328-9f547fb0953b?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Specialty Pizza' => [
+            'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1548365328-9f547fb0953b?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Burgers' => [
+            'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1553979459-d2229ba7433b?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Sandwiches' => [
+            'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1550507992-eb63ffee0847?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1481070414801-51fd732d7184?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Pasta' => [
+            'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1621996346565-e3dbc353d2e5?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Salads' => [
+            'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1511690743698-d9d85f2fbf38?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Appetizers' => [
+            'https://images.unsplash.com/photo-1521389508051-d7ffb5dc8f70?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1571091718767-18b5b1457add?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1604908176997-4318c48b3a6b?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Sides' => [
+            'https://images.unsplash.com/photo-1576107232684-1279f390859f?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1585238342024-78d387f4a707?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Desserts' => [
+            'https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1505253213348-cd54c92b37c6?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1499636136210-6f4ee915583e?auto=format&fit=crop&w=1200&q=80',
+        ],
+        'Drinks' => [
+            'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1551024506-0bccd828d307?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80',
+        ],
     ];
 
     public function run(): void
@@ -62,31 +87,18 @@ class DummyDishesSeeder extends Seeder
             $category = $categories[$index % count($categories)];
             $recipes = $categoryRecipes[$category];
             $recipe = $recipes[$index % count($recipes)];
-            $sequence = str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT);
 
             Dish::create([
                 'uuid' => (string) Str::uuid(),
                 'restaurant_id' => $restaurant->id,
-                'name' => $this->buildDishName($recipe['name'], $sequence),
-                'name_ar' => $this->buildArabicDishName($recipe['name'], $sequence),
-                'description' => $this->buildDescription(
-                    $sequence,
-                    $restaurant->name,
-                    $category,
-                    $recipe['ingredients']
-                ),
-                'description_ar' => $this->buildArabicDescription(
-                    $sequence,
-                    $restaurant->name,
-                    $category,
-                    $recipe['ingredients']
-                ),
+                'name' => $recipe['name'],
+                'description' => $this->buildDescription($recipe['name']),
+                'ingredients' => $this->buildIngredients($recipe['ingredients']),
                 'price' => $this->priceForCategory($category, $index),
                 'calories' => $this->caloriesForRecipe($recipe['ingredients'], $category, $index),
                 'category' => $category,
-                'category_ar' => $this->translateCategoryToArabic($category),
                 'status' => 'published',
-                'image_url' => $this->imageForIndex($index),
+                'image_url' => $this->imageForCategory($category, $index),
             ]);
 
             $created++;
@@ -94,7 +106,7 @@ class DummyDishesSeeder extends Seeder
 
         $this->attachDishLinks($restaurants);
 
-        $this->command?->info(sprintf('Created %d dummy dishes with real ingredients.', $created));
+        $this->command?->info(sprintf('Created %d dummy dishes with realistic ingredients and category-based images.', $created));
     }
 
     public static function descriptionMarker(): string
@@ -288,225 +300,27 @@ class DummyDishesSeeder extends Seeder
         ];
     }
 
-    private function buildDishName(string $baseName, string $sequence): string
+    private function buildDescription(string $dishName): string
     {
-        return sprintf('%s %s', $baseName, $sequence);
-    }
-
-    private function buildArabicDishName(string $baseName, string $sequence): string
-    {
-        $translations = [
-            'Margherita Pizza' => 'بيتزا مارغريتا',
-            'Pepperoni Pizza' => 'بيتزا بيبروني',
-            'Vegetarian Pizza' => 'بيتزا نباتية',
-            'Four Cheese Pizza' => 'بيتزا الأربع أجبان',
-            'BBQ Chicken Pizza' => 'بيتزا دجاج باربكيو',
-            'Buffalo Chicken Pizza' => 'بيتزا دجاج بافلو',
-            'Truffle Mushroom Pizza' => 'بيتزا الفطر بالكمأة',
-            'Meat Lovers Pizza' => 'بيتزا عشاق اللحوم',
-            'Classic Beef Burger' => 'برغر لحم كلاسيكي',
-            'Mushroom Swiss Burger' => 'برغر مشروم وسويس',
-            'Spicy Jalapeño Burger' => 'برغر هالبينو حار',
-            'Crispy Chicken Burger' => 'برغر دجاج مقرمش',
-            'Grilled Chicken Sandwich' => 'ساندويتش دجاج مشوي',
-            'Turkey Club Sandwich' => 'ساندويتش كلوب ديك رومي',
-            'Philly Cheesesteak' => 'فيلي تشيزستيك',
-            'Tuna Melt Sandwich' => 'ساندويتش تونا ميلت',
-            'Chicken Alfredo Pasta' => 'باستا ألفريدو بالدجاج',
-            'Spaghetti Bolognese' => 'سباغيتي بولونيز',
-            'Pesto Penne Pasta' => 'باستا بيني بالبيستو',
-            'Shrimp Arrabbiata' => 'أرابياتا بالروبيان',
-            'Caesar Salad' => 'سلطة سيزر',
-            'Greek Salad' => 'سلطة يونانية',
-            'Grilled Chicken Salad' => 'سلطة دجاج مشوي',
-            'Avocado Quinoa Salad' => 'سلطة كينوا بالأفوكادو',
-            'Mozzarella Sticks' => 'أصابع موزاريلا',
-            'Chicken Wings' => 'أجنحة دجاج',
-            'Loaded Nachos' => 'ناتشوز محملة',
-            'Garlic Bread' => 'خبز بالثوم',
-            'French Fries' => 'بطاطا مقلية',
-            'Cheesy Fries' => 'بطاطا بالجبنة',
-            'Onion Rings' => 'حلقات بصل',
-            'Coleslaw' => 'كولسلو',
-            'Chocolate Lava Cake' => 'كيكة لافا بالشوكولاتة',
-            'New York Cheesecake' => 'تشيزكيك نيويورك',
-            'Tiramisu' => 'تيراميسو',
-            'Brownie Sundae' => 'براوني صنداى',
-            'Fresh Lemon Mint' => 'ليمون نعناع طازج',
-            'Iced Coffee' => 'قهوة مثلجة',
-            'Strawberry Milkshake' => 'ميلك شيك الفراولة',
-            'Mango Smoothie' => 'سموثي المانجو',
+        static $templates = [
+            'A delicious and satisfying %s made with quality ingredients and rich flavor in every bite.',
+            'Freshly prepared and full of taste, this %s is crafted to be both comforting and memorable.',
+            'Our %s is flavorful, hearty, and made to deliver a delicious experience from start to finish.',
+            'Carefully prepared and wonderfully tasty, this %s offers a perfect balance of texture and flavor.',
+            'A mouthwatering %s that is rich, delicious, and prepared to delight every appetite.',
         ];
 
-        return sprintf('%s %s', $translations[$baseName] ?? $baseName, $sequence);
+        static $templateIndex = 0;
+
+        $template = $templates[$templateIndex % count($templates)];
+        $templateIndex++;
+
+        return sprintf($template, strtolower($dishName));
     }
 
-    private function buildDescription(
-        string $sequence,
-        string $restaurantName,
-        string $category,
-        array $ingredients
-    ): string {
-        return sprintf(
-            '%s Seeded sample dish %s for %s in the %s category. Prepared with %s.',
-            self::DESCRIPTION_MARKER,
-            $sequence,
-            $restaurantName,
-            $category,
-            implode(', ', $ingredients)
-        );
-    }
-
-    private function buildArabicDescription(
-        string $sequence,
-        string $restaurantName,
-        string $category,
-        array $ingredients
-    ): string {
-        return sprintf(
-            '%s طبق تجريبي رقم %s لمطعم %s ضمن فئة %s. يُحضَّر باستخدام %s.',
-            self::DESCRIPTION_MARKER,
-            $sequence,
-            $restaurantName,
-            $this->translateCategoryToArabic($category),
-            implode('، ', array_map(fn (string $ingredient) => $this->translateIngredientToArabic($ingredient), $ingredients))
-        );
-    }
-
-    private function translateCategoryToArabic(string $category): string
+    private function buildIngredients(array $ingredients): string
     {
-        return [
-            'Pizza' => 'بيتزا',
-            'Specialty Pizza' => 'بيتزا خاصة',
-            'Burgers' => 'برغر',
-            'Sandwiches' => 'ساندويتشات',
-            'Pasta' => 'باستا',
-            'Salads' => 'سلطات',
-            'Appetizers' => 'مقبلات',
-            'Sides' => 'أطباق جانبية',
-            'Desserts' => 'حلويات',
-            'Drinks' => 'مشروبات',
-        ][$category] ?? $category;
-    }
-
-    private function translateIngredientToArabic(string $ingredient): string
-    {
-        $translations = [
-            'pizza dough' => 'عجينة بيتزا',
-            'tomato sauce' => 'صلصة طماطم',
-            'mozzarella' => 'موزاريلا',
-            'fresh basil' => 'ريحان طازج',
-            'olive oil' => 'زيت زيتون',
-            'pepperoni' => 'بيبروني',
-            'oregano' => 'أوريغانو',
-            'mushrooms' => 'فطر',
-            'bell peppers' => 'فليفلة حلوة',
-            'olives' => 'زيتون',
-            'red onions' => 'بصل أحمر',
-            'parmesan' => 'بارميزان',
-            'gorgonzola' => 'غورغونزولا',
-            'cheddar' => 'شيدر',
-            'bbq sauce' => 'صلصة باربكيو',
-            'grilled chicken' => 'دجاج مشوي',
-            'cilantro' => 'كزبرة',
-            'buffalo sauce' => 'صلصة بافلو',
-            'chicken' => 'دجاج',
-            'ranch drizzle' => 'صلصة رانش',
-            'cream sauce' => 'صلصة كريمية',
-            'truffle oil' => 'زيت الكمأة',
-            'sausage' => 'نقانق',
-            'beef bacon' => 'بيف بيكون',
-            'beef patty' => 'قطعة لحم بقري',
-            'burger bun' => 'خبز برغر',
-            'lettuce' => 'خس',
-            'tomato' => 'طماطم',
-            'pickles' => 'مخلل',
-            'burger sauce' => 'صلصة برغر',
-            'swiss cheese' => 'جبنة سويسرية',
-            'caramelized onions' => 'بصل مكرمل',
-            'mayonnaise' => 'مايونيز',
-            'jalapeños' => 'هالبينو',
-            'pepper jack cheese' => 'جبنة بيبر جاك',
-            'spicy mayo' => 'مايونيز حار',
-            'fried chicken fillet' => 'فيليه دجاج مقرمش',
-            'garlic mayo' => 'مايونيز بالثوم',
-            'ciabatta bread' => 'خبز تشاباتا',
-            'garlic aioli' => 'آيولي بالثوم',
-            'turkey' => 'ديك رومي',
-            'toast bread' => 'خبز توست',
-            'beef strips' => 'شرائح لحم بقري',
-            'hoagie roll' => 'خبز هوجي',
-            'onions' => 'بصل',
-            'bell peppers' => 'فليفلة حلوة',
-            'provolone' => 'بروفولون',
-            'tuna' => 'تونا',
-            'fettuccine' => 'فيتوتشيني',
-            'cream' => 'كريمة',
-            'garlic' => 'ثوم',
-            'butter' => 'زبدة',
-            'spaghetti' => 'سباغيتي',
-            'ground beef' => 'لحم بقري مفروم',
-            'basil pesto' => 'بيستو الريحان',
-            'cherry tomatoes' => 'طماطم كرزية',
-            'penne' => 'بيني',
-            'shrimp' => 'روبيان',
-            'chili flakes' => 'رقائق فلفل حار',
-            'parsley' => 'بقدونس',
-            'romaine lettuce' => 'خس روماني',
-            'croutons' => 'خبز محمص',
-            'caesar dressing' => 'صلصة سيزر',
-            'cucumber' => 'خيار',
-            'feta' => 'فيتا',
-            'mixed greens' => 'خضار مشكلة',
-            'corn' => 'ذرة',
-            'vinaigrette' => 'صلصة فينيغريت',
-            'quinoa' => 'كينوا',
-            'avocado' => 'أفوكادو',
-            'lemon dressing' => 'صلصة ليمون',
-            'breadcrumbs' => 'بقسماط',
-            'eggs' => 'بيض',
-            'flour' => 'طحين',
-            'marinara sauce' => 'صلصة مارينارا',
-            'chicken wings' => 'أجنحة دجاج',
-            'tortilla chips' => 'رقائق تورتيلا',
-            'salsa' => 'سالسا',
-            'guacamole' => 'غواكامولي',
-            'sour cream' => 'كريمة حامضة',
-            'baguette' => 'باغيت',
-            'garlic butter' => 'زبدة بالثوم',
-            'potatoes' => 'بطاطا',
-            'salt' => 'ملح',
-            'vegetable oil' => 'زيت نباتي',
-            'cheddar sauce' => 'صلصة شيدر',
-            'oil' => 'زيت',
-            'cabbage' => 'ملفوف',
-            'carrots' => 'جزر',
-            'vinegar' => 'خل',
-            'sugar' => 'سكر',
-            'dark chocolate' => 'شوكولاتة داكنة',
-            'cream cheese' => 'جبنة كريمية',
-            'biscuits' => 'بسكويت',
-            'mascarpone' => 'ماسكاربوني',
-            'ladyfingers' => 'أصابع بسكويت',
-            'espresso' => 'إسبريسو',
-            'cocoa powder' => 'بودرة كاكاو',
-            'brownie' => 'براوني',
-            'vanilla ice cream' => 'آيس كريم فانيلا',
-            'chocolate sauce' => 'صلصة شوكولاتة',
-            'nuts' => 'مكسرات',
-            'lemon juice' => 'عصير ليمون',
-            'mint' => 'نعناع',
-            'sugar syrup' => 'شراب السكر',
-            'ice water' => 'ماء مثلج',
-            'milk' => 'حليب',
-            'ice' => 'ثلج',
-            'strawberries' => 'فراولة',
-            'mango' => 'مانجو',
-            'yogurt' => 'زبادي',
-            'honey' => 'عسل',
-        ];
-
-        return $translations[$ingredient] ?? $ingredient;
+        return implode(', ', $ingredients);
     }
 
     private function attachDishLinks(Collection $restaurants): void
@@ -514,7 +328,7 @@ class DummyDishesSeeder extends Seeder
         foreach ($restaurants as $restaurant) {
             $dishes = Dish::query()
                 ->where('restaurant_id', $restaurant->id)
-                ->where('description', 'like', self::DESCRIPTION_MARKER . '%')
+                ->where('description', 'not like', self::DESCRIPTION_MARKER . '%')
                 ->orderBy('id')
                 ->get();
 
@@ -578,8 +392,12 @@ class DummyDishesSeeder extends Seeder
         return $baseCalories[$category] + ((count($ingredients) * 18) + ($index % 85));
     }
 
-    private function imageForIndex(int $index): string
+    private function imageForCategory(string $category, int $index): string
     {
-        return self::IMAGE_URLS[$index % count(self::IMAGE_URLS)];
+        $images = self::CATEGORY_IMAGE_URLS[$category] ?? [
+            'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80',
+        ];
+
+        return $images[$index % count($images)];
     }
 }
