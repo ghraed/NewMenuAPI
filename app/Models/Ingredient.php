@@ -12,6 +12,7 @@ class Ingredient extends Model
         'uuid',
         'restaurant_id',
         'name',
+        'name_ar',
         'storage_disk',
         'file_path',
         'source_file_name',
