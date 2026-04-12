@@ -92,8 +92,12 @@ class DummyDishesSeeder extends Seeder
                 'uuid' => (string) Str::uuid(),
                 'restaurant_id' => $restaurant->id,
                 'name' => $recipe['name'],
-                'description' => $this->buildDescription($recipe['name']),
-                'ingredients' => $this->buildIngredients($recipe['ingredients']),
+                'description' => $this->buildDescription(
+                    $index + 1,
+                    $restaurant->name,
+                    $category,
+                    $recipe['ingredients']
+                ),
                 'price' => $this->priceForCategory($category, $index),
                 'calories' => $this->caloriesForRecipe($recipe['ingredients'], $category, $index),
                 'category' => $category,
@@ -300,27 +304,16 @@ class DummyDishesSeeder extends Seeder
         ];
     }
 
-    private function buildDescription(string $dishName): string
+    private function buildDescription(int $sequence, string $restaurantName, string $category, array $ingredients): string
     {
-        static $templates = [
-            'A delicious and satisfying %s made with quality ingredients and rich flavor in every bite.',
-            'Freshly prepared and full of taste, this %s is crafted to be both comforting and memorable.',
-            'Our %s is flavorful, hearty, and made to deliver a delicious experience from start to finish.',
-            'Carefully prepared and wonderfully tasty, this %s offers a perfect balance of texture and flavor.',
-            'A mouthwatering %s that is rich, delicious, and prepared to delight every appetite.',
-        ];
-
-        static $templateIndex = 0;
-
-        $template = $templates[$templateIndex % count($templates)];
-        $templateIndex++;
-
-        return sprintf($template, strtolower($dishName));
-    }
-
-    private function buildIngredients(array $ingredients): string
-    {
-        return implode(', ', $ingredients);
+        return sprintf(
+            '%s Seeded sample dish %d for %s in the %s category. Prepared with %s.',
+            self::DESCRIPTION_MARKER,
+            $sequence,
+            $restaurantName,
+            $category,
+            implode(', ', $ingredients)
+        );
     }
 
     private function attachDishLinks(Collection $restaurants): void
