@@ -15,7 +15,9 @@ return new class extends Migration
         Schema::create('push_subscriptions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->text('endpoint')->unique();
+            // MySQL cannot create a unique index on TEXT without an index length.
+            // Keep this index portable by using a bounded string column.
+            $table->string('endpoint', 191)->unique();
             $table->text('public_key');
             $table->text('auth_token');
             $table->string('content_encoding', 50)->nullable();
