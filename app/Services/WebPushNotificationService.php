@@ -12,6 +12,8 @@ use Minishlink\WebPush\WebPush;
 
 class WebPushNotificationService
 {
+    private const STAFF_ORDERS_URL = '/staff/orders';
+
     public function isConfigured(): bool
     {
         return filled(config('services.webpush.public_key'))
@@ -43,10 +45,19 @@ class WebPushNotificationService
 
         $tableName = $wave->table_reference;
         $restaurantName = $wave->restaurant?->name ?? 'Restaurant';
-        $title = $isReminder ? "Guest waved again from {$tableName}" : "Guest wave from {$tableName}";
-        $body = $isReminder
-            ? "A guest at {$tableName} is still asking for staff assistance."
-            : "A guest at {$tableName} is requesting staff assistance.";
+        $isBillRequest = $wave->request_type === TableWave::REQUEST_TYPE_REQUEST_BILL;
+
+        if ($isBillRequest) {
+            $title = $isReminder ? "Bill requested again from {$tableName}" : "Bill request from {$tableName}";
+            $body = $isReminder
+                ? "A guest at {$tableName} is still waiting for the bill."
+                : "A guest at {$tableName} is requesting the bill.";
+        } else {
+            $title = $isReminder ? "Guest waved again from {$tableName}" : "Guest wave from {$tableName}";
+            $body = $isReminder
+                ? "A guest at {$tableName} is still asking for staff assistance."
+                : "A guest at {$tableName} is requesting staff assistance.";
+        }
 
         $payload = json_encode([
             'title' => $title,
@@ -54,9 +65,10 @@ class WebPushNotificationService
             'icon' => '/vite.svg',
             'badge' => '/vite.svg',
             'tag' => 'table-wave-'.$wave->id,
-            'url' => '/staff/orders',
+            'url' => self::STAFF_ORDERS_URL,
             'data' => [
                 'wave_id' => $wave->id,
+                'request_type' => $wave->request_type,
                 'table_reference' => $wave->table_reference,
                 'restaurant_name' => $restaurantName,
             ],

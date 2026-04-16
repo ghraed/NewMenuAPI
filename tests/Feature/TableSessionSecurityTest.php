@@ -2,12 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Events\TableWaveCreated;
 use App\Models\Dish;
 use App\Models\Order;
 use App\Models\Restaurant;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -139,6 +141,52 @@ class TableSessionSecurityTest extends TestCase
                 ['dish_id' => $dish->id, 'quantity' => 1],
             ],
         ], $this->guestHeaders($token))->assertStatus(403);
+    }
+
+    public function test_call_waiter_dispatches_realtime_table_wave_event(): void
+    {
+        Event::fake([TableWaveCreated::class]);
+
+        $this->createRestaurant();
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+
+        $response = $this->postJson(
+            "/api/table-session/{$session->id}/call-waiter",
+            [],
+            $this->guestHeaders($token)
+        );
+
+        $response->assertCreated()
+            ->assertJsonPath('wave.request_type', 'call_waiter');
+
+        Event::assertDispatched(TableWaveCreated::class, function (TableWaveCreated $event) use ($session) {
+            return $event->wave->table_session_id === $session->id
+                && $event->payload['request_type'] === 'call_waiter';
+        });
+    }
+
+    public function test_request_bill_dispatches_realtime_table_wave_event_with_bill_type(): void
+    {
+        Event::fake([TableWaveCreated::class]);
+
+        $this->createRestaurant();
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+
+        $response = $this->postJson(
+            "/api/table-session/{$session->id}/request-bill",
+            [],
+            $this->guestHeaders($token)
+        );
+
+        $response->assertCreated()
+            ->assertJsonPath('wave.request_type', 'request_bill');
+
+        Event::assertDispatched(TableWaveCreated::class, function (TableWaveCreated $event) use ($session) {
+            return $event->wave->table_session_id === $session->id
+                && $event->payload['request_type'] === 'request_bill';
+        });
     }
 
     public function test_staff_can_activate_a_table_and_receive_the_live_pin(): void
