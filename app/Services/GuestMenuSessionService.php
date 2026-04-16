@@ -15,8 +15,6 @@ use Illuminate\Support\Str;
 
 class GuestMenuSessionService
 {
-    public const SESSION_TTL_HOURS = 3;
-
     private const PIN_CACHE_PREFIX = 'table-session-pin:';
 
     public function resolveGuestRestaurant(): Restaurant
@@ -98,7 +96,10 @@ class GuestMenuSessionService
                 ->where('restaurant_id', $restaurant->id)
                 ->where('restaurant_table_id', $lockedTable->id)
                 ->where('status', TableSession::STATUS_ACTIVE)
-                ->where('expires_at', '>', $now)
+                ->where(function ($query) use ($now) {
+                    $query->whereNull('expires_at')
+                        ->orWhere('expires_at', '>', $now);
+                })
                 ->with('restaurantTable')
                 ->lockForUpdate()
                 ->latest('opened_at')
@@ -133,7 +134,7 @@ class GuestMenuSessionService
                 'pin_attempts' => 0,
                 'opened_at' => $now,
                 'last_activity_at' => $now,
-                'expires_at' => $now->copy()->addHours(self::SESSION_TTL_HOURS),
+                'expires_at' => null,
             ]), function (TableSession $createdSession) use ($pin): void {
                 $this->rememberPlainPin($createdSession, $pin);
             })->fresh(['restaurantTable']);
@@ -211,6 +212,7 @@ class GuestMenuSessionService
     public function rememberPlainPin(TableSession $session, string $pin): void
     {
         if (! $session->expires_at) {
+            Cache::forever($this->pinCacheKey($session->id), $pin);
             return;
         }
 

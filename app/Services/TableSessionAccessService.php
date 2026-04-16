@@ -16,7 +16,6 @@ class TableSessionAccessService
 {
     private const MAX_PIN_ATTEMPTS = 5;
     private const PIN_LOCK_MINUTES = 10;
-    private const ACCESS_TTL_HOURS = 3;
     private const TOKEN_HEADER = 'X-Guest-Access-Token';
     private const DEVICE_HEADER = 'X-Guest-Device-Id';
 
@@ -67,7 +66,7 @@ class TableSessionAccessService
                 'device_fingerprint' => $this->resolveDeviceFingerprint($request),
                 'joined_at' => $now,
                 'last_seen_at' => $now,
-                'expires_at' => $this->resolveAccessExpiry($session, $now),
+                'expires_at' => null,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ]);
@@ -76,7 +75,6 @@ class TableSessionAccessService
                 'pin_attempts' => 0,
                 'pin_locked_until' => null,
                 'last_activity_at' => $now,
-                'expires_at' => $now->copy()->addHours(GuestMenuSessionService::SESSION_TTL_HOURS),
             ]);
 
             return [
@@ -307,12 +305,10 @@ class TableSessionAccessService
 
         $access->update([
             'last_seen_at' => $now,
-            'expires_at' => $this->resolveAccessExpiry($session, $now),
         ]);
 
         $session->update([
             'last_activity_at' => $now,
-            'expires_at' => $now->copy()->addHours(GuestMenuSessionService::SESSION_TTL_HOURS),
         ]);
     }
 
@@ -324,17 +320,6 @@ class TableSessionAccessService
                 'revoked_at' => now(),
                 'revoke_reason' => $reason,
             ]);
-    }
-
-    private function resolveAccessExpiry(TableSession $session, $now)
-    {
-        $accessExpiry = $now->copy()->addHours(self::ACCESS_TTL_HOURS);
-
-        if ($session->expires_at && $session->expires_at->lt($accessExpiry)) {
-            return $session->expires_at;
-        }
-
-        return $accessExpiry;
     }
 
     private function extractAccessToken(Request $request): ?string
