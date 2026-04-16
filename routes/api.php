@@ -50,6 +50,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
         Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
         Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
+        Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
         Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
         Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
         Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);

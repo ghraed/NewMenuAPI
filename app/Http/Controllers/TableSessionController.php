@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Restaurant;
+use App\Models\RestaurantTable;
 use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
@@ -61,6 +62,47 @@ class TableSessionController extends Controller
                     'name' => $session->restaurantTable->name,
                 ] : null,
             ])->values(),
+        ]);
+    }
+
+    public function activate(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'table_id' => 'required|integer',
+        ]);
+
+        $table = RestaurantTable::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereKey($validated['table_id'])
+            ->firstOrFail();
+
+        if ($user->isStaff()) {
+            $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
+
+            if (! in_array($table->id, $assignedTableIds, true)) {
+                abort(403, 'This staff account is not assigned to that table.');
+            }
+        }
+
+        $tableNumber = $this->guestMenuSessionService->resolveTableNumberForTable($restaurant, $table);
+        $session = $this->guestMenuSessionService->getOrCreateActiveSession(
+            $restaurant,
+            $table,
+            $tableNumber,
+            $user->id
+        );
+
+        return response()->json([
+            'message' => __('messages.table_sessions.activated'),
+            'table_session' => $this->guestMenuSessionService->formatSession($session),
+            'current_pin' => $this->guestMenuSessionService->currentPlainPin($session),
+            'table' => [
+                'id' => $table->id,
+                'name' => $table->name,
+            ],
         ]);
     }
 

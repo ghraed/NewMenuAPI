@@ -32,6 +32,7 @@ return [
         'invalid_pin' => 'The PIN code is incorrect.',
         'pin_locked' => 'Too many PIN attempts. Try again in 10 minutes or ask staff to reset the table PIN.',
         'pin_verified' => 'Ordering unlocked for this table.',
+        'activated' => 'Table activated and PIN is ready.',
         'pin_reset' => 'A new table PIN has been generated.',
         'authorization_required' => 'Unlock this table with the current PIN before using this action.',
         'expired' => 'This table session has expired. Ask staff for a new PIN.',

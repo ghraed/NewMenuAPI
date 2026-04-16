@@ -141,6 +141,25 @@ class TableSessionSecurityTest extends TestCase
         ], $this->guestHeaders($token))->assertStatus(403);
     }
 
+    public function test_staff_can_activate_a_table_and_receive_the_live_pin(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $admin = $restaurant->user;
+
+        Sanctum::actingAs($admin);
+
+        $response = $this->postJson('/api/table-sessions/activate', [
+            'table_id' => $restaurant->tables()->orderBy('name')->firstOrFail()->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('table_session.status', TableSession::STATUS_ACTIVE)
+            ->assertJsonPath('table_session.table_id', 1);
+
+        $this->assertIsString($response->json('current_pin'));
+        $this->assertSame(1, TableSession::query()->count());
+    }
+
     public function test_reset_pin_invalidates_old_pin_and_old_guest_access(): void
     {
         $restaurant = $this->createRestaurant();

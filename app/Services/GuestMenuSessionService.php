@@ -76,11 +76,12 @@ class GuestMenuSessionService
     public function getOrCreateActiveSession(
         Restaurant $restaurant,
         RestaurantTable $table,
-        int $tableNumber
+        int $tableNumber,
+        ?int $createdByStaffId = null
     ): TableSession {
         $now = now();
 
-        return DB::transaction(function () use ($restaurant, $table, $tableNumber, $now) {
+        return DB::transaction(function () use ($restaurant, $table, $tableNumber, $now, $createdByStaffId) {
             $lockedTable = RestaurantTable::query()
                 ->whereKey($table->id)
                 ->lockForUpdate()
@@ -135,10 +136,26 @@ class GuestMenuSessionService
                 'opened_at' => $now,
                 'last_activity_at' => $now,
                 'expires_at' => null,
+                'created_by_staff_id' => $createdByStaffId,
             ]), function (TableSession $createdSession) use ($pin): void {
                 $this->rememberPlainPin($createdSession, $pin);
             })->fresh(['restaurantTable']);
         });
+    }
+
+    public function resolveTableNumberForTable(Restaurant $restaurant, RestaurantTable $table): int
+    {
+        $tables = $restaurant->relationLoaded('tables')
+            ? $restaurant->tables
+            : $restaurant->tables()->orderBy('name')->get();
+
+        $index = $tables->values()->search(fn (RestaurantTable $candidate) => $candidate->id === $table->id);
+
+        if ($index === false) {
+            throw new ModelNotFoundException();
+        }
+
+        return $index + 1;
     }
 
     public function resolveActiveSession(int $sessionId): TableSession
