@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Restaurant;
+use App\Models\Order;
 use App\Models\RestaurantTable;
 use App\Models\TableSession;
 use App\Models\TableWave;
@@ -28,6 +29,7 @@ class TableSessionController extends Controller
         return response()->json([
             'message' => __('messages.table_sessions.bill_requested'),
             'wave' => $waveController->formatGuestWave($wave),
+            'invoice_preview' => $this->buildInvoicePreviewPayload($session),
         ], 201);
     }
 
@@ -182,5 +184,52 @@ class TableSessionController extends Controller
         ) {
             abort(403, 'This staff account is not assigned to that table.');
         }
+    }
+
+    private function buildInvoicePreviewPayload(TableSession $session): array
+    {
+        $orders = Order::query()
+            ->where('table_session_id', $session->id)
+            ->whereIn('status', [Order::STATUS_STAFF_CONFIRMED, Order::STATUS_ACCOUNTED])
+            ->with('items')
+            ->orderBy('created_at')
+            ->get();
+
+        $lineItems = $orders
+            ->flatMap(fn (Order $order) => $order->items->map(fn ($item) => [
+                'key' => 'order-'.$order->id.'-item-'.$item->id,
+                'dish_name' => $item->dish_name,
+                'quantity' => $item->quantity,
+                'unit_price' => number_format((float) $item->unit_price, 2, '.', ''),
+                'line_subtotal' => number_format((float) $item->line_subtotal, 2, '.', ''),
+            ]))
+            ->values();
+
+        $notes = $orders
+            ->pluck('notes')
+            ->filter(fn ($note) => is_string($note) && trim($note) !== '')
+            ->map(fn ($note) => trim((string) $note))
+            ->values();
+
+        return [
+            'restaurant_name' => $session->restaurant->name,
+            'table_name' => $session->restaurantTable?->name ?? ('T'.$session->table_number),
+            'generated_at' => now()->toIso8601String(),
+            'notes' => $notes,
+            'items' => $lineItems,
+            'included_orders' => $orders
+                ->map(fn (Order $order) => $order->order_number ?: 'ORD-'.$order->id)
+                ->values(),
+            'summary' => [
+                'subtotal' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->subtotal), 2, '.', ''),
+                'discount_type' => null,
+                'discount_value' => '0.00',
+                'discount_amount' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->discount_amount), 2, '.', ''),
+                'taxable_subtotal' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->taxable_subtotal), 2, '.', ''),
+                'vat_rate' => number_format((float) $orders->max(fn (Order $order) => (float) $order->vat_rate), 2, '.', ''),
+                'vat_amount' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->vat_amount), 2, '.', ''),
+                'total' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->total), 2, '.', ''),
+            ],
+        ];
     }
 }
