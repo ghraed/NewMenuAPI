@@ -54,6 +54,10 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'frontend_url' => env('FRONTEND_URL', env('APP_URL', 'http://localhost')),
+
+    'guest_restaurant_slug' => env('GUEST_RESTAURANT_SLUG'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

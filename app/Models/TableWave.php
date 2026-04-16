@@ -9,12 +9,16 @@ class TableWave extends Model
 {
     public const STATUS_PENDING = 'pending';
     public const STATUS_RESOLVED = 'resolved';
+    public const REQUEST_TYPE_CALL_WAITER = 'call_waiter';
+    public const REQUEST_TYPE_REQUEST_BILL = 'request_bill';
 
     protected $fillable = [
         'uuid',
         'restaurant_id',
         'restaurant_table_id',
+        'table_session_id',
         'status',
+        'request_type',
         'table_reference',
         'resolved_by',
         'resolved_at',
@@ -34,6 +38,11 @@ class TableWave extends Model
     public function restaurantTable(): BelongsTo
     {
         return $this->belongsTo(RestaurantTable::class);
+    }
+
+    public function tableSession(): BelongsTo
+    {
+        return $this->belongsTo(TableSession::class);
     }
 
     public function resolvedBy(): BelongsTo

@@ -5,12 +5,15 @@ use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DishController;
+use App\Http\Controllers\GuestTableAccessController;
 use App\Http\Controllers\GuestController;
 use App\Http\Controllers\IngredientLibraryController;
+use App\Http\Controllers\MenuController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\RestaurantController;
+use App\Http\Controllers\TableSessionController;
 use App\Http\Controllers\WaveController;
 use Illuminate\Support\Facades\Route;
 
@@ -23,6 +26,15 @@ Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 's
 Route::get('/menu/{restaurant_slug}/tables', [GuestController::class, 'listTables']);
 Route::post('/menu/{restaurant_slug}/orders', [OrderController::class, 'store']);
 Route::post('/menu/{restaurant_slug}/waves', [WaveController::class, 'store']);
+Route::get('/menu/table/{table_id}', [MenuController::class, 'showTableMenu']);
+Route::get('/menu/table/{table_id}/dish/{dish_id}', [MenuController::class, 'showTableDish']);
+Route::post('/menu/table/{table_id}/verify-pin', [GuestTableAccessController::class, 'verifyPin']);
+Route::middleware('guest.table.access')->group(function () {
+    Route::get('/table-session/{tableSession}/orders', [OrderController::class, 'indexForSession']);
+    Route::post('/table-session/{tableSession}/order', [OrderController::class, 'storeForSession']);
+    Route::post('/table-session/{tableSession}/call-waiter', [WaveController::class, 'storeForSession']);
+    Route::post('/table-session/{tableSession}/request-bill', [TableSessionController::class, 'requestBill']);
+});
 Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
     ->name('api.assets.show');
 Route::post('/analytics/track', [AnalyticsController::class, 'track']);
@@ -37,6 +49,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/orders/{order}', [OrderController::class, 'update']);
         Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
         Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+        Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
+        Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
+        Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
         Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
         Route::get('/waves/pending', [WaveController::class, 'pending']);
         Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
@@ -64,6 +79,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // QR Codes
         Route::get('/dishes/{dish}/qr-code', [QRCodeController::class, 'generate']);
         Route::get('/dishes/{dish}/qr-download', [QRCodeController::class, 'download']);
+        Route::get('/restaurant/tables/{restaurantTable}/qr-code', [QRCodeController::class, 'generateTable']);
+        Route::get('/restaurant/tables/{restaurantTable}/qr-download', [QRCodeController::class, 'downloadTable']);
 
         // Analytics
         Route::get('/analytics/dashboard', [AnalyticsController::class, 'dashboard']);

@@ -7,8 +7,11 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
 use App\Models\RestaurantTable;
+use App\Models\TableSession;
 use App\Models\User;
+use App\Services\GuestMenuSessionService;
 use App\Services\OrderInvoiceCalculator;
+use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +20,12 @@ use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
+    public function __construct(
+        private readonly GuestMenuSessionService $guestMenuSessionService,
+        private readonly TableSessionAccessService $tableSessionAccessService
+    ) {
+    }
+
     public function store(
         Request $request,
         string $restaurant_slug,
@@ -35,51 +44,68 @@ class OrderController extends Controller
             ->where('slug', $restaurant_slug)
             ->firstOrFail();
 
-        $restaurantTable = $restaurant->tables
-            ->firstWhere('name', trim($validated['table_reference']));
+        $access = $this->tableSessionAccessService->authorizeRequestForRestaurant(
+            $request,
+            $restaurant,
+            $validated['table_reference']
+        );
+        $session = $this->guestMenuSessionService->resolveActiveSession($access->table_session_id);
 
-        if (! $restaurantTable) {
-            throw ValidationException::withMessages([
-                'table_reference' => __('messages.orders.invalid_table'),
-            ]);
-        }
-
-        $preparedItems = $this->prepareOrderItems($restaurant, $validated['items']);
-        $invoice = $invoiceCalculator->calculate($preparedItems);
-
-        $order = DB::transaction(function () use ($restaurant, $restaurantTable, $validated, $preparedItems, $invoice) {
-            $order = $restaurant->orders()->create([
-                'uuid' => (string) Str::uuid(),
-                'restaurant_table_id' => $restaurantTable->id,
-                'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
-                'guest_name' => $restaurantTable->name,
-                'table_reference' => $restaurantTable->name,
-                'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
-                ...$invoice,
-            ]);
-
-            $order->items()->createMany(array_map(
-                fn (array $item) => [
-                    'dish_id' => $item['dish_id'],
-                    'dish_name' => $item['dish_name'],
-                    'unit_price' => $item['unit_price'],
-                    'quantity' => $item['quantity'],
-                    'line_subtotal' => $item['line_subtotal'],
-                ],
-                $preparedItems
-            ));
-
-            $order->update([
-                'order_number' => $this->formatOrderNumber($order),
-            ]);
-
-            return $order->fresh(['restaurant', 'restaurantTable', 'items']);
-        });
+        $order = $this->createOrderForTableContext(
+            $session->restaurant,
+            $session->restaurantTable,
+            $session,
+            $validated,
+            $invoiceCalculator
+        );
 
         return response()->json([
             'message' => __('messages.orders.created'),
             'order' => $this->formatOrder($order),
         ], 201);
+    }
+
+    public function storeForSession(
+        Request $request,
+        TableSession $tableSession,
+        OrderInvoiceCalculator $invoiceCalculator
+    ): JsonResponse {
+        $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+
+        $validated = $request->validate([
+            'notes' => 'nullable|string|max:1000',
+            'items' => 'required|array|min:1',
+            'items.*.dish_id' => 'required|integer|distinct',
+            'items.*.quantity' => 'required|integer|min:1|max:99',
+        ]);
+
+        $order = $this->createOrderForTableContext(
+            $session->restaurant,
+            $session->restaurantTable,
+            $session,
+            $validated,
+            $invoiceCalculator
+        );
+
+        return response()->json([
+            'message' => __('messages.orders.created'),
+            'order' => $this->formatOrder($order),
+        ], 201);
+    }
+
+    public function indexForSession(TableSession $tableSession): JsonResponse
+    {
+        $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+
+        $orders = Order::query()
+            ->where('table_session_id', $session->id)
+            ->with(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'cancelledBy', 'accountedBy'])
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'orders' => $orders->map(fn (Order $order) => $this->formatOrder($order))->values(),
+        ]);
     }
 
     public function pendingConfirmation(Request $request): JsonResponse
@@ -487,7 +513,7 @@ class OrderController extends Controller
 
     private function formatOrder(Order $order): array
     {
-        $order->loadMissing('restaurant', 'restaurantTable', 'items', 'confirmedBy', 'cancelledBy', 'accountedBy');
+        $order->loadMissing('restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy', 'cancelledBy', 'accountedBy');
 
         return [
             'id' => $order->id,
@@ -495,6 +521,7 @@ class OrderController extends Controller
             'order_number' => $order->order_number,
             'invoice_number' => $order->invoice_number,
             'status' => $order->status,
+            'table_session_id' => $order->table_session_id,
             'table_reference' => $order->table_reference ?: $order->guest_name,
             'table' => $order->restaurantTable ? [
                 'id' => $order->restaurantTable->id,
@@ -568,5 +595,46 @@ class OrderController extends Controller
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function createOrderForTableContext(
+        Restaurant $restaurant,
+        RestaurantTable $restaurantTable,
+        ?TableSession $tableSession,
+        array $validated,
+        OrderInvoiceCalculator $invoiceCalculator
+    ): Order {
+        $preparedItems = $this->prepareOrderItems($restaurant, $validated['items']);
+        $invoice = $invoiceCalculator->calculate($preparedItems);
+
+        return DB::transaction(function () use ($restaurant, $restaurantTable, $tableSession, $validated, $preparedItems, $invoice) {
+            $order = $restaurant->orders()->create([
+                'uuid' => (string) Str::uuid(),
+                'restaurant_table_id' => $restaurantTable->id,
+                'table_session_id' => $tableSession?->id,
+                'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
+                'guest_name' => $restaurantTable->name,
+                'table_reference' => $restaurantTable->name,
+                'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
+                ...$invoice,
+            ]);
+
+            $order->items()->createMany(array_map(
+                fn (array $item) => [
+                    'dish_id' => $item['dish_id'],
+                    'dish_name' => $item['dish_name'],
+                    'unit_price' => $item['unit_price'],
+                    'quantity' => $item['quantity'],
+                    'line_subtotal' => $item['line_subtotal'],
+                ],
+                $preparedItems
+            ));
+
+            $order->update([
+                'order_number' => $this->formatOrderNumber($order),
+            ]);
+
+            return $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']);
+        });
     }
 }

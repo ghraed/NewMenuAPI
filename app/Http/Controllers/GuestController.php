@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\FormatsGuestDishes;
 use App\Models\AnalyticsEvent;
 use App\Models\Dish;
 use App\Models\Restaurant;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\Storage;
 
 class GuestController extends Controller
 {
+    use FormatsGuestDishes;
+
     public function listDishes(string $restaurant_slug): JsonResponse
     {
         $restaurant = Restaurant::query()
@@ -126,29 +129,6 @@ class GuestController extends Controller
     public function test(): int
     {
         return 2;
-    }
-
-    private function localizeDishes($dishes): array
-    {
-        return $dishes
-            ->map(fn (Dish $dish) => $this->localizeDish($dish))
-            ->values()
-            ->all();
-    }
-
-    private function localizeDish(Dish $dish): array
-    {
-        $localized = $dish->toLocalizedArray();
-
-        if ($dish->relationLoaded('suggestedDishes')) {
-            $localized['suggested_dishes'] = $this->localizeDishes($dish->suggestedDishes);
-        }
-
-        if ($dish->relationLoaded('relatedDishes')) {
-            $localized['related_dishes'] = $this->localizeDishes($dish->relatedDishes);
-        }
-
-        return $localized;
     }
 
     public function showTestDish(int $dishId)

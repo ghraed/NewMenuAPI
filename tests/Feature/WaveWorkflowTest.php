@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Restaurant;
+use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
+use App\Services\GuestMenuSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -17,10 +19,10 @@ class WaveWorkflowTest extends TestCase
     public function test_guest_can_send_a_wave_for_a_valid_table_and_duplicate_pending_waves_are_reused(): void
     {
         $restaurant = $this->createRestaurant();
+        $session = $this->openGuestTable(2);
+        $token = $this->verifyCurrentTablePin(2, $this->activeSessionPin());
 
-        $firstResponse = $this->postJson("/api/menu/{$restaurant->slug}/waves", [
-            'table_reference' => 'T02',
-        ]);
+        $firstResponse = $this->postJson("/api/table-session/{$session->id}/call-waiter", [], $this->guestHeaders($token));
 
         $firstResponse->assertCreated()
             ->assertJsonPath('wave.status', TableWave::STATUS_PENDING)
@@ -32,9 +34,7 @@ class WaveWorkflowTest extends TestCase
             'status' => TableWave::STATUS_PENDING,
         ]);
 
-        $secondResponse = $this->postJson("/api/menu/{$restaurant->slug}/waves", [
-            'table_reference' => 'T02',
-        ]);
+        $secondResponse = $this->postJson("/api/table-session/{$session->id}/call-waiter", [], $this->guestHeaders($token));
 
         $secondResponse->assertOk()
             ->assertJsonPath('wave.status', TableWave::STATUS_PENDING)
@@ -135,6 +135,45 @@ class WaveWorkflowTest extends TestCase
             'restaurant_table_id' => $tableId,
             'status' => TableWave::STATUS_PENDING,
             'table_reference' => $tableName,
+        ]);
+    }
+
+    private function openGuestTable(int $tableNumber): TableSession
+    {
+        $this->getJson("/api/menu/table/{$tableNumber}")->assertOk();
+
+        return TableSession::query()
+            ->where('table_number', $tableNumber)
+            ->latest('id')
+            ->firstOrFail();
+    }
+
+    private function activeSessionPin(): string
+    {
+        $session = TableSession::query()->latest('id')->firstOrFail();
+        $pin = app(GuestMenuSessionService::class)->currentPlainPin($session);
+
+        $this->assertIsString($pin);
+
+        return $pin;
+    }
+
+    private function verifyCurrentTablePin(int $tableNumber, string $pin): string
+    {
+        $response = $this->postJson("/api/menu/table/{$tableNumber}/verify-pin", [
+            'pin' => $pin,
+        ], $this->guestHeaders());
+
+        $response->assertOk();
+
+        return (string) $response->json('guest_access.token');
+    }
+
+    private function guestHeaders(?string $token = null): array
+    {
+        return array_filter([
+            'X-Guest-Device-Id' => 'wave-workflow-device',
+            'X-Guest-Access-Token' => $token,
         ]);
     }
 }

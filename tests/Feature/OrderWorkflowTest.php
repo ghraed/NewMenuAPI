@@ -6,7 +6,9 @@ use App\Models\Dish;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
+use App\Models\TableSession;
 use App\Models\User;
+use App\Services\GuestMenuSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -16,7 +18,7 @@ class OrderWorkflowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_restaurant_creation_adds_ten_default_tables_and_guest_can_order_by_table_reference(): void
+    public function test_restaurant_creation_adds_ten_default_tables_and_guest_can_order_after_table_pin_verification(): void
     {
         $restaurant = $this->createRestaurant();
         $dish = $this->createDish($restaurant, 'Burger Deluxe', 12.50, 'published');
@@ -27,8 +29,10 @@ class OrderWorkflowTest extends TestCase
             $restaurant->tables()->orderBy('name')->pluck('name')->all()
         );
 
-        $response = $this->postJson("/api/menu/{$restaurant->slug}/orders", [
-            'table_reference' => 'T01',
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+
+        $response = $this->postJson("/api/table-session/{$session->id}/order", [
             'notes' => 'No onions',
             'items' => [
                 [
@@ -36,7 +40,7 @@ class OrderWorkflowTest extends TestCase
                     'quantity' => 2,
                 ],
             ],
-        ]);
+        ], $this->guestHeaders($token));
 
         $response->assertCreated()
             ->assertJsonPath('order.status', Order::STATUS_PENDING_STAFF_CONFIRMATION)
@@ -52,6 +56,7 @@ class OrderWorkflowTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'restaurant_id' => $restaurant->id,
             'restaurant_table_id' => $restaurant->tables()->where('name', 'T01')->value('id'),
+            'table_session_id' => $session->id,
             'table_reference' => 'T01',
             'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
             'subtotal' => '25.00',
@@ -59,13 +64,13 @@ class OrderWorkflowTest extends TestCase
         ]);
     }
 
-    public function test_guest_cannot_create_orders_with_an_unknown_table_reference(): void
+    public function test_guest_cannot_create_orders_without_verified_table_access(): void
     {
         $restaurant = $this->createRestaurant();
         $dish = $this->createDish($restaurant, 'Secret Dish', 9.50, 'published');
+        $session = $this->openGuestTable(1);
 
-        $response = $this->postJson("/api/menu/{$restaurant->slug}/orders", [
-            'table_reference' => 'T99',
+        $response = $this->postJson("/api/table-session/{$session->id}/order", [
             'items' => [
                 [
                     'dish_id' => $dish->id,
@@ -74,8 +79,7 @@ class OrderWorkflowTest extends TestCase
             ],
         ]);
 
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors('table_reference');
+        $response->assertForbidden();
     }
 
     public function test_staff_can_list_pending_confirmation_orders_for_their_restaurant(): void
@@ -546,5 +550,44 @@ class OrderWorkflowTest extends TestCase
         }
 
         return $order;
+    }
+
+    private function openGuestTable(int $tableNumber): TableSession
+    {
+        $this->getJson("/api/menu/table/{$tableNumber}")->assertOk();
+
+        return TableSession::query()
+            ->where('table_number', $tableNumber)
+            ->latest('id')
+            ->firstOrFail();
+    }
+
+    private function activeSessionPin(): string
+    {
+        $session = TableSession::query()->latest('id')->firstOrFail();
+        $pin = app(GuestMenuSessionService::class)->currentPlainPin($session);
+
+        $this->assertIsString($pin);
+
+        return $pin;
+    }
+
+    private function verifyCurrentTablePin(int $tableNumber, string $pin): string
+    {
+        $response = $this->postJson("/api/menu/table/{$tableNumber}/verify-pin", [
+            'pin' => $pin,
+        ], $this->guestHeaders());
+
+        $response->assertOk();
+
+        return (string) $response->json('guest_access.token');
+    }
+
+    private function guestHeaders(?string $token = null): array
+    {
+        return array_filter([
+            'X-Guest-Device-Id' => 'order-workflow-device',
+            'X-Guest-Access-Token' => $token,
+        ]);
     }
 }

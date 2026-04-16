@@ -27,4 +27,17 @@ return [
         'resolve_only_pending' => 'Only pending waves can be resolved.',
         'resolved' => 'Wave marked as handled.',
     ],
+    'table_sessions' => [
+        'invalid_table' => 'Invalid table.',
+        'invalid_pin' => 'The PIN code is incorrect.',
+        'pin_locked' => 'Too many PIN attempts. Try again in 10 minutes or ask staff to reset the table PIN.',
+        'pin_verified' => 'Ordering unlocked for this table.',
+        'pin_reset' => 'A new table PIN has been generated.',
+        'authorization_required' => 'Unlock this table with the current PIN before using this action.',
+        'expired' => 'This table session has expired. Ask staff for a new PIN.',
+        'closed' => 'This table session has been finalized. Ask staff to open a new dining session.',
+        'suspended' => 'This table session is currently suspended.',
+        'bill_requested' => 'Bill request sent to the team.',
+        'finalized' => 'Table session finalized successfully.',
+    ],
 ];

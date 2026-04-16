@@ -17,6 +17,7 @@ class Order extends Model
         'uuid',
         'restaurant_id',
         'restaurant_table_id',
+        'table_session_id',
         'order_number',
         'invoice_number',
         'status',
@@ -64,6 +65,11 @@ class Order extends Model
     public function restaurantTable(): BelongsTo
     {
         return $this->belongsTo(RestaurantTable::class);
+    }
+
+    public function tableSession(): BelongsTo
+    {
+        return $this->belongsTo(TableSession::class);
     }
 
     public function items(): HasMany

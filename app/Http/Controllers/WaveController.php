@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use App\Events\TableWaveCreated;
 use App\Events\TableWaveResolved;
 use App\Models\Restaurant;
+use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
+use App\Services\GuestMenuSessionService;
+use App\Services\TableSessionAccessService;
 use App\Services\WebPushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +19,12 @@ use Illuminate\Validation\ValidationException;
 
 class WaveController extends Controller
 {
+    public function __construct(
+        private readonly GuestMenuSessionService $guestMenuSessionService,
+        private readonly TableSessionAccessService $tableSessionAccessService
+    ) {
+    }
+
     public function store(Request $request, string $restaurant_slug): JsonResponse
     {
         $validated = $request->validate([
@@ -27,43 +36,51 @@ class WaveController extends Controller
             ->where('slug', $restaurant_slug)
             ->firstOrFail();
 
-        $restaurantTable = $restaurant->tables
-            ->firstWhere('name', trim($validated['table_reference']));
+        $access = $this->tableSessionAccessService->authorizeRequestForRestaurant(
+            $request,
+            $restaurant,
+            $validated['table_reference']
+        );
+        $session = $this->guestMenuSessionService->resolveActiveSession($access->table_session_id);
 
-        if (! $restaurantTable) {
-            throw ValidationException::withMessages([
-                'table_reference' => __('messages.waves.invalid_table'),
-            ]);
-        }
+        $result = $this->createWave(
+            $session->restaurant,
+            $session->restaurantTable,
+            $session,
+            TableWave::REQUEST_TYPE_CALL_WAITER
+        );
+        $formattedWave = $this->formatWave($result['wave']);
 
-        $existingWave = TableWave::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->where('restaurant_table_id', $restaurantTable->id)
-            ->where('status', TableWave::STATUS_PENDING)
-            ->with(['restaurant', 'restaurantTable'])
-            ->latest('created_at')
-            ->first();
-
-        if ($existingWave) {
-            $formattedWave = $this->formatWave($existingWave);
-            $this->dispatchStaffAlerts($existingWave, $formattedWave, true);
-
+        if ($result['existing']) {
             return response()->json([
                 'message' => __('messages.waves.already_pending'),
                 'wave' => $formattedWave,
             ]);
         }
 
-        $wave = TableWave::query()->create([
-            'uuid' => (string) Str::uuid(),
-            'restaurant_id' => $restaurant->id,
-            'restaurant_table_id' => $restaurantTable->id,
-            'status' => TableWave::STATUS_PENDING,
-            'table_reference' => $restaurantTable->name,
-        ])->fresh(['restaurant', 'restaurantTable']);
+        return response()->json([
+            'message' => __('messages.waves.sent'),
+            'wave' => $formattedWave,
+        ], 201);
+    }
 
-        $formattedWave = $this->formatWave($wave);
-        $this->dispatchStaffAlerts($wave, $formattedWave);
+    public function storeForSession(TableSession $tableSession): JsonResponse
+    {
+        $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+        $result = $this->createWave(
+            $session->restaurant,
+            $session->restaurantTable,
+            $session,
+            TableWave::REQUEST_TYPE_CALL_WAITER
+        );
+        $formattedWave = $this->formatWave($result['wave']);
+
+        if ($result['existing']) {
+            return response()->json([
+                'message' => __('messages.waves.already_pending'),
+                'wave' => $formattedWave,
+            ]);
+        }
 
         return response()->json([
             'message' => __('messages.waves.sent'),
@@ -184,6 +201,23 @@ class WaveController extends Controller
         }
     }
 
+    public function formatGuestWave(TableWave $wave): array
+    {
+        return $this->formatWave($wave);
+    }
+
+    public function createGuestWaveForSession(
+        TableSession $session,
+        string $requestType = TableWave::REQUEST_TYPE_CALL_WAITER
+    ): TableWave {
+        return $this->createWave(
+            $session->restaurant,
+            $session->restaurantTable,
+            $session,
+            $requestType
+        )['wave'];
+    }
+
     private function formatWave(TableWave $wave): array
     {
         $wave->loadMissing('restaurant', 'restaurantTable', 'resolvedBy');
@@ -192,6 +226,8 @@ class WaveController extends Controller
             'id' => $wave->id,
             'uuid' => $wave->uuid,
             'status' => $wave->status,
+            'table_session_id' => $wave->table_session_id,
+            'request_type' => $wave->request_type,
             'table_reference' => $wave->table_reference,
             'table' => $wave->restaurantTable ? [
                 'id' => $wave->restaurantTable->id,
@@ -233,5 +269,53 @@ class WaveController extends Controller
                 'message' => $exception->getMessage(),
             ]);
         }
+    }
+
+    private function createWave(
+        Restaurant $restaurant,
+        \App\Models\RestaurantTable $restaurantTable,
+        ?TableSession $session,
+        string $requestType
+    ): array {
+        $existingWave = TableWave::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('restaurant_table_id', $restaurantTable->id)
+            ->where('status', TableWave::STATUS_PENDING)
+            ->where('request_type', $requestType)
+            ->when(
+                $session,
+                fn ($query) => $query->where('table_session_id', $session->id),
+                fn ($query) => $query->whereNull('table_session_id')
+            )
+            ->with(['restaurant', 'restaurantTable'])
+            ->latest('created_at')
+            ->first();
+
+        if ($existingWave) {
+            $formattedWave = $this->formatWave($existingWave);
+            $this->dispatchStaffAlerts($existingWave, $formattedWave, true);
+
+            return [
+                'wave' => $existingWave,
+                'existing' => true,
+            ];
+        }
+
+        $wave = TableWave::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'restaurant_table_id' => $restaurantTable->id,
+            'table_session_id' => $session?->id,
+            'status' => TableWave::STATUS_PENDING,
+            'request_type' => $requestType,
+            'table_reference' => $restaurantTable->name,
+        ])->fresh(['restaurant', 'restaurantTable']);
+
+        $this->dispatchStaffAlerts($wave, $this->formatWave($wave));
+
+        return [
+            'wave' => $wave,
+            'existing' => false,
+        ];
     }
 }

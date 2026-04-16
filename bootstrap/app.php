@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo('/');
         $middleware->appendToGroup('api', \App\Http\Middleware\SetRequestLocale::class);
         $middleware->alias([
+            'guest.table.access' => \App\Http\Middleware\EnsureGuestTableAccess::class,
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
         ]);
     })

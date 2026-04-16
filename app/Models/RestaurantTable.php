@@ -34,6 +34,16 @@ class RestaurantTable extends Model
         return $this->hasMany(TableWave::class);
     }
 
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(TableSession::class);
+    }
+
+    public function tableSessions(): HasMany
+    {
+        return $this->hasMany(TableSession::class);
+    }
+
     public function staffUsers(): BelongsToMany
     {
         return $this->belongsToMany(User::class)
