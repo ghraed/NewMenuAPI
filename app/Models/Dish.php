@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -12,6 +13,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Dish extends Model
 {
     use SoftDeletes;
+
+    private ?bool $cachedOrderable = null;
 
     protected $appends = [
         'model_state',
@@ -165,6 +168,8 @@ class Dish extends Model
     {
         $locale = $locale ?: app()->getLocale();
         $attributes = $this->toArray();
+        $attributes['is_orderable'] = $this->isOrderable();
+        $attributes['is_out_of_stock'] = ! $attributes['is_orderable'];
 
         if ($locale !== 'ar') {
             return $attributes;
@@ -175,6 +180,56 @@ class Dish extends Model
         $attributes['category'] = $this->category_ar ?: $this->translateCategoryToArabic($this->category);
 
         return $attributes;
+    }
+
+    public function isOrderable(): bool
+    {
+        if ($this->cachedOrderable !== null) {
+            return $this->cachedOrderable;
+        }
+
+        $dishIngredients = $this->dishIngredientsWithIngredients();
+
+        foreach ($dishIngredients as $dishIngredient) {
+            $ingredient = $dishIngredient->ingredient;
+
+            if (! $ingredient || ! $ingredient->is_active) {
+                continue;
+            }
+
+            $requiredQuantity = round((float) $dishIngredient->quantity, 3);
+            if ($requiredQuantity <= 0) {
+                continue;
+            }
+
+            if ($dishIngredient->unit !== $ingredient->stock_unit) {
+                $this->cachedOrderable = false;
+
+                return false;
+            }
+
+            $availableQuantity = round((float) $ingredient->current_stock_quantity, 3);
+            if ($availableQuantity < $requiredQuantity) {
+                $this->cachedOrderable = false;
+
+                return false;
+            }
+        }
+
+        $this->cachedOrderable = true;
+
+        return true;
+    }
+
+    private function dishIngredientsWithIngredients(): EloquentCollection
+    {
+        $dishIngredients = $this->relationLoaded('dishIngredients')
+            ? $this->dishIngredients
+            : $this->dishIngredients()->with('ingredient')->get();
+
+        $dishIngredients->loadMissing('ingredient');
+
+        return $dishIngredients;
     }
 
     private function translateDishNameToArabic(?string $name): ?string

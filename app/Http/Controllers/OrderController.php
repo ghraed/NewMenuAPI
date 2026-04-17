@@ -147,15 +147,22 @@ class OrderController extends Controller
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurant->id)
             ->where('status', 'published')
+            ->with('dishIngredients.ingredient')
             ->orderBy('category')
             ->orderBy('name')
             ->get(['id', 'name', 'price', 'category'])
-            ->map(fn (Dish $dish) => [
-                'id' => $dish->id,
-                'name' => $dish->name,
-                'price' => (float) $dish->price,
-                'category' => $dish->category,
-            ])
+            ->map(function (Dish $dish): array {
+                $isOrderable = $dish->isOrderable();
+
+                return [
+                    'id' => $dish->id,
+                    'name' => $dish->name,
+                    'price' => (float) $dish->price,
+                    'category' => $dish->category,
+                    'is_orderable' => $isOrderable,
+                    'is_out_of_stock' => ! $isOrderable,
+                ];
+            })
             ->values();
 
         return response()->json([
@@ -450,19 +457,19 @@ class OrderController extends Controller
         $existingItemsByDishId = $order->items
             ->keyBy(fn (OrderItem $item) => (string) $item->dish_id);
 
-        $newDishIds = collect($requestedItems)
+        $requestedDishIds = collect($requestedItems)
             ->pluck('dish_id')
             ->map(fn ($dishId) => (int) $dishId)
-            ->filter(fn (int $dishId) => ! $existingItemsByDishId->has((string) $dishId))
             ->values()
             ->all();
 
-        $publishedDishes = $newDishIds === []
+        $publishedDishes = $requestedDishIds === []
             ? collect()
             : Dish::query()
                 ->where('restaurant_id', $restaurant->id)
                 ->where('status', 'published')
-                ->whereIn('id', $newDishIds)
+                ->whereIn('id', $requestedDishIds)
+                ->with('dishIngredients.ingredient')
                 ->get()
                 ->keyBy('id');
 
@@ -472,6 +479,11 @@ class OrderController extends Controller
             $existingItem = $existingItemsByDishId->get((string) $dishId);
 
             if ($existingItem) {
+                $publishedDish = $publishedDishes->get($dishId);
+                if ($publishedDish) {
+                    $this->ensureDishIsOrderable($publishedDish);
+                }
+
                 $unitPrice = (float) $existingItem->unit_price;
 
                 return [
@@ -490,6 +502,8 @@ class OrderController extends Controller
                     'items' => 'Orders can only include existing order items or currently published dishes from this restaurant.',
                 ]);
             }
+
+            $this->ensureDishIsOrderable($dish);
 
             $unitPrice = (float) $dish->price;
 
@@ -514,12 +528,26 @@ class OrderController extends Controller
             ->where('restaurant_id', $restaurant->id)
             ->where('status', 'published')
             ->whereIn('id', $dishIds)
+            ->with('dishIngredients.ingredient')
             ->get()
             ->keyBy('id');
 
         if (count($dishIds) !== $dishes->count()) {
             throw ValidationException::withMessages([
                 'items' => 'Orders can only include published dishes from the selected restaurant.',
+            ]);
+        }
+
+        $unavailableDishNames = $dishes
+            ->filter(fn (Dish $dish) => ! $dish->isOrderable())
+            ->pluck('name')
+            ->values();
+
+        if ($unavailableDishNames->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'items' => __('messages.orders.dishes_out_of_stock', [
+                    'dishes' => $unavailableDishNames->implode(', '),
+                ]),
             ]);
         }
 
@@ -671,6 +699,19 @@ class OrderController extends Controller
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function ensureDishIsOrderable(Dish $dish): void
+    {
+        if ($dish->isOrderable()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'items' => __('messages.orders.dishes_out_of_stock', [
+                'dishes' => $dish->name,
+            ]),
+        ]);
     }
 
     private function createOrderForTableContext(

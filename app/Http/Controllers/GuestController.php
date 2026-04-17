@@ -23,7 +23,7 @@ class GuestController extends Controller
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurant->id)
             ->where('status', 'published')
-            ->with('assets')
+            ->with(['assets', 'dishIngredients.ingredient'])
             ->orderBy('name')
             ->get();
 
@@ -45,7 +45,7 @@ class GuestController extends Controller
             })
             ->where('id', $dish_id)
             ->where('status', 'published')
-            ->with('assets')
+            ->with(['assets', 'dishIngredients.ingredient'])
             ->firstOrFail();
 
         AnalyticsEvent::create([
@@ -62,12 +62,12 @@ class GuestController extends Controller
         $dish->load([
             'suggestedDishes' => function ($query) {
                 $query->where('status', 'published')
-                    ->with('assets')
+                    ->with(['assets', 'dishIngredients.ingredient'])
                     ->orderBy('name');
             },
             'relatedDishes' => function ($query) {
                 $query->where('status', 'published')
-                    ->with('assets')
+                    ->with(['assets', 'dishIngredients.ingredient'])
                     ->orderBy('name');
             },
         ]);

@@ -20,6 +20,7 @@ return [
         'account_only_confirmed' => 'Only staff-confirmed orders can be processed by accounting.',
         'accounted' => 'Order accounted successfully.',
         'discount_type_required' => 'A discount type is required when a discount value is provided.',
+        'dishes_out_of_stock' => 'Some selected dishes are currently out of stock: :dishes.',
     ],
     'waves' => [
         'invalid_table' => 'Select a valid table reference for this restaurant.',
