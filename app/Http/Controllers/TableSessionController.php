@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Restaurant;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\RestaurantTable;
 use App\Models\TableSession;
 use App\Models\TableWave;
@@ -191,7 +192,7 @@ class TableSessionController extends Controller
         $orders = Order::query()
             ->where('table_session_id', $session->id)
             ->whereIn('status', [Order::STATUS_STAFF_CONFIRMED, Order::STATUS_ACCOUNTED])
-            ->with('items')
+            ->with(['items.dish', 'restaurant', 'restaurantTable'])
             ->orderBy('created_at')
             ->get();
 
@@ -199,6 +200,7 @@ class TableSessionController extends Controller
             ->flatMap(fn (Order $order) => $order->items->map(fn ($item) => [
                 'key' => 'order-'.$order->id.'-item-'.$item->id,
                 'dish_name' => $item->dish_name,
+                'dish_name_ar' => $this->resolveArabicDishName($item),
                 'quantity' => $item->quantity,
                 'unit_price' => number_format((float) $item->unit_price, 2, '.', ''),
                 'line_subtotal' => number_format((float) $item->line_subtotal, 2, '.', ''),
@@ -231,5 +233,17 @@ class TableSessionController extends Controller
                 'total' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->total), 2, '.', ''),
             ],
         ];
+    }
+
+    private function resolveArabicDishName(OrderItem $item): ?string
+    {
+        if (! $item->dish) {
+            return null;
+        }
+
+        $localizedDish = $item->dish->toLocalizedArray('ar');
+
+        return $item->dish->name_ar
+            ?: ($localizedDish['name'] ?? null);
     }
 }
