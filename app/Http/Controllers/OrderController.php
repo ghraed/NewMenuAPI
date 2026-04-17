@@ -18,6 +18,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
@@ -306,6 +307,12 @@ class OrderController extends Controller
                     ? $firstError
                     : __('messages.orders.confirm_only_pending'),
                 'errors' => $exception->errors(),
+            ], 422);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => __('messages.orders.confirm_failed_inventory_guard'),
             ], 422);
         }
 

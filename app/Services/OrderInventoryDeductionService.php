@@ -23,7 +23,7 @@ class OrderInventoryDeductionService
 
             if ($lockedOrder->status !== Order::STATUS_STAFF_CONFIRMED) {
                 throw ValidationException::withMessages([
-                    'order' => 'Inventory deduction is only allowed for confirmed orders.',
+                    'order' => __('messages.orders.inventory_deduction_confirmed_only'),
                 ]);
             }
 
@@ -41,7 +41,7 @@ class OrderInventoryDeductionService
                 }
 
                 throw ValidationException::withMessages([
-                    'inventory' => 'Inventory deduction appears partially applied for this order. Resolve the inconsistency before retrying.',
+                    'inventory' => __('messages.orders.inventory_deduction_partial'),
                 ]);
             }
 
@@ -75,6 +75,14 @@ class OrderInventoryDeductionService
                         continue;
                     }
 
+                    if (! $ingredient->is_active) {
+                        throw ValidationException::withMessages([
+                            'inventory' => __('messages.orders.inventory_inactive_ingredient', [
+                                'ingredient' => $ingredient->name,
+                            ]),
+                        ]);
+                    }
+
                     $recipeQuantity = round((float) $dishIngredient->quantity, 3);
                     if ($recipeQuantity <= 0) {
                         continue;
@@ -82,7 +90,11 @@ class OrderInventoryDeductionService
 
                     if ($dishIngredient->unit !== $ingredient->stock_unit) {
                         throw ValidationException::withMessages([
-                            'inventory' => "Recipe unit mismatch for ingredient '{$ingredient->name}'.",
+                            'inventory' => __('messages.orders.inventory_unit_mismatch', [
+                                'ingredient' => $ingredient->name,
+                                'recipe_unit' => $dishIngredient->unit,
+                                'stock_unit' => $ingredient->stock_unit,
+                            ]),
                         ]);
                     }
 
@@ -128,7 +140,7 @@ class OrderInventoryDeductionService
 
             if ($lockedIngredients->count() !== count($ingredientIds)) {
                 throw ValidationException::withMessages([
-                    'inventory' => 'Some recipe ingredients are not available in this restaurant inventory.',
+                    'inventory' => __('messages.orders.inventory_missing_ingredients'),
                 ]);
             }
 
@@ -140,20 +152,20 @@ class OrderInventoryDeductionService
                 $availableQuantity = round((float) $ingredient->current_stock_quantity, 3);
 
                 if ($availableQuantity + 0.0005 < $requiredQuantity) {
-                    $insufficientLines[] = sprintf(
-                        '%s: required %s %s, available %s %s',
-                        $ingredient->name,
-                        number_format($requiredQuantity, 3, '.', ''),
-                        $ingredient->stock_unit,
-                        number_format($availableQuantity, 3, '.', ''),
-                        $ingredient->stock_unit
-                    );
+                    $insufficientLines[] = __('messages.orders.inventory_shortage_line', [
+                        'ingredient' => $ingredient->name,
+                        'required' => $this->formatQuantity($requiredQuantity),
+                        'available' => $this->formatQuantity($availableQuantity),
+                        'unit' => $ingredient->stock_unit,
+                    ]);
                 }
             }
 
             if ($insufficientLines !== []) {
                 throw ValidationException::withMessages([
-                    'inventory' => 'Insufficient stock to confirm this order. '.implode(' | ', $insufficientLines),
+                    'inventory' => __('messages.orders.inventory_shortage', [
+                        'details' => implode(' | ', $insufficientLines),
+                    ]),
                 ]);
             }
 
@@ -192,7 +204,12 @@ class OrderInventoryDeductionService
 
                 if ($quantityAfter < -0.0005) {
                     throw ValidationException::withMessages([
-                        'inventory' => "Insufficient stock for ingredient '{$ingredient->name}'.",
+                        'inventory' => __('messages.orders.inventory_shortage_line', [
+                            'ingredient' => $ingredient->name,
+                            'required' => $this->formatQuantity($requiredQuantity),
+                            'available' => $this->formatQuantity($quantityBefore),
+                            'unit' => $ingredient->stock_unit,
+                        ]),
                     ]);
                 }
 
@@ -249,7 +266,7 @@ class OrderInventoryDeductionService
 
             if ($lockedOrder->status !== Order::STATUS_STAFF_CANCELLED) {
                 throw ValidationException::withMessages([
-                    'order' => 'Inventory restore is only allowed for cancelled orders.',
+                    'order' => __('messages.orders.inventory_restore_cancelled_only'),
                 ]);
             }
 
@@ -268,7 +285,7 @@ class OrderInventoryDeductionService
 
             if ($hasUsageSnapshots xor $hasConsumptionMovements) {
                 throw ValidationException::withMessages([
-                    'inventory' => 'Inventory deduction appears partially applied for this order. Resolve the inconsistency before restoring.',
+                    'inventory' => __('messages.orders.inventory_deduction_partial'),
                 ]);
             }
 
@@ -283,7 +300,7 @@ class OrderInventoryDeductionService
 
             if ($consumedTotals === []) {
                 throw ValidationException::withMessages([
-                    'inventory' => 'No valid ingredient usage snapshots were found for restore.',
+                    'inventory' => __('messages.orders.inventory_restore_missing_snapshots'),
                 ]);
             }
 
@@ -298,7 +315,7 @@ class OrderInventoryDeductionService
 
             if ($lockedIngredients->count() !== count($ingredientIds)) {
                 throw ValidationException::withMessages([
-                    'inventory' => 'Some consumed ingredients are no longer available in this restaurant inventory.',
+                    'inventory' => __('messages.orders.inventory_restore_missing_ingredients'),
                 ]);
             }
 
@@ -331,7 +348,7 @@ class OrderInventoryDeductionService
                 }
 
                 throw ValidationException::withMessages([
-                    'inventory' => 'Inventory restore appears partially applied for this order. Resolve the inconsistency before retrying.',
+                    'inventory' => __('messages.orders.inventory_restore_partial'),
                 ]);
             }
 
@@ -380,5 +397,10 @@ class OrderInventoryDeductionService
         }
 
         DB::transaction($runner);
+    }
+
+    private function formatQuantity(float $value): string
+    {
+        return number_format($value, 3, '.', '');
     }
 }

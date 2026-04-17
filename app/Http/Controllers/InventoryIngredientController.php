@@ -105,6 +105,15 @@ class InventoryIngredientController extends Controller
             'is_active' => ['required', 'boolean'],
         ]);
 
+        if (
+            $ingredient->stock_unit !== $validated['unit']
+            && $ingredient->dishIngredients()->exists()
+        ) {
+            throw ValidationException::withMessages([
+                'unit' => __('messages.inventory.unit_change_blocked'),
+            ]);
+        }
+
         $ingredient->update([
             'name' => trim($validated['name']),
             'stock_unit' => $validated['unit'],
@@ -135,6 +144,16 @@ class InventoryIngredientController extends Controller
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $ingredient = $this->assertIngredientBelongsToRestaurant($ingredient, $restaurant);
+
+        $usedByPublishedDishes = $ingredient->dishIngredients()
+            ->whereHas('dish', fn ($query) => $query->where('status', 'published'))
+            ->exists();
+
+        if ($usedByPublishedDishes) {
+            throw ValidationException::withMessages([
+                'ingredient' => __('messages.inventory.deactivate_blocked_published_dishes'),
+            ]);
+        }
 
         $ingredient->update(['is_active' => false]);
 
