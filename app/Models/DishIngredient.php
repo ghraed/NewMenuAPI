@@ -6,35 +6,32 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class OrderItem extends Model
+class DishIngredient extends Model
 {
     protected $fillable = [
-        'order_id',
         'dish_id',
-        'dish_name',
-        'unit_price',
+        'ingredient_id',
         'quantity',
-        'line_subtotal',
+        'unit',
     ];
 
     protected $casts = [
-        'unit_price' => 'decimal:2',
-        'line_subtotal' => 'decimal:2',
+        'quantity' => 'decimal:3',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
 
-    public function order(): BelongsTo
-    {
-        return $this->belongsTo(Order::class);
-    }
-
     public function dish(): BelongsTo
     {
-        return $this->belongsTo(Dish::class)->withTrashed();
+        return $this->belongsTo(Dish::class);
     }
 
-    public function ingredientUsages(): HasMany
+    public function ingredient(): BelongsTo
+    {
+        return $this->belongsTo(Ingredient::class);
+    }
+
+    public function orderItemUsages(): HasMany
     {
         return $this->hasMany(OrderItemIngredientUsage::class);
     }
