@@ -15,6 +15,7 @@ return [
         'confirm_only_pending' => 'Only orders waiting for staff confirmation can be confirmed.',
         'confirmed' => 'Order confirmed and sent to accounting.',
         'cancel_only_pending' => 'Only orders waiting for staff confirmation can be cancelled.',
+        'cancel_only_pending_or_confirmed' => 'Only orders waiting for staff confirmation or already staff-confirmed can be cancelled.',
         'cancelled' => 'Order request cancelled successfully.',
         'account_only_confirmed' => 'Only staff-confirmed orders can be processed by accounting.',
         'accounted' => 'Order accounted successfully.',

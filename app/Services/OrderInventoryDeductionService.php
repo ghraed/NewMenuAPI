@@ -237,4 +237,148 @@ class OrderInventoryDeductionService
 
         DB::transaction($runner);
     }
+
+    public function restoreForCancelledOrder(Order $order, ?int $performedByUserId = null): void
+    {
+        $runner = function () use ($order, $performedByUserId): void {
+            /** @var Order $lockedOrder */
+            $lockedOrder = Order::query()
+                ->whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedOrder->status !== Order::STATUS_STAFF_CANCELLED) {
+                throw ValidationException::withMessages([
+                    'order' => 'Inventory restore is only allowed for cancelled orders.',
+                ]);
+            }
+
+            $hasUsageSnapshots = OrderItemIngredientUsage::query()
+                ->where('order_id', $lockedOrder->id)
+                ->exists();
+            $hasConsumptionMovements = StockMovement::query()
+                ->where('order_id', $lockedOrder->id)
+                ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+                ->exists();
+
+            // Only restore when deduction really happened.
+            if (! $hasUsageSnapshots && ! $hasConsumptionMovements) {
+                return;
+            }
+
+            if ($hasUsageSnapshots xor $hasConsumptionMovements) {
+                throw ValidationException::withMessages([
+                    'inventory' => 'Inventory deduction appears partially applied for this order. Resolve the inconsistency before restoring.',
+                ]);
+            }
+
+            $consumedTotals = OrderItemIngredientUsage::query()
+                ->selectRaw('ingredient_id, SUM(consumed_quantity) as consumed_total')
+                ->where('order_id', $lockedOrder->id)
+                ->whereNotNull('ingredient_id')
+                ->groupBy('ingredient_id')
+                ->get()
+                ->mapWithKeys(fn ($row) => [(int) $row->ingredient_id => round((float) $row->consumed_total, 3)])
+                ->all();
+
+            if ($consumedTotals === []) {
+                throw ValidationException::withMessages([
+                    'inventory' => 'No valid ingredient usage snapshots were found for restore.',
+                ]);
+            }
+
+            $ingredientIds = array_map('intval', array_keys($consumedTotals));
+
+            $lockedIngredients = Ingredient::query()
+                ->where('restaurant_id', $lockedOrder->restaurant_id)
+                ->whereIn('id', $ingredientIds)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            if ($lockedIngredients->count() !== count($ingredientIds)) {
+                throw ValidationException::withMessages([
+                    'inventory' => 'Some consumed ingredients are no longer available in this restaurant inventory.',
+                ]);
+            }
+
+            $existingRestoreTotals = StockMovement::query()
+                ->selectRaw('ingredient_id, SUM(quantity_delta) as restored_total')
+                ->where('order_id', $lockedOrder->id)
+                ->where('movement_type', StockMovement::TYPE_CANCELLATION_RESTORE)
+                ->whereNotNull('ingredient_id')
+                ->groupBy('ingredient_id')
+                ->get()
+                ->mapWithKeys(fn ($row) => [(int) $row->ingredient_id => round((float) $row->restored_total, 3)])
+                ->all();
+
+            if ($existingRestoreTotals !== []) {
+                $matchesExpectedRestore = count($existingRestoreTotals) === count($consumedTotals);
+
+                if ($matchesExpectedRestore) {
+                    foreach ($consumedTotals as $ingredientId => $consumedTotal) {
+                        $restoredTotal = $existingRestoreTotals[$ingredientId] ?? null;
+
+                        if ($restoredTotal === null || abs($restoredTotal - $consumedTotal) > 0.0005) {
+                            $matchesExpectedRestore = false;
+                            break;
+                        }
+                    }
+                }
+
+                if ($matchesExpectedRestore) {
+                    return;
+                }
+
+                throw ValidationException::withMessages([
+                    'inventory' => 'Inventory restore appears partially applied for this order. Resolve the inconsistency before retrying.',
+                ]);
+            }
+
+            $now = now();
+            $movementRows = [];
+
+            foreach ($consumedTotals as $ingredientId => $consumedTotal) {
+                /** @var Ingredient $ingredient */
+                $ingredient = $lockedIngredients->get($ingredientId);
+                $quantityBefore = round((float) $ingredient->current_stock_quantity, 3);
+                $quantityAfter = round($quantityBefore + $consumedTotal, 3);
+
+                $ingredient->update([
+                    'current_stock_quantity' => $quantityAfter,
+                ]);
+
+                $movementRows[] = [
+                    'restaurant_id' => $lockedOrder->restaurant_id,
+                    'ingredient_id' => $ingredient->id,
+                    'order_id' => $lockedOrder->id,
+                    'order_item_id' => null,
+                    'performed_by' => $performedByUserId,
+                    'movement_type' => StockMovement::TYPE_CANCELLATION_RESTORE,
+                    'unit' => $ingredient->stock_unit,
+                    'quantity_delta' => $consumedTotal,
+                    'quantity_before' => $quantityBefore,
+                    'quantity_after' => $quantityAfter,
+                    'ingredient_name_snapshot' => $ingredient->name,
+                    'reference' => 'order:'.$lockedOrder->id,
+                    'notes' => 'Stock restored because a confirmed order was cancelled.',
+                    'occurred_at' => $now,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if ($movementRows !== []) {
+                StockMovement::query()->insert($movementRows);
+            }
+        };
+
+        if (DB::transactionLevel() > 0) {
+            $runner();
+
+            return;
+        }
+
+        DB::transaction($runner);
+    }
 }

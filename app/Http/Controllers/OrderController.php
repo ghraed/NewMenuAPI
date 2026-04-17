@@ -301,19 +301,61 @@ class OrderController extends Controller
         $this->assertOrderBelongsToRestaurant($order, $restaurant);
         $this->assertStaffCanAccessOrder($user, $order, $restaurant);
 
-        if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
+        if (
+            $order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION
+            && $order->status !== Order::STATUS_STAFF_CONFIRMED
+        ) {
             return response()->json([
-                'message' => __('messages.orders.cancel_only_pending'),
+                'message' => __('messages.orders.cancel_only_pending_or_confirmed'),
             ], 422);
         }
 
-        $order->update([
-            'status' => Order::STATUS_STAFF_CANCELLED,
-            'cancelled_by' => $request->user()->id,
-            'cancelled_at' => now(),
-        ]);
+        try {
+            $order = DB::transaction(function () use ($order, $request) {
+                /** @var Order $lockedOrder */
+                $lockedOrder = Order::query()
+                    ->whereKey($order->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-        $order = $order->fresh(['restaurant', 'restaurantTable', 'items', 'cancelledBy']);
+                if (
+                    $lockedOrder->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION
+                    && $lockedOrder->status !== Order::STATUS_STAFF_CONFIRMED
+                ) {
+                    throw ValidationException::withMessages([
+                        'order' => __('messages.orders.cancel_only_pending_or_confirmed'),
+                    ]);
+                }
+
+                $wasConfirmed = $lockedOrder->status === Order::STATUS_STAFF_CONFIRMED;
+
+                $lockedOrder->update([
+                    'status' => Order::STATUS_STAFF_CANCELLED,
+                    'cancelled_by' => $request->user()->id,
+                    'cancelled_at' => now(),
+                ]);
+
+                if ($wasConfirmed) {
+                    $this->orderInventoryDeductionService->restoreForCancelledOrder(
+                        $lockedOrder,
+                        $request->user()->id
+                    );
+                }
+
+                return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'cancelledBy']);
+            });
+        } catch (ValidationException $exception) {
+            $firstError = collect($exception->errors())
+                ->flatten()
+                ->first();
+
+            return response()->json([
+                'message' => is_string($firstError) && $firstError !== ''
+                    ? $firstError
+                    : __('messages.orders.cancel_only_pending_or_confirmed'),
+                'errors' => $exception->errors(),
+            ], 422);
+        }
 
         return response()->json([
             'message' => __('messages.orders.cancelled'),

@@ -173,6 +173,117 @@ class OrderInventoryDeductionTest extends TestCase
         $this->assertSame($quantityBefore, $quantityAfter);
     }
 
+    public function test_cancelling_a_confirmed_order_restores_inventory_from_usage_snapshots(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $tomato = $this->createIngredient($restaurant, 'Tomato', 30, Ingredient::UNIT_GRAM);
+
+        $dish = $this->createDish($restaurant, 'Tomato Soup', 14.00);
+        $this->attachRecipe($dish, $tomato, 4.000);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $tomato->id,
+            'current_stock_quantity' => '22.000',
+        ]);
+
+        $cancelResponse = $this->postJson("/api/orders/{$order->id}/cancel");
+
+        $cancelResponse->assertOk()
+            ->assertJsonPath('order.status', Order::STATUS_STAFF_CANCELLED);
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $tomato->id,
+            'current_stock_quantity' => '30.000',
+        ]);
+
+        $this->assertDatabaseHas('stock_movements', [
+            'order_id' => $order->id,
+            'ingredient_id' => $tomato->id,
+            'movement_type' => StockMovement::TYPE_CANCELLATION_RESTORE,
+            'quantity_delta' => '8.000',
+            'quantity_before' => '22.000',
+            'quantity_after' => '30.000',
+        ]);
+    }
+
+    public function test_cancel_confirmed_order_without_prior_deduction_does_not_restore_stock(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $onion = $this->createIngredient($restaurant, 'Onion', 9, Ingredient::UNIT_GRAM);
+
+        $dish = $this->createDish($restaurant, 'Onion Rings', 10.00);
+        $this->attachRecipe($dish, $onion, 2.000);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+        $order->update([
+            'status' => Order::STATUS_STAFF_CONFIRMED,
+            'confirmed_by' => $staff->id,
+            'confirmed_at' => now(),
+        ]);
+
+        Sanctum::actingAs($staff);
+        $response = $this->postJson("/api/orders/{$order->id}/cancel");
+
+        $response->assertOk()
+            ->assertJsonPath('order.status', Order::STATUS_STAFF_CANCELLED);
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $onion->id,
+            'current_stock_quantity' => '9.000',
+        ]);
+
+        $this->assertSame(
+            0,
+            StockMovement::query()
+                ->where('order_id', $order->id)
+                ->where('movement_type', StockMovement::TYPE_CANCELLATION_RESTORE)
+                ->count()
+        );
+    }
+
+    public function test_inventory_restore_service_is_idempotent_for_same_cancelled_order(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $mint = $this->createIngredient($restaurant, 'Mint', 11, Ingredient::UNIT_GRAM);
+
+        $dish = $this->createDish($restaurant, 'Mint Tea', 6.00);
+        $this->attachRecipe($dish, $mint, 1.500);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+        $this->postJson("/api/orders/{$order->id}/cancel")->assertOk();
+
+        $movementCountBefore = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_CANCELLATION_RESTORE)
+            ->count();
+        $quantityBefore = (string) Ingredient::query()->findOrFail($mint->id)->current_stock_quantity;
+
+        app(OrderInventoryDeductionService::class)->restoreForCancelledOrder(
+            $order->fresh(),
+            $staff->id
+        );
+
+        $movementCountAfter = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_CANCELLATION_RESTORE)
+            ->count();
+        $quantityAfter = (string) Ingredient::query()->findOrFail($mint->id)->current_stock_quantity;
+
+        $this->assertSame($movementCountBefore, $movementCountAfter);
+        $this->assertSame($quantityBefore, $quantityAfter);
+    }
+
     private function createRestaurant(?User $owner = null): Restaurant
     {
         $admin = $owner ?? User::factory()->admin()->create();

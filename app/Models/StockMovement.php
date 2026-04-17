@@ -11,7 +11,8 @@ class StockMovement extends Model
     public const TYPE_RESTOCK = 'restock';
     public const TYPE_MANUAL_ADJUSTMENT = 'manual_adjustment';
     public const TYPE_ORDER_CONSUMPTION = 'order_consumption';
-    public const TYPE_ORDER_RESTORATION = 'order_restoration';
+    public const TYPE_CANCELLATION_RESTORE = 'order_restoration';
+    public const TYPE_ORDER_RESTORATION = self::TYPE_CANCELLATION_RESTORE;
 
     protected $fillable = [
         'restaurant_id',
