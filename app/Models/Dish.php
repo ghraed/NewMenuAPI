@@ -72,6 +72,18 @@ class Dish extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function dishIngredients(): HasMany
+    {
+        return $this->hasMany(DishIngredient::class);
+    }
+
+    public function ingredients(): BelongsToMany
+    {
+        return $this->belongsToMany(Ingredient::class, 'dish_ingredients')
+            ->withPivot(['quantity', 'unit'])
+            ->withTimestamps();
+    }
+
     public function suggestedDishes(): BelongsToMany
     {
         return $this->belongsToMany(

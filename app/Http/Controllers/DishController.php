@@ -4,13 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Models\Dish;
 use App\Models\DishAsset;
+use App\Models\Ingredient;
 use App\Models\Restaurant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class DishController extends Controller
@@ -55,6 +57,9 @@ class DishController extends Controller
             'suggested_dish_ids.*' => 'integer',
             'related_dish_ids' => 'sometimes|array',
             'related_dish_ids.*' => 'integer',
+            'recipe_ingredients' => 'sometimes|array',
+            'recipe_ingredients.*.ingredient_id' => 'required|integer|distinct|exists:ingredients,id',
+            'recipe_ingredients.*.quantity_required' => 'required|numeric|gt:0',
             'glb_file' => [
                 'nullable',
                 'file',
@@ -84,14 +89,24 @@ class DishController extends Controller
         unset($validated['status']);
         $suggestedDishIds = array_values(array_unique(array_map('intval', $validated['suggested_dish_ids'] ?? [])));
         $relatedDishIds = array_values(array_unique(array_map('intval', $validated['related_dish_ids'] ?? [])));
+        $recipeIngredients = $validated['recipe_ingredients'] ?? null;
         unset($validated['suggested_dish_ids']);
         unset($validated['related_dish_ids']);
-        $dish = $restaurant->dishes()->create(
-            array_merge($validated, ['status' => $status])
-        );
+        unset($validated['recipe_ingredients']);
+        $dish = DB::transaction(function () use ($restaurant, $validated, $status, $suggestedDishIds, $relatedDishIds, $recipeIngredients) {
+            $dish = $restaurant->dishes()->create(
+                array_merge($validated, ['status' => $status])
+            );
 
-        $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
-        $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
+            $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
+            $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
+
+            if ($recipeIngredients !== null) {
+                $this->syncDishIngredients($dish, $restaurant, $recipeIngredients);
+            }
+
+            return $dish;
+        });
 
         if ($request->hasFile('glb_file')) {
             $this->storeUploadedAsset($dish, $request->file('glb_file'), 'glb');
@@ -101,7 +116,13 @@ class DishController extends Controller
             $this->storeUploadedAsset($dish, $request->file('usdz_file'), 'usdz');
         }
 
-        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets', 'relatedDishes.assets']), 201);
+        return response()->json($dish->load([
+            'assets',
+            'latestScan',
+            'suggestedDishes.assets',
+            'relatedDishes.assets',
+            'dishIngredients.ingredient',
+        ]), 201);
     }
 
     public function show(Request $request, Dish $dish): JsonResponse
@@ -109,7 +130,13 @@ class DishController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
 
-        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets', 'relatedDishes.assets']));
+        return response()->json($dish->load([
+            'assets',
+            'latestScan',
+            'suggestedDishes.assets',
+            'relatedDishes.assets',
+            'dishIngredients.ingredient',
+        ]));
     }
 
     public function copyModel(Request $request, Dish $dish): JsonResponse
@@ -194,6 +221,9 @@ class DishController extends Controller
             'suggested_dish_ids.*' => 'integer',
             'related_dish_ids' => 'sometimes|array',
             'related_dish_ids.*' => 'integer',
+            'recipe_ingredients' => 'sometimes|array',
+            'recipe_ingredients.*.ingredient_id' => 'required|integer|distinct|exists:ingredients,id',
+            'recipe_ingredients.*.quantity_required' => 'required|numeric|gt:0',
         ]);
 
         $suggestedDishIds = null;
@@ -208,17 +238,35 @@ class DishController extends Controller
             unset($validated['related_dish_ids']);
         }
 
-        $dish->update($validated);
-
-        if ($suggestedDishIds !== null) {
-            $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
+        $recipeIngredients = null;
+        if (array_key_exists('recipe_ingredients', $validated)) {
+            $recipeIngredients = $validated['recipe_ingredients'] ?? [];
+            unset($validated['recipe_ingredients']);
         }
 
-        if ($relatedDishIds !== null) {
-            $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
-        }
+        DB::transaction(function () use ($dish, $validated, $restaurant, $suggestedDishIds, $relatedDishIds, $recipeIngredients): void {
+            $dish->update($validated);
 
-        return response()->json($dish->load(['assets', 'latestScan', 'suggestedDishes.assets', 'relatedDishes.assets']));
+            if ($suggestedDishIds !== null) {
+                $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
+            }
+
+            if ($relatedDishIds !== null) {
+                $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
+            }
+
+            if ($recipeIngredients !== null) {
+                $this->syncDishIngredients($dish, $restaurant, $recipeIngredients);
+            }
+        });
+
+        return response()->json($dish->load([
+            'assets',
+            'latestScan',
+            'suggestedDishes.assets',
+            'relatedDishes.assets',
+            'dishIngredients.ingredient',
+        ]));
     }
 
     public function destroy(Request $request, Dish $dish): JsonResponse
@@ -493,6 +541,87 @@ class DishController extends Controller
         );
 
         $dish->relatedDishes()->sync($validIds);
+    }
+
+    private function syncDishIngredients(Dish $dish, Restaurant $restaurant, array $recipeIngredients): void
+    {
+        $normalizedRows = [];
+
+        foreach ($recipeIngredients as $index => $row) {
+            $ingredientId = (int) ($row['ingredient_id'] ?? 0);
+            $quantity = round((float) ($row['quantity_required'] ?? 0), 3);
+
+            if ($ingredientId <= 0) {
+                throw ValidationException::withMessages([
+                    "recipe_ingredients.{$index}.ingredient_id" => 'Select a valid ingredient.',
+                ]);
+            }
+
+            if ($quantity <= 0) {
+                throw ValidationException::withMessages([
+                    "recipe_ingredients.{$index}.quantity_required" => 'Quantity required must be greater than zero.',
+                ]);
+            }
+
+            $normalizedRows[] = [
+                'ingredient_id' => $ingredientId,
+                'quantity' => $quantity,
+            ];
+        }
+
+        if ($normalizedRows === []) {
+            $dish->dishIngredients()->delete();
+
+            return;
+        }
+
+        $ingredientIds = array_values(array_unique(array_map(
+            fn (array $row): int => $row['ingredient_id'],
+            $normalizedRows
+        )));
+
+        $ingredientsById = Ingredient::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('id', $ingredientIds)
+            ->get()
+            ->keyBy('id');
+
+        if ($ingredientsById->count() !== count($ingredientIds)) {
+            throw ValidationException::withMessages([
+                'recipe_ingredients' => 'Recipe ingredients must belong to your restaurant.',
+            ]);
+        }
+
+        $normalizedByIngredientId = collect($normalizedRows)->keyBy('ingredient_id');
+        $existingRows = $dish->dishIngredients()->get()->keyBy('ingredient_id');
+        $ingredientIdsToDelete = $existingRows->keys()->diff($normalizedByIngredientId->keys())->values()->all();
+
+        if ($ingredientIdsToDelete !== []) {
+            $dish->dishIngredients()
+                ->whereIn('ingredient_id', $ingredientIdsToDelete)
+                ->delete();
+        }
+
+        foreach ($normalizedRows as $row) {
+            $ingredientId = $row['ingredient_id'];
+            /** @var Ingredient $ingredient */
+            $ingredient = $ingredientsById->get($ingredientId);
+
+            $payload = [
+                'ingredient_id' => $ingredientId,
+                'quantity' => $row['quantity'],
+                'unit' => $ingredient->stock_unit,
+            ];
+
+            $existingRow = $existingRows->get($ingredientId);
+            if ($existingRow) {
+                $existingRow->update($payload);
+
+                continue;
+            }
+
+            $dish->dishIngredients()->create($payload);
+        }
     }
 
     private function validateRelatedDishIds(
