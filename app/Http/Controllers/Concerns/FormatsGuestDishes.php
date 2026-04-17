@@ -26,6 +26,10 @@ trait FormatsGuestDishes
             $localized['related_dishes'] = $this->localizeDishes($dish->relatedDishes);
         }
 
+        if ($dish->relationLoaded('alternativeDishes')) {
+            $localized['alternative_dishes'] = $this->localizeDishes($dish->alternativeDishes);
+        }
+
         return $localized;
     }
 }

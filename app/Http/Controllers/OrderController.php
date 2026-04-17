@@ -9,6 +9,7 @@ use App\Models\Restaurant;
 use App\Models\RestaurantTable;
 use App\Models\TableSession;
 use App\Models\User;
+use App\Services\DishAlternativeSuggestionService;
 use App\Services\GuestMenuSessionService;
 use App\Services\OrderInventoryDeductionService;
 use App\Services\OrderInvoiceCalculator;
@@ -24,7 +25,8 @@ class OrderController extends Controller
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService,
         private readonly TableSessionAccessService $tableSessionAccessService,
-        private readonly OrderInventoryDeductionService $orderInventoryDeductionService
+        private readonly OrderInventoryDeductionService $orderInventoryDeductionService,
+        private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService
     ) {
     }
 
@@ -161,6 +163,18 @@ class OrderController extends Controller
                     'category' => $dish->category,
                     'is_orderable' => $isOrderable,
                     'is_out_of_stock' => ! $isOrderable,
+                    'alternative_dishes' => $isOrderable
+                        ? []
+                        : $this->dishAlternativeSuggestionService
+                            ->suggestForDish($dish, 4)
+                            ->map(fn (Dish $alternativeDish) => [
+                                'id' => $alternativeDish->id,
+                                'name' => $alternativeDish->name,
+                                'price' => (float) $alternativeDish->price,
+                                'category' => $alternativeDish->category,
+                            ])
+                            ->values()
+                            ->all(),
                 ];
             })
             ->values();

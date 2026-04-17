@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\FormatsGuestDishes;
 use App\Models\AnalyticsEvent;
 use App\Models\Dish;
 use App\Models\Restaurant;
+use App\Services\DishAlternativeSuggestionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -13,6 +14,11 @@ use Illuminate\Support\Facades\Storage;
 class GuestController extends Controller
 {
     use FormatsGuestDishes;
+
+    public function __construct(
+        private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService
+    ) {
+    }
 
     public function listDishes(string $restaurant_slug): JsonResponse
     {
@@ -71,6 +77,13 @@ class GuestController extends Controller
                     ->orderBy('name');
             },
         ]);
+
+        if (! $dish->isOrderable()) {
+            $dish->setRelation(
+                'alternativeDishes',
+                $this->dishAlternativeSuggestionService->suggestForDish($dish, 4)
+            );
+        }
 
         return response()->json($this->localizeDish($dish));
     }
