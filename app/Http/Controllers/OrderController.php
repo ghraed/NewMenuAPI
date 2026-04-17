@@ -10,6 +10,7 @@ use App\Models\RestaurantTable;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
+use App\Services\OrderInventoryDeductionService;
 use App\Services\OrderInvoiceCalculator;
 use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
@@ -22,7 +23,8 @@ class OrderController extends Controller
 {
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService,
-        private readonly TableSessionAccessService $tableSessionAccessService
+        private readonly TableSessionAccessService $tableSessionAccessService,
+        private readonly OrderInventoryDeductionService $orderInventoryDeductionService
     ) {
     }
 
@@ -246,13 +248,45 @@ class OrderController extends Controller
             ], 422);
         }
 
-        $order->update([
-            'status' => Order::STATUS_STAFF_CONFIRMED,
-            'confirmed_by' => $request->user()->id,
-            'confirmed_at' => now(),
-        ]);
+        try {
+            $order = DB::transaction(function () use ($order, $request) {
+                /** @var Order $lockedOrder */
+                $lockedOrder = Order::query()
+                    ->whereKey($order->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-        $order = $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy']);
+                if ($lockedOrder->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
+                    throw ValidationException::withMessages([
+                        'order' => __('messages.orders.confirm_only_pending'),
+                    ]);
+                }
+
+                $lockedOrder->update([
+                    'status' => Order::STATUS_STAFF_CONFIRMED,
+                    'confirmed_by' => $request->user()->id,
+                    'confirmed_at' => now(),
+                ]);
+
+                $this->orderInventoryDeductionService->deductForConfirmedOrder(
+                    $lockedOrder,
+                    $request->user()->id
+                );
+
+                return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy']);
+            });
+        } catch (ValidationException $exception) {
+            $firstError = collect($exception->errors())
+                ->flatten()
+                ->first();
+
+            return response()->json([
+                'message' => is_string($firstError) && $firstError !== ''
+                    ? $firstError
+                    : __('messages.orders.confirm_only_pending'),
+                'errors' => $exception->errors(),
+            ], 422);
+        }
 
         return response()->json([
             'message' => __('messages.orders.confirmed'),
