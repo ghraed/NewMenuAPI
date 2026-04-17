@@ -27,6 +27,7 @@ class Ingredient extends Model
         'stock_unit',
         'current_stock_quantity',
         'low_stock_threshold',
+        'is_active',
     ];
 
     protected $appends = [
@@ -38,6 +39,7 @@ class Ingredient extends Model
         'file_size' => 'integer',
         'current_stock_quantity' => 'decimal:3',
         'low_stock_threshold' => 'decimal:3',
+        'is_active' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

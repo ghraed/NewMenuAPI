@@ -18,6 +18,7 @@ class IngredientLibraryController extends Controller
 
         return response()->json(
             $restaurant->ingredients()
+                ->whereNotNull('file_path')
                 ->orderBy('name')
                 ->get()
         );
@@ -55,19 +56,25 @@ class IngredientLibraryController extends Controller
         return response()->json([
             'message' => 'Ingredient library updated successfully.',
             'uploaded_count' => $uploaded->count(),
-            'ingredients' => $restaurant->ingredients()->orderBy('name')->get(),
+            'ingredients' => $restaurant->ingredients()->whereNotNull('file_path')->orderBy('name')->get(),
         ], 201);
     }
 
     public function destroyAll(Request $request): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
-        $ingredients = $restaurant->ingredients()->get();
+        $ingredients = $restaurant->ingredients()->whereNotNull('file_path')->get();
         $deletedCount = $ingredients->count();
 
         foreach ($ingredients as $ingredient) {
             $this->deleteStoredIngredientFile($ingredient);
-            $ingredient->delete();
+
+            $ingredient->update([
+                'file_path' => null,
+                'source_file_name' => null,
+                'file_size' => null,
+                'mime_type' => null,
+            ]);
         }
 
         return response()->json([
@@ -92,13 +99,13 @@ class IngredientLibraryController extends Controller
     {
         $ingredientName = $this->ingredientNameFromFile($file->getClientOriginalName());
 
-        $restaurant->ingredients()
+        $existingIngredient = $restaurant->ingredients()
             ->where('name', $ingredientName)
-            ->get()
-            ->each(function (Ingredient $existingIngredient): void {
-                $this->deleteStoredIngredientFile($existingIngredient);
-                $existingIngredient->delete();
-            });
+            ->first();
+
+        if ($existingIngredient) {
+            $this->deleteStoredIngredientFile($existingIngredient);
+        }
 
         $originalName = basename((string) $file->getClientOriginalName()) ?: 'ingredient.jpg';
         $path = $file->storeAs(
@@ -106,6 +113,19 @@ class IngredientLibraryController extends Controller
             Str::uuid().'-'.$originalName,
             'public'
         );
+
+        if ($existingIngredient) {
+            $existingIngredient->update([
+                'name_ar' => $existingIngredient->name_ar ?: $this->translateIngredientNameToArabic($ingredientName),
+                'storage_disk' => 'public',
+                'file_path' => $path,
+                'source_file_name' => $originalName,
+                'file_size' => $file->getSize(),
+                'mime_type' => $file->getMimeType() ?: 'image/jpeg',
+            ]);
+
+            return $existingIngredient->fresh();
+        }
 
         return $restaurant->ingredients()->create([
             'uuid' => (string) Str::uuid(),

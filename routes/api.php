@@ -8,6 +8,7 @@ use App\Http\Controllers\DishController;
 use App\Http\Controllers\GuestTableAccessController;
 use App\Http\Controllers\GuestController;
 use App\Http\Controllers\IngredientLibraryController;
+use App\Http\Controllers\InventoryIngredientController;
 use App\Http\Controllers\MenuController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
@@ -96,5 +97,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/ingredients', [IngredientLibraryController::class, 'index']);
         Route::post('/ingredients/bulk-upload', [IngredientLibraryController::class, 'bulkUpload']);
         Route::delete('/ingredients', [IngredientLibraryController::class, 'destroyAll']);
+
+        // Inventory ingredients
+        Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
+        Route::post('/inventory/ingredients', [InventoryIngredientController::class, 'store']);
+        Route::patch('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'update']);
+        Route::post('/inventory/ingredients/{ingredient}/activate', [InventoryIngredientController::class, 'activate']);
+        Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
+        Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
+        Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
     });
 });
