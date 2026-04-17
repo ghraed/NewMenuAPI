@@ -9,6 +9,7 @@ use App\Http\Controllers\GuestTableAccessController;
 use App\Http\Controllers\GuestController;
 use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\InventoryIngredientController;
+use App\Http\Controllers\InventoryStockHistoryController;
 use App\Http\Controllers\MenuController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
@@ -100,6 +101,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Inventory ingredients
         Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
+        Route::get('/inventory/stock-history', [InventoryStockHistoryController::class, 'index']);
         Route::post('/inventory/ingredients', [InventoryIngredientController::class, 'store']);
         Route::patch('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'update']);
         Route::post('/inventory/ingredients/{ingredient}/activate', [InventoryIngredientController::class, 'activate']);
