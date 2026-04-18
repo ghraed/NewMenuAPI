@@ -284,6 +284,106 @@ class OrderInventoryDeductionTest extends TestCase
         $this->assertSame($quantityBefore, $quantityAfter);
     }
 
+    public function test_cancelling_same_order_twice_does_not_restore_stock_twice(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $oliveOil = $this->createIngredient($restaurant, 'Olive Oil', 10, Ingredient::UNIT_MILLILITER);
+
+        $dish = $this->createDish($restaurant, 'Garlic Bread', 8.50);
+        $this->attachRecipe($dish, $oliveOil, 2.000);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+        $this->postJson("/api/orders/{$order->id}/cancel")->assertOk();
+
+        $restorationCountAfterFirstCancel = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_CANCELLATION_RESTORE)
+            ->count();
+        $quantityAfterFirstCancel = (string) Ingredient::query()->findOrFail($oliveOil->id)->current_stock_quantity;
+
+        $secondCancelResponse = $this->postJson("/api/orders/{$order->id}/cancel");
+
+        $secondCancelResponse->assertStatus(422);
+
+        $restorationCountAfterSecondCancel = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_CANCELLATION_RESTORE)
+            ->count();
+        $quantityAfterSecondCancel = (string) Ingredient::query()->findOrFail($oliveOil->id)->current_stock_quantity;
+
+        $this->assertSame($restorationCountAfterFirstCancel, $restorationCountAfterSecondCancel);
+        $this->assertSame($quantityAfterFirstCancel, $quantityAfterSecondCancel);
+    }
+
+    public function test_usage_snapshot_uses_recipe_values_at_confirmation_time(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $rice = $this->createIngredient($restaurant, 'Rice', 20, Ingredient::UNIT_GRAM);
+
+        $dish = $this->createDish($restaurant, 'Rice Bowl', 13.00);
+        $dishIngredient = $this->attachRecipe($dish, $rice, 1.000);
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+
+        // Recipe changed before confirmation; snapshot should use this latest value.
+        $dishIngredient->update([
+            'quantity' => '2.500',
+        ]);
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $usage = OrderItemIngredientUsage::query()
+            ->where('order_id', $order->id)
+            ->where('ingredient_id', $rice->id)
+            ->firstOrFail();
+
+        $this->assertSame('2.500', (string) $usage->recipe_quantity_per_dish);
+        $this->assertSame('5.000', (string) $usage->consumed_quantity);
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $rice->id,
+            'current_stock_quantity' => '15.000',
+        ]);
+    }
+
+    public function test_recipe_changes_after_confirmation_do_not_alter_existing_usage_history(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $milk = $this->createIngredient($restaurant, 'Milk', 30, Ingredient::UNIT_MILLILITER);
+
+        $dish = $this->createDish($restaurant, 'Milkshake', 7.00);
+        $dishIngredient = $this->attachRecipe($dish, $milk, 1.500);
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $usageBeforeRecipeChange = OrderItemIngredientUsage::query()
+            ->where('order_id', $order->id)
+            ->where('ingredient_id', $milk->id)
+            ->firstOrFail();
+
+        $this->assertSame('1.500', (string) $usageBeforeRecipeChange->recipe_quantity_per_dish);
+        $this->assertSame('3.000', (string) $usageBeforeRecipeChange->consumed_quantity);
+
+        $dishIngredient->update([
+            'quantity' => '5.000',
+        ]);
+
+        $usageAfterRecipeChange = OrderItemIngredientUsage::query()
+            ->where('order_id', $order->id)
+            ->where('ingredient_id', $milk->id)
+            ->firstOrFail();
+
+        $this->assertSame('1.500', (string) $usageAfterRecipeChange->recipe_quantity_per_dish);
+        $this->assertSame('3.000', (string) $usageAfterRecipeChange->consumed_quantity);
+    }
+
     private function createRestaurant(?User $owner = null): Restaurant
     {
         $admin = $owner ?? User::factory()->admin()->create();
