@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Dish;
+use App\Models\GlobalIngredient;
+use App\Models\Ingredient;
 use App\Models\Restaurant;
 use App\Models\User;
 use Database\Seeders\DummyDishesSeeder;
@@ -80,3 +82,50 @@ Artisan::command('dishes:purge-dummy', function () {
 
     return 0;
 })->purpose('Delete all dummy dishes created by the DummyDishesSeeder.');
+
+
+Artisan::command('ingredients:backfill-global-links', function () {
+    $globalByNormalized = GlobalIngredient::query()
+        ->get()
+        ->keyBy(fn (GlobalIngredient $ingredient) => $ingredient->normalized_name);
+
+    if ($globalByNormalized->isEmpty()) {
+        $this->warn('No global ingredients found. Seed them first using php artisan db:seed.');
+
+        return 0;
+    }
+
+    $updatedCount = 0;
+
+    Ingredient::query()
+        ->whereNull('global_ingredient_id')
+        ->orderBy('id')
+        ->chunkById(200, function ($ingredients) use ($globalByNormalized, &$updatedCount) {
+            foreach ($ingredients as $ingredient) {
+                $normalizedName = strtolower(trim((string) $ingredient->name));
+                $normalizedName = str_replace('&', 'and', $normalizedName);
+                $normalizedName = preg_replace('/[^a-z0-9]+/', ' ', $normalizedName) ?? $normalizedName;
+                $normalizedName = trim(preg_replace('/\s+/', ' ', $normalizedName) ?? $normalizedName);
+
+                if ($normalizedName === '') {
+                    continue;
+                }
+
+                /** @var GlobalIngredient|null $matchedGlobal */
+                $matchedGlobal = $globalByNormalized->get($normalizedName);
+                if (! $matchedGlobal) {
+                    continue;
+                }
+
+                $ingredient->update([
+                    'global_ingredient_id' => $matchedGlobal->id,
+                ]);
+
+                $updatedCount++;
+            }
+        });
+
+    $this->info(sprintf('Backfill complete. Linked %d local ingredients to global catalog rows.', $updatedCount));
+
+    return 0;
+})->purpose('Backfill ingredients.global_ingredient_id by normalized local ingredient names.');

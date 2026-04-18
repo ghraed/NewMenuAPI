@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\GlobalIngredient;
 use App\Models\Ingredient;
 use App\Models\Restaurant;
 use Illuminate\Http\JsonResponse;
@@ -42,15 +43,19 @@ class IngredientLibraryController extends Controller
                     }
                 },
             ],
+            'global_ingredient_ids' => ['sometimes', 'array'],
+            'global_ingredient_ids.*' => ['nullable', 'integer', 'exists:global_ingredients,id'],
         ]);
 
         $uploaded = collect();
 
         /** @var UploadedFile[] $files */
         $files = $request->file('images', []);
+        $requestedGlobalIngredientIds = $request->input('global_ingredient_ids', []);
 
-        foreach ($files as $file) {
-            $uploaded->push($this->storeIngredient($restaurant, $file));
+        foreach ($files as $index => $file) {
+            $requestedGlobalIngredientId = $this->normalizeOptionalInteger($requestedGlobalIngredientIds[$index] ?? null);
+            $uploaded->push($this->storeIngredient($restaurant, $file, $requestedGlobalIngredientId));
         }
 
         return response()->json([
@@ -95,13 +100,25 @@ class IngredientLibraryController extends Controller
         return $user->restaurant;
     }
 
-    private function storeIngredient(Restaurant $restaurant, UploadedFile $file): Ingredient
+    private function storeIngredient(Restaurant $restaurant, UploadedFile $file, ?int $requestedGlobalIngredientId = null): Ingredient
     {
-        $ingredientName = $this->ingredientNameFromFile($file->getClientOriginalName());
+        $derivedIngredientName = $this->ingredientNameFromFile($file->getClientOriginalName());
+        $matchedGlobalIngredient = $this->resolveGlobalIngredientForUpload($derivedIngredientName, $requestedGlobalIngredientId);
+        $ingredientName = $matchedGlobalIngredient?->name ?: $derivedIngredientName;
 
-        $existingIngredient = $restaurant->ingredients()
-            ->where('name', $ingredientName)
-            ->first();
+        $existingIngredient = null;
+
+        if ($matchedGlobalIngredient) {
+            $existingIngredient = $restaurant->ingredients()
+                ->where('global_ingredient_id', $matchedGlobalIngredient->id)
+                ->first();
+        }
+
+        if (! $existingIngredient) {
+            $existingIngredient = $restaurant->ingredients()
+                ->where('name', $ingredientName)
+                ->first();
+        }
 
         if ($existingIngredient) {
             $this->deleteStoredIngredientFile($existingIngredient);
@@ -114,9 +131,16 @@ class IngredientLibraryController extends Controller
             'public'
         );
 
+        $globalIngredientId = $matchedGlobalIngredient?->id ?: $existingIngredient?->global_ingredient_id;
+        $nameArabic = $existingIngredient?->name_ar
+            ?: $matchedGlobalIngredient?->name_ar
+            ?: $this->translateIngredientNameToArabic($ingredientName);
+
         if ($existingIngredient) {
             $existingIngredient->update([
-                'name_ar' => $existingIngredient->name_ar ?: $this->translateIngredientNameToArabic($ingredientName),
+                'global_ingredient_id' => $globalIngredientId,
+                'name' => $ingredientName,
+                'name_ar' => $nameArabic,
                 'storage_disk' => 'public',
                 'file_path' => $path,
                 'source_file_name' => $originalName,
@@ -129,8 +153,9 @@ class IngredientLibraryController extends Controller
 
         return $restaurant->ingredients()->create([
             'uuid' => (string) Str::uuid(),
+            'global_ingredient_id' => $globalIngredientId,
             'name' => $ingredientName,
-            'name_ar' => $this->translateIngredientNameToArabic($ingredientName),
+            'name_ar' => $nameArabic,
             'storage_disk' => 'public',
             'file_path' => $path,
             'source_file_name' => $originalName,
@@ -142,9 +167,53 @@ class IngredientLibraryController extends Controller
     private function ingredientNameFromFile(string $fileName): string
     {
         $baseName = pathinfo($fileName, PATHINFO_FILENAME);
-        $withSpaces = str_replace('-', ' ', $baseName);
+        $withSpaces = str_replace(['-', '_'], ' ', $baseName);
 
         return trim(preg_replace('/\s+/', ' ', $withSpaces) ?: $baseName);
+    }
+
+    private function resolveGlobalIngredientForUpload(string $ingredientName, ?int $requestedGlobalIngredientId): ?GlobalIngredient
+    {
+        if ($requestedGlobalIngredientId !== null) {
+            $matchedById = GlobalIngredient::query()->find($requestedGlobalIngredientId);
+            if ($matchedById) {
+                return $matchedById;
+            }
+        }
+
+        $normalizedName = $this->normalizeIngredientName($ingredientName);
+
+        if ($normalizedName === '') {
+            return null;
+        }
+
+        return GlobalIngredient::query()
+            ->where('normalized_name', $normalizedName)
+            ->first();
+    }
+
+    private function normalizeIngredientName(string $value): string
+    {
+        $normalized = strtolower(trim($value));
+        $normalized = str_replace('&', 'and', $normalized);
+        $normalized = preg_replace('/[^a-z0-9]+/', ' ', $normalized) ?? $normalized;
+
+        return trim(preg_replace('/\s+/', ' ', $normalized) ?? $normalized);
+    }
+
+    private function normalizeOptionalInteger(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            $numericValue = (int) $value;
+
+            return $numericValue > 0 ? $numericValue : null;
+        }
+
+        return null;
     }
 
     private function translateIngredientNameToArabic(string $ingredientName): string

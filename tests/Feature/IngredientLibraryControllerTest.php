@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\GlobalIngredient;
 use App\Models\Ingredient;
 use App\Models\Restaurant;
 use App\Models\User;
@@ -23,6 +24,13 @@ class IngredientLibraryControllerTest extends TestCase
         $user = User::factory()->create();
         $restaurant = $this->createRestaurant($user);
 
+        $globalOliveOil = GlobalIngredient::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'name' => 'extra virgin olive oil',
+            'name_ar' => 'زيت زيتون بكر ممتاز',
+            'normalized_name' => 'extra virgin olive oil',
+        ]);
+
         Sanctum::actingAs($user);
 
         $response = $this->post('/api/ingredients/bulk-upload', [
@@ -38,6 +46,7 @@ class IngredientLibraryControllerTest extends TestCase
         $this->assertDatabaseHas('ingredients', [
             'restaurant_id' => $restaurant->id,
             'name' => 'extra virgin olive oil',
+            'global_ingredient_id' => $globalOliveOil->id,
         ]);
 
         $this->assertDatabaseHas('ingredients', [

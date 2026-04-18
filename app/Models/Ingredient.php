@@ -17,6 +17,7 @@ class Ingredient extends Model
     protected $fillable = [
         'uuid',
         'restaurant_id',
+        'global_ingredient_id',
         'name',
         'name_ar',
         'storage_disk',
@@ -56,6 +57,11 @@ class Ingredient extends Model
     public function restaurant(): BelongsTo
     {
         return $this->belongsTo(Restaurant::class);
+    }
+
+    public function globalIngredient(): BelongsTo
+    {
+        return $this->belongsTo(GlobalIngredient::class);
     }
 
     public function dishes(): BelongsToMany

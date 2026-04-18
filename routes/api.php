@@ -7,6 +7,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DishController;
 use App\Http\Controllers\GuestTableAccessController;
 use App\Http\Controllers\GuestController;
+use App\Http\Controllers\GlobalIngredientController;
 use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\InventoryIngredientController;
 use App\Http\Controllers\InventoryStockHistoryController;
@@ -93,6 +94,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/restaurant/staff', [RestaurantController::class, 'indexStaff']);
         Route::post('/restaurant/staff', [RestaurantController::class, 'storeStaff']);
         Route::patch('/restaurant/staff/{staff}/tables', [RestaurantController::class, 'updateStaffTables']);
+
+        // Global ingredients (catalog reference used by ingredient library only)
+        Route::get('/global-ingredients', [GlobalIngredientController::class, 'index']);
 
         // Ingredient library
         Route::get('/ingredients', [IngredientLibraryController::class, 'index']);

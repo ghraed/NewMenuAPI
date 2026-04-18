@@ -17,6 +17,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // Seed the global ingredient catalog from Menu_React/src/i18n/ingredients.ts
+        $this->call(GlobalIngredientsSeeder::class);
+
         // Create users
         $this->createUsers();
 
