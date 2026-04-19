@@ -4,6 +4,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ChatController;
 use App\Http\Controllers\DishController;
 use App\Http\Controllers\GuestTableAccessController;
 use App\Http\Controllers\GuestController;
@@ -18,10 +19,12 @@ use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\RestaurantController;
 use App\Http\Controllers\TableSessionController;
 use App\Http\Controllers\WaveController;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::middleware([StartSession::class, 'throttle:30,1'])->post('/chat', [ChatController::class, 'chat']);
 Route::get('/test', [GuestController::class, 'test']);
 Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
 Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishes']);
