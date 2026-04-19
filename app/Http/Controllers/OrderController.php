@@ -17,6 +17,7 @@ use App\Services\OrderInvoiceCalculator;
 use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -114,6 +115,18 @@ class OrderController extends Controller
         ]);
 
         $sessionId = $request->hasSession() ? $request->session()->getId() : null;
+        $sessionScope = is_string($sessionId) && $sessionId !== ''
+            ? $sessionId
+            : (($request->ip() ?: 'unknown').'|'.substr((string) $request->userAgent(), 0, 64));
+
+        $fingerprint = sha1(json_encode($validated['items'], JSON_UNESCAPED_UNICODE));
+        $lockKey = 'chat-order:'.$sessionScope.':'.$fingerprint;
+
+        if (! Cache::add($lockKey, 1, now()->addSeconds(15))) {
+            return response()->json([
+                'message' => 'Duplicate order detected. Please wait a moment.',
+            ], 429);
+        }
 
         $chatOrder = ChatOrder::query()->create([
             'items' => $validated['items'],

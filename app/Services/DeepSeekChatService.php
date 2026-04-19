@@ -2,20 +2,21 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 use RuntimeException;
 
 class DeepSeekChatService
 {
-    private const ENDPOINT = 'https://api.deepseek.com/chat/completions';
-
     /**
      * @param array<int, array{role:string, content:string}> $messages
      * @return array{reply:string, order_data?:array<string,mixed>}
      */
     public function chat(array $messages, ?string $language = null): array
     {
-        $apiKey = (string) env('DEEPSEEK_API_KEY', '');
+        $apiKey = (string) config('services.deepseek.key', '');
 
         if ($apiKey === '') {
             throw new RuntimeException('DeepSeek API key is not configured.');
@@ -35,22 +36,23 @@ class DeepSeekChatService
             ],
         ];
 
-        $response = Http::timeout(30)
-            ->acceptJson()
-            ->withToken($apiKey)
-            ->post(self::ENDPOINT, $payload);
+        $cacheKey = 'deepseek:'.sha1(json_encode([
+            'lang' => $language,
+            'messages' => $messages,
+        ], JSON_UNESCAPED_UNICODE));
 
-        if ($response->failed()) {
-            throw new RuntimeException('DeepSeek API request failed with status '.$response->status().'.');
+        $cacheTtl = max(0, (int) config('services.deepseek.cache_ttl', 60));
+
+        if ($cacheTtl > 0) {
+            /** @var array{reply:string, order_data?:array<string,mixed>} $cachedResult */
+            $cachedResult = Cache::remember($cacheKey, now()->addSeconds($cacheTtl), function () use ($apiKey, $payload): array {
+                return $this->executeRequest($apiKey, $payload);
+            });
+
+            return $cachedResult;
         }
 
-        $content = (string) data_get($response->json(), 'choices.0.message.content', '');
-
-        if ($content === '') {
-            throw new RuntimeException('DeepSeek API returned an empty response.');
-        }
-
-        return $this->normalizeAssistantOutput($content);
+        return $this->executeRequest($apiKey, $payload);
     }
 
     private function buildSystemPrompt(?string $language = null): string
@@ -307,5 +309,56 @@ class DeepSeekChatService
         }
 
         return trim($withoutFences);
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     * @return array{reply:string, order_data?:array<string,mixed>}
+     */
+    private function executeRequest(string $apiKey, array $payload): array
+    {
+        $baseUrl = rtrim((string) config('services.deepseek.base_url', 'https://api.deepseek.com'), '/');
+        $timeout = max(1, (int) config('services.deepseek.timeout', 20));
+        $connectTimeout = max(1, (int) config('services.deepseek.connect_timeout', 5));
+        $retryTimes = max(0, (int) config('services.deepseek.retry_times', 2));
+        $retrySleepMs = max(0, (int) config('services.deepseek.retry_sleep_ms', 250));
+
+        try {
+            $response = Http::baseUrl($baseUrl)
+                ->connectTimeout($connectTimeout)
+                ->timeout($timeout)
+                ->retry($retryTimes, $retrySleepMs)
+                ->acceptJson()
+                ->withToken($apiKey)
+                ->post('/chat/completions', $payload);
+        } catch (Throwable $e) {
+            Log::channel('ai')->warning('DeepSeek call threw exception', [
+                'message' => $e->getMessage(),
+            ]);
+
+            throw new RuntimeException('DeepSeek API request failed.');
+        }
+
+        if ($response->failed()) {
+            Log::channel('ai')->warning('DeepSeek call failed', [
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            throw new RuntimeException('DeepSeek API request failed with status '.$response->status().'.');
+        }
+
+        $content = (string) data_get($response->json(), 'choices.0.message.content', '');
+
+        if ($content === '') {
+            Log::channel('ai')->warning('DeepSeek returned empty content', [
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            throw new RuntimeException('DeepSeek API returned an empty response.');
+        }
+
+        return $this->normalizeAssistantOutput($content);
     }
 }

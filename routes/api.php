@@ -26,9 +26,9 @@ use Illuminate\Support\Facades\Route;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
-Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:30,1'])
+Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat'])
     ->post('/chat', [ChatController::class, 'chat']);
-Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:30,1'])
+Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat-orders'])
     ->post('/chat/orders', [OrderController::class, 'storeChatOrder']);
 Route::get('/test', [GuestController::class, 'test']);
 Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
