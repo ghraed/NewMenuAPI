@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Dish;
+use App\Models\ChatOrder;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
@@ -95,6 +96,33 @@ class OrderController extends Controller
         return response()->json([
             'message' => __('messages.orders.created'),
             'order' => $this->formatOrder($order),
+        ], 201);
+    }
+
+    public function storeChatOrder(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+        ]);
+
+        $sessionId = $request->hasSession() ? $request->session()->getId() : null;
+
+        $chatOrder = ChatOrder::query()->create([
+            'items' => $validated['items'],
+            'status' => 'pending',
+            'user_session_id' => is_string($sessionId) && $sessionId !== '' ? $sessionId : null,
+        ]);
+
+        return response()->json([
+            'message' => 'Chat order saved successfully.',
+            'order' => [
+                'id' => $chatOrder->id,
+                'items' => $chatOrder->items,
+                'status' => $chatOrder->status,
+                'user_session_id' => $chatOrder->user_session_id,
+                'created_at' => $chatOrder->created_at?->toIso8601String(),
+                'updated_at' => $chatOrder->updated_at?->toIso8601String(),
+            ],
         ], 201);
     }
 

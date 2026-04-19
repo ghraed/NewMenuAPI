@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Route;
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::middleware([StartSession::class, 'throttle:30,1'])->post('/chat', [ChatController::class, 'chat']);
+Route::middleware([StartSession::class, 'throttle:30,1'])->post('/chat/orders', [OrderController::class, 'storeChatOrder']);
 Route::get('/test', [GuestController::class, 'test']);
 Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
 Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishes']);
