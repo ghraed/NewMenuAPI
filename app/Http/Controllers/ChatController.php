@@ -11,6 +11,7 @@ use Throwable;
 class ChatController extends Controller
 {
     private const SESSION_KEY = 'chatbot.conversations';
+    private const SESSION_LANGUAGE_KEY = 'chatbot.conversation_languages';
     private const MAX_MESSAGES = 20;
 
     public function __construct(
@@ -32,11 +33,20 @@ class ChatController extends Controller
         }
 
         $message = trim($validated['message']);
-        $language = isset($validated['language']) ? trim((string) $validated['language']) : null;
+        $inputLanguage = isset($validated['language']) ? trim((string) $validated['language']) : null;
 
         $session = $request->session();
         $allConversations = $session->get(self::SESSION_KEY, []);
+        $allLanguages = $session->get(self::SESSION_LANGUAGE_KEY, []);
         $history = data_get($allConversations, $conversationId, []);
+        $storedLanguage = is_string(data_get($allLanguages, $conversationId))
+            ? (string) data_get($allLanguages, $conversationId)
+            : null;
+
+        $resolvedLanguage = $this->normalizeLanguage($inputLanguage)
+            ?? $this->normalizeLanguage($storedLanguage)
+            ?? $this->detectLanguageFromMessage($message)
+            ?? 'en';
 
         if (! is_array($history)) {
             $history = [];
@@ -58,7 +68,7 @@ class ChatController extends Controller
         );
 
         try {
-            $assistant = $this->deepSeekChatService->chat($chatMessages, $language);
+            $assistant = $this->deepSeekChatService->chat($chatMessages, $resolvedLanguage);
         } catch (Throwable $e) {
             report($e);
 
@@ -75,7 +85,9 @@ class ChatController extends Controller
         ];
 
         data_set($allConversations, $conversationId, array_slice($history, -self::MAX_MESSAGES));
+        data_set($allLanguages, $conversationId, $resolvedLanguage);
         $session->put(self::SESSION_KEY, $allConversations);
+        $session->put(self::SESSION_LANGUAGE_KEY, $allLanguages);
 
         $response = [
             'reply' => $assistant['reply'],
@@ -86,5 +98,42 @@ class ChatController extends Controller
         }
 
         return response()->json($response);
+    }
+
+    private function normalizeLanguage(?string $language): ?string
+    {
+        if (! is_string($language)) {
+            return null;
+        }
+
+        $normalized = strtolower(trim($language));
+
+        return match ($normalized) {
+            'ar', 'arabic' => 'ar',
+            'fr', 'french', 'francais', 'français' => 'fr',
+            'en', 'english' => 'en',
+            default => null,
+        };
+    }
+
+    private function detectLanguageFromMessage(string $message): ?string
+    {
+        if ($message === '') {
+            return null;
+        }
+
+        if (preg_match('/[\x{0600}-\x{06FF}]/u', $message) === 1) {
+            return 'ar';
+        }
+
+        if (preg_match('/[àâçéèêëîïôûùüÿœæ]/iu', $message) === 1) {
+            return 'fr';
+        }
+
+        if (preg_match('/\b(bonjour|bonsoir|merci|s(?:\'|’)il|je|voudrais|avec|sans|pour|menu|commande)\b/iu', $message) === 1) {
+            return 'fr';
+        }
+
+        return 'en';
     }
 }
