@@ -101,8 +101,16 @@ class OrderController extends Controller
 
     public function storeChatOrder(Request $request): JsonResponse
     {
+        if (! $request->isJson()) {
+            return response()->json([
+                'message' => 'Invalid content type. Expected application/json.',
+            ], 415);
+        }
+
         $validated = $request->validate([
             'items' => 'required|array|min:1',
+            'items.*.name' => 'required|string|max:255',
+            'items.*.quantity' => 'required|integer|min:1|max:99',
         ]);
 
         $sessionId = $request->hasSession() ? $request->session()->getId() : null;

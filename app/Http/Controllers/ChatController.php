@@ -13,6 +13,7 @@ class ChatController extends Controller
     private const SESSION_KEY = 'chatbot.conversations';
     private const SESSION_LANGUAGE_KEY = 'chatbot.conversation_languages';
     private const MAX_MESSAGES = 20;
+    private const MAX_CONVERSATIONS = 50;
 
     public function __construct(
         private readonly DeepSeekChatService $deepSeekChatService
@@ -21,23 +22,48 @@ class ChatController extends Controller
 
     public function chat(Request $request): JsonResponse
     {
+        if (! $request->isJson()) {
+            return response()->json([
+                'message' => 'Invalid content type. Expected application/json.',
+            ], 415);
+        }
+
         $validated = $request->validate([
             'message' => 'required|string|max:4000',
             'conversation_id' => 'nullable|string|max:120',
             'language' => 'nullable|string|max:20',
         ]);
 
-        $conversationId = trim((string) ($validated['conversation_id'] ?? ''));
-        if ($conversationId === '') {
-            $conversationId = 'default';
-        }
+        $conversationId = $this->sanitizeConversationId((string) ($validated['conversation_id'] ?? ''));
 
         $message = trim($validated['message']);
+        if ($message === '') {
+            return response()->json([
+                'message' => 'Message cannot be empty.',
+            ], 422);
+        }
+
         $inputLanguage = isset($validated['language']) ? trim((string) $validated['language']) : null;
 
         $session = $request->session();
         $allConversations = $session->get(self::SESSION_KEY, []);
         $allLanguages = $session->get(self::SESSION_LANGUAGE_KEY, []);
+
+        if (! is_array($allConversations)) {
+            $allConversations = [];
+        }
+
+        if (! is_array($allLanguages)) {
+            $allLanguages = [];
+        }
+
+        if (! array_key_exists($conversationId, $allConversations) && count($allConversations) >= self::MAX_CONVERSATIONS) {
+            $oldestConversationId = array_key_first($allConversations);
+            if (is_string($oldestConversationId) && $oldestConversationId !== '') {
+                unset($allConversations[$oldestConversationId], $allLanguages[$oldestConversationId]);
+            }
+        }
+
         $history = data_get($allConversations, $conversationId, []);
         $storedLanguage = is_string(data_get($allLanguages, $conversationId))
             ? (string) data_get($allLanguages, $conversationId)
@@ -135,5 +161,26 @@ class ChatController extends Controller
         }
 
         return 'en';
+    }
+
+    private function sanitizeConversationId(string $conversationId): string
+    {
+        $normalized = trim($conversationId);
+
+        if ($normalized === '') {
+            return 'default';
+        }
+
+        $normalized = preg_replace('/[^a-zA-Z0-9_-]+/', '-', $normalized);
+        if (! is_string($normalized)) {
+            return 'default';
+        }
+
+        $normalized = trim($normalized, '-_');
+        if ($normalized === '') {
+            return 'default';
+        }
+
+        return substr($normalized, 0, 120);
     }
 }
