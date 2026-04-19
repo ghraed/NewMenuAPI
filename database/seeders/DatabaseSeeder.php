@@ -35,6 +35,9 @@ class DatabaseSeeder extends Seeder
         // Create analytics events
         $this->createAnalyticsEvents();
 
+        // Optional realistic scenario dataset:
+        // php artisan db:seed --class=Database\\Seeders\\RealRestaurantScenarioSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
