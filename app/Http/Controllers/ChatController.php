@@ -2,7 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Dish;
+use App\Models\Restaurant;
+use App\Services\GuestMenuSessionService;
 use App\Services\DeepSeekChatService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -16,7 +20,8 @@ class ChatController extends Controller
     private const MAX_CONVERSATIONS = 50;
 
     public function __construct(
-        private readonly DeepSeekChatService $deepSeekChatService
+        private readonly DeepSeekChatService $deepSeekChatService,
+        private readonly GuestMenuSessionService $guestMenuSessionService
     ) {
     }
 
@@ -32,6 +37,8 @@ class ChatController extends Controller
             'message' => 'required|string|max:4000',
             'conversation_id' => 'nullable|string|max:120',
             'language' => 'nullable|string|max:20',
+            'restaurant_slug' => 'nullable|string|max:120',
+            'table_id' => 'nullable|integer|min:1',
         ]);
 
         $conversationId = $this->sanitizeConversationId((string) ($validated['conversation_id'] ?? ''));
@@ -93,8 +100,10 @@ class ChatController extends Controller
             array_slice($history, -self::MAX_MESSAGES)
         );
 
+        $chatContext = $this->resolveChatContext($validated);
+
         try {
-            $assistant = $this->deepSeekChatService->chat($chatMessages, $resolvedLanguage);
+            $assistant = $this->deepSeekChatService->chat($chatMessages, $resolvedLanguage, $chatContext);
         } catch (Throwable $e) {
             report($e);
 
@@ -182,5 +191,107 @@ class ChatController extends Controller
         }
 
         return substr($normalized, 0, 120);
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     * @return array{
+     *   restaurant_id:int,
+     *   restaurant_name:string,
+     *   restaurant_slug:string,
+     *   table_id?:int,
+     *   menu_items:array<int,array{
+     *     name:string,
+     *     category:string,
+     *     price:string,
+     *     description:string,
+     *     ingredients:array<int,string>
+     *   }>
+     * }
+     */
+    private function resolveChatContext(array $validated): array
+    {
+        $providedSlug = isset($validated['restaurant_slug']) ? trim((string) $validated['restaurant_slug']) : '';
+        $tableId = isset($validated['table_id']) ? (int) $validated['table_id'] : null;
+
+        $restaurant = null;
+        $resolvedTableId = null;
+
+        if ($tableId !== null) {
+            try {
+                $tableContext = $this->guestMenuSessionService->resolveTableContext($tableId);
+            } catch (ModelNotFoundException) {
+                abort(404, 'Invalid table context for chat.');
+            }
+
+            $restaurant = $tableContext['restaurant'] ?? null;
+            $resolvedTableId = $tableId;
+        }
+
+        if ($providedSlug !== '') {
+            $restaurantBySlug = Restaurant::query()->where('slug', $providedSlug)->first();
+
+            if (! $restaurantBySlug) {
+                abort(404, 'Restaurant not found for chat.');
+            }
+
+            if ($restaurant && $restaurant->id !== $restaurantBySlug->id) {
+                abort(422, 'Chat restaurant slug does not match table context.');
+            }
+
+            $restaurant = $restaurantBySlug;
+        }
+
+        if (! $restaurant) {
+            $restaurant = $this->guestMenuSessionService->resolveGuestRestaurant();
+        }
+
+        return [
+            'restaurant_id' => (int) $restaurant->id,
+            'restaurant_name' => (string) $restaurant->name,
+            'restaurant_slug' => (string) $restaurant->slug,
+            ...($resolvedTableId !== null ? ['table_id' => $resolvedTableId] : []),
+            'menu_items' => $this->buildMenuItems((int) $restaurant->id),
+        ];
+    }
+
+    /**
+     * @return array<int,array{
+     *   name:string,
+     *   category:string,
+     *   price:string,
+     *   description:string,
+     *   ingredients:array<int,string>
+     * }>
+     */
+    private function buildMenuItems(int $restaurantId): array
+    {
+        return Dish::query()
+            ->where('restaurant_id', $restaurantId)
+            ->where('status', 'published')
+            ->with(['dishIngredients.ingredient'])
+            ->orderBy('category')
+            ->orderBy('name')
+            ->limit(200)
+            ->get()
+            ->map(function (Dish $dish): array {
+                $ingredients = $dish->dishIngredients
+                    ->map(fn ($dishIngredient): ?string => $dishIngredient->ingredient?->name)
+                    ->filter(fn (?string $name): bool => is_string($name) && trim($name) !== '')
+                    ->map(fn (string $name): string => trim($name))
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                return [
+                    'name' => trim((string) $dish->name),
+                    'category' => trim((string) ($dish->category ?? 'Uncategorized')),
+                    'price' => number_format((float) $dish->price, 2, '.', ''),
+                    'description' => trim((string) ($dish->description ?? '')),
+                    'ingredients' => $ingredients,
+                ];
+            })
+            ->values()
+            ->all();
     }
 }

@@ -12,9 +12,22 @@ class DeepSeekChatService
 {
     /**
      * @param array<int, array{role:string, content:string}> $messages
+     * @param array{
+     *   restaurant_id?:int,
+     *   restaurant_name?:string,
+     *   restaurant_slug?:string,
+     *   table_id?:int,
+     *   menu_items?:array<int,array{
+     *     name:string,
+     *     category:string,
+     *     price:string,
+     *     description:string,
+     *     ingredients:array<int,string>
+     *   }>
+     * }|null $chatContext
      * @return array{reply:string, order_data?:array<string,mixed>}
      */
-    public function chat(array $messages, ?string $language = null): array
+    public function chat(array $messages, ?string $language = null, ?array $chatContext = null): array
     {
         $apiKey = (string) config('services.deepseek.key', '');
 
@@ -22,7 +35,7 @@ class DeepSeekChatService
             throw new RuntimeException('DeepSeek API key is not configured.');
         }
 
-        $systemPrompt = $this->buildSystemPrompt($language);
+        $systemPrompt = $this->buildSystemPrompt($language, $chatContext);
 
         $payload = [
             'model' => 'deepseek-chat',
@@ -39,6 +52,7 @@ class DeepSeekChatService
         $cacheKey = 'deepseek:'.sha1(json_encode([
             'lang' => $language,
             'messages' => $messages,
+            'context' => $chatContext,
         ], JSON_UNESCAPED_UNICODE));
 
         $cacheTtl = max(0, (int) config('services.deepseek.cache_ttl', 60));
@@ -55,9 +69,79 @@ class DeepSeekChatService
         return $this->executeRequest($apiKey, $payload);
     }
 
-    private function buildSystemPrompt(?string $language = null): string
+    /**
+     * @param array{
+     *   restaurant_name?:string,
+     *   restaurant_slug?:string,
+     *   table_id?:int,
+     *   menu_items?:array<int,array{
+     *     name:string,
+     *     category:string,
+     *     price:string,
+     *     description:string,
+     *     ingredients:array<int,string>
+     *   }>
+     * }|null $chatContext
+     */
+    private function buildSystemPrompt(?string $language = null, ?array $chatContext = null): string
     {
         $lang = is_string($language) && trim($language) !== '' ? trim($language) : 'auto';
+        $restaurantName = trim((string) ($chatContext['restaurant_name'] ?? ''));
+        $restaurantSlug = trim((string) ($chatContext['restaurant_slug'] ?? ''));
+        $tableId = isset($chatContext['table_id']) ? (int) $chatContext['table_id'] : null;
+        /** @var array<int,array{name:string,category:string,price:string,description:string,ingredients:array<int,string>}> $menuItems */
+        $menuItems = is_array($chatContext['menu_items'] ?? null) ? $chatContext['menu_items'] : [];
+
+        $restaurantScopeLines = [];
+        $restaurantScopeLines[] = 'Restaurant context:';
+        $restaurantScopeLines[] = '- Name: '.($restaurantName !== '' ? $restaurantName : 'Unknown');
+        $restaurantScopeLines[] = '- Slug: '.($restaurantSlug !== '' ? $restaurantSlug : 'Unknown');
+        if ($tableId !== null && $tableId > 0) {
+            $restaurantScopeLines[] = '- Table: '.$tableId;
+        }
+        $restaurantScopeLines[] = '- You must only answer using this restaurant menu context.';
+        $restaurantScopeLines[] = '- If something is not in this menu data, clearly say it is not available for this restaurant.';
+
+        $menuLines = [
+            'Menu data (published dishes only):',
+        ];
+
+        if ($menuItems === []) {
+            $menuLines[] = '- No published dishes are currently available for this restaurant.';
+        } else {
+            foreach (array_slice($menuItems, 0, 120) as $item) {
+                $name = trim((string) ($item['name'] ?? ''));
+                $category = trim((string) ($item['category'] ?? 'Uncategorized'));
+                $price = trim((string) ($item['price'] ?? '0.00'));
+                $description = trim((string) ($item['description'] ?? ''));
+                if (mb_strlen($description) > 180) {
+                    $description = mb_substr($description, 0, 177).'...';
+                }
+
+                $ingredients = array_values(array_filter(
+                    is_array($item['ingredients'] ?? null) ? $item['ingredients'] : [],
+                    fn ($ingredient): bool => is_string($ingredient) && trim($ingredient) !== ''
+                ));
+
+                $ingredientText = $ingredients === []
+                    ? 'unknown'
+                    : implode(', ', array_slice($ingredients, 0, 12));
+
+                $line = sprintf(
+                    '- %s | category: %s | price: %s | ingredients: %s',
+                    $name !== '' ? $name : 'Unnamed dish',
+                    $category,
+                    $price,
+                    $ingredientText
+                );
+
+                if ($description !== '') {
+                    $line .= ' | description: '.$description;
+                }
+
+                $menuLines[] = $line;
+            }
+        }
 
         return implode("\n", [
             'You are a restaurant assistant for dine-in guests.',
@@ -68,6 +152,9 @@ class DeepSeekChatService
             '4) Support Arabic, English, and French. Use language: '.$lang.'. If auto, infer from user message.',
             '5) Allergy safety: if the guest mentions an allergy, acknowledge it, avoid unsafe suggestions, and suggest safer alternatives.',
             '6) Before finalizing any order, explicitly confirm the items and quantities with the guest.',
+            '7) Never invent dishes or prices that are not in the provided menu data.',
+            ...$restaurantScopeLines,
+            ...$menuLines,
             'Output rules:',
             '- Normal chat: concise natural-language answer.',
             '- If the guest confirms placing an order, include exactly one JSON object with this shape:',
