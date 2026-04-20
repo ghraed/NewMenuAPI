@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -245,23 +246,59 @@ class IngredientLibraryController extends Controller
             throw new RuntimeException('OPENAI_API_KEY is not configured.');
         }
 
+        $model = trim((string) env('OPENAI_IMAGE_MODEL', 'gpt-image-1'));
+        $baseUrl = rtrim((string) env('OPENAI_API_BASE', 'https://api.openai.com/v1'), '/');
+
         $prompt = sprintf(
             'A centered, realistic studio product image of a single food ingredient: %s. Transparent background, no plate, no bowl, no utensils, no text, no watermark, PNG-ready cutout.',
             $ingredient->name
         );
 
-        $response = Http::withToken($apiKey)
+        $payload = [
+            'model' => $model,
+            'prompt' => $prompt,
+            'size' => '1024x1024',
+            'response_format' => 'b64_json',
+            'background' => 'transparent',
+        ];
+
+        $requestClient = Http::withToken($apiKey)
             ->acceptJson()
-            ->timeout(60)
-            ->post('https://api.openai.com/v1/images/generations', [
-                'model' => 'gpt-image-1',
-                'prompt' => $prompt,
-                'size' => '1024x1024',
-                'background' => 'transparent',
-            ]);
+            ->timeout(60);
+
+        $response = $requestClient->post($baseUrl.'/images/generations', $payload);
+
+        // Some OpenAI accounts/models reject `background`; retry once without it.
+        if ($response->status() === 400) {
+            $retryPayload = $payload;
+            unset($retryPayload['background']);
+            $response = $requestClient->post($baseUrl.'/images/generations', $retryPayload);
+        }
 
         if ($response->failed()) {
-            throw new RuntimeException('OpenAI image generation request failed with status '.$response->status().'.');
+            $errorMessage = (string) data_get($response->json(), 'error.message', '');
+            $errorCode = (string) data_get($response->json(), 'error.code', '');
+            $errorType = (string) data_get($response->json(), 'error.type', '');
+
+            Log::warning('OpenAI image generation failed', [
+                'ingredient_id' => $ingredient->id,
+                'ingredient_name' => $ingredient->name,
+                'status' => $response->status(),
+                'error_type' => $errorType,
+                'error_code' => $errorCode,
+                'error_message' => $errorMessage,
+            ]);
+
+            $details = trim(implode(' | ', array_filter([
+                $errorType !== '' ? "type={$errorType}" : null,
+                $errorCode !== '' ? "code={$errorCode}" : null,
+                $errorMessage !== '' ? $errorMessage : null,
+            ])));
+
+            throw new RuntimeException(
+                'OpenAI image generation request failed with status '.$response->status()
+                .($details !== '' ? " ({$details})" : '.')
+            );
         }
 
         $b64 = data_get($response->json(), 'data.0.b64_json');
