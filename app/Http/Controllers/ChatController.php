@@ -221,11 +221,14 @@ class ChatController extends Controller
             try {
                 $tableContext = $this->guestMenuSessionService->resolveTableContext($tableId);
             } catch (ModelNotFoundException) {
-                abort(404, 'Invalid table context for chat.');
+                // Ignore stale client table ids outside table-scoped guest flows.
+                $tableContext = null;
             }
 
-            $restaurant = $tableContext['restaurant'] ?? null;
-            $resolvedTableId = $tableId;
+            if (is_array($tableContext)) {
+                $restaurant = $tableContext['restaurant'] ?? null;
+                $resolvedTableId = $tableId;
+            }
         }
 
         if ($providedSlug !== '') {
