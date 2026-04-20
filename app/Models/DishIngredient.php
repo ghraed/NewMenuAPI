@@ -13,10 +13,14 @@ class DishIngredient extends Model
         'ingredient_id',
         'quantity',
         'unit',
+        'order_index',
+        'show_in_animation',
     ];
 
     protected $casts = [
         'quantity' => 'decimal:3',
+        'order_index' => 'integer',
+        'show_in_animation' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

@@ -60,6 +60,8 @@ class DishController extends Controller
             'recipe_ingredients' => 'sometimes|array',
             'recipe_ingredients.*.ingredient_id' => 'required|integer|distinct|exists:ingredients,id',
             'recipe_ingredients.*.quantity_required' => 'required|numeric|gt:0',
+            'recipe_ingredients.*.order_index' => 'nullable|integer|min:0',
+            'recipe_ingredients.*.show_in_animation' => 'nullable|boolean',
             'glb_file' => [
                 'nullable',
                 'file',
@@ -224,6 +226,8 @@ class DishController extends Controller
             'recipe_ingredients' => 'sometimes|array',
             'recipe_ingredients.*.ingredient_id' => 'required|integer|distinct|exists:ingredients,id',
             'recipe_ingredients.*.quantity_required' => 'required|numeric|gt:0',
+            'recipe_ingredients.*.order_index' => 'nullable|integer|min:0',
+            'recipe_ingredients.*.show_in_animation' => 'nullable|boolean',
         ]);
 
         $suggestedDishIds = null;
@@ -566,6 +570,10 @@ class DishController extends Controller
             $normalizedRows[] = [
                 'ingredient_id' => $ingredientId,
                 'quantity' => $quantity,
+                'order_index' => (int) ($row['order_index'] ?? $index),
+                'show_in_animation' => array_key_exists('show_in_animation', $row)
+                    ? filter_var($row['show_in_animation'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== false
+                    : true,
             ];
         }
 
@@ -611,6 +619,8 @@ class DishController extends Controller
                 'ingredient_id' => $ingredientId,
                 'quantity' => $row['quantity'],
                 'unit' => $ingredient->stock_unit,
+                'order_index' => $row['order_index'],
+                'show_in_animation' => $row['show_in_animation'],
             ];
 
             $existingRow = $existingRows->get($ingredientId);
