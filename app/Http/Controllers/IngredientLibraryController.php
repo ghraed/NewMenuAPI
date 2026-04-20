@@ -8,8 +8,10 @@ use App\Models\Restaurant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class IngredientLibraryController extends Controller
 {
@@ -17,12 +19,75 @@ class IngredientLibraryController extends Controller
     {
         $restaurant = $this->getRestaurantForRequest($request);
 
-        return response()->json(
-            $restaurant->ingredients()
-                ->whereNotNull('file_path')
-                ->orderBy('name')
-                ->get()
-        );
+        $ingredients = $restaurant->ingredients()
+            ->whereNotNull('file_path')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Ingredient $ingredient): array => $this->formatIngredient($ingredient))
+            ->values();
+
+        return response()->json($ingredients);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'category' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $name = trim((string) $validated['name']);
+
+        $ingredient = $restaurant->ingredients()->create([
+            'uuid' => (string) Str::uuid(),
+            'name' => $name,
+            'name_ar' => $this->translateIngredientNameToArabic($name),
+            'storage_disk' => 'public',
+            'file_path' => null,
+            'source_file_name' => null,
+            'file_size' => null,
+            'mime_type' => null,
+        ]);
+
+        return response()->json($this->formatIngredient($ingredient), 201);
+    }
+
+    public function update(Request $request, Ingredient $ingredient): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertIngredientBelongsToRestaurant($ingredient, $restaurant);
+
+        $validated = $request->validate([
+            'name' => ['sometimes', 'string', 'max:255'],
+            'category' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        if (array_key_exists('name', $validated)) {
+            $name = trim((string) $validated['name']);
+            if ($name !== '') {
+                $ingredient->name = $name;
+                $ingredient->name_ar = $ingredient->name_ar ?: $this->translateIngredientNameToArabic($name);
+            }
+        }
+
+        $ingredient->save();
+
+        return response()->json($this->formatIngredient($ingredient->fresh()));
+    }
+
+    public function destroy(Request $request, Ingredient $ingredient): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertIngredientBelongsToRestaurant($ingredient, $restaurant);
+
+        $this->deleteStoredIngredientFile($ingredient);
+        $ingredient->delete();
+
+        return response()->json([
+            'message' => 'Ingredient deleted successfully.',
+        ]);
     }
 
     public function bulkUpload(Request $request): JsonResponse
@@ -88,6 +153,52 @@ class IngredientLibraryController extends Controller
         ]);
     }
 
+    public function generateImage(Request $request, Ingredient $ingredient): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertIngredientBelongsToRestaurant($ingredient, $restaurant);
+
+        $updated = $this->generateAndStoreIngredientImage($ingredient);
+
+        return response()->json($this->formatIngredient($updated));
+    }
+
+    public function generateMissingImages(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $missing = $restaurant->ingredients()
+            ->where(function ($query) {
+                $query->whereNull('file_path')->orWhere('file_path', '');
+            })
+            ->orderBy('id')
+            ->get();
+
+        $generatedCount = 0;
+        $failed = [];
+
+        foreach ($missing as $ingredient) {
+            try {
+                $this->generateAndStoreIngredientImage($ingredient);
+                $generatedCount++;
+            } catch (\Throwable $e) {
+                report($e);
+                $failed[] = [
+                    'id' => $ingredient->id,
+                    'name' => $ingredient->name,
+                    'message' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return response()->json([
+            'message' => 'Missing image generation completed.',
+            'generated_count' => $generatedCount,
+            'failed_count' => count($failed),
+            'failed' => $failed,
+        ]);
+    }
+
     private function getRestaurantForRequest(Request $request): Restaurant
     {
         $user = $request->user();
@@ -98,6 +209,87 @@ class IngredientLibraryController extends Controller
         }
 
         return $user->restaurant;
+    }
+
+    private function assertIngredientBelongsToRestaurant(Ingredient $ingredient, Restaurant $restaurant): void
+    {
+        if ((int) $ingredient->restaurant_id !== (int) $restaurant->id) {
+            abort(404, 'Ingredient not found.');
+        }
+    }
+
+    private function formatIngredient(Ingredient $ingredient): array
+    {
+        return [
+            'id' => $ingredient->id,
+            'uuid' => $ingredient->uuid,
+            'name' => $ingredient->name,
+            'name_ar' => $ingredient->name_ar,
+            'category' => null,
+            'global_ingredient_id' => $ingredient->global_ingredient_id,
+            'file_url' => $ingredient->file_url,
+            'image_url' => $ingredient->file_url,
+            'image_status' => $ingredient->file_path ? 'exists' : 'missing',
+            'source_file_name' => $ingredient->source_file_name,
+            'file_size' => $ingredient->file_size,
+            'mime_type' => $ingredient->mime_type,
+            'created_at' => $ingredient->created_at?->toIso8601String(),
+            'updated_at' => $ingredient->updated_at?->toIso8601String(),
+        ];
+    }
+
+    private function generateAndStoreIngredientImage(Ingredient $ingredient): Ingredient
+    {
+        $apiKey = trim((string) env('OPENAI_API_KEY', ''));
+        if ($apiKey === '') {
+            throw new RuntimeException('OPENAI_API_KEY is not configured.');
+        }
+
+        $prompt = sprintf(
+            'A centered, realistic studio product image of a single food ingredient: %s. Transparent background, no plate, no bowl, no utensils, no text, no watermark, PNG-ready cutout.',
+            $ingredient->name
+        );
+
+        $response = Http::withToken($apiKey)
+            ->acceptJson()
+            ->timeout(60)
+            ->post('https://api.openai.com/v1/images/generations', [
+                'model' => 'gpt-image-1',
+                'prompt' => $prompt,
+                'size' => '1024x1024',
+                'background' => 'transparent',
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('OpenAI image generation request failed with status '.$response->status().'.');
+        }
+
+        $b64 = data_get($response->json(), 'data.0.b64_json');
+        if (! is_string($b64) || trim($b64) === '') {
+            throw new RuntimeException('OpenAI image generation returned empty image data.');
+        }
+
+        $binary = base64_decode($b64, true);
+        if ($binary === false || $binary === '') {
+            throw new RuntimeException('Failed to decode generated image.');
+        }
+
+        $this->deleteStoredIngredientFile($ingredient);
+
+        $slug = Str::slug($ingredient->name) ?: 'ingredient-'.$ingredient->id;
+        $fileName = $slug.'-'.now()->format('YmdHis').'.png';
+        $path = "ingredients/{$ingredient->restaurant_id}/{$fileName}";
+        Storage::disk('public')->put($path, $binary);
+
+        $ingredient->update([
+            'storage_disk' => 'public',
+            'file_path' => $path,
+            'source_file_name' => $fileName,
+            'file_size' => strlen($binary),
+            'mime_type' => 'image/png',
+        ]);
+
+        return $ingredient->fresh();
     }
 
     private function storeIngredient(Restaurant $restaurant, UploadedFile $file, ?int $requestedGlobalIngredientId = null): Ingredient

@@ -108,6 +108,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Ingredient library
         Route::get('/ingredients', [IngredientLibraryController::class, 'index']);
+        Route::post('/ingredients', [IngredientLibraryController::class, 'store']);
+        Route::patch('/ingredients/{ingredient}', [IngredientLibraryController::class, 'update']);
+        Route::delete('/ingredients/{ingredient}', [IngredientLibraryController::class, 'destroy']);
+        Route::post('/ingredients/{ingredient}/generate-image', [IngredientLibraryController::class, 'generateImage']);
+        Route::post('/ingredients/generate-missing-images', [IngredientLibraryController::class, 'generateMissingImages']);
         Route::post('/ingredients/bulk-upload', [IngredientLibraryController::class, 'bulkUpload']);
         Route::delete('/ingredients', [IngredientLibraryController::class, 'destroyAll']);
 
