@@ -173,6 +173,7 @@ class IngredientLibraryController extends Controller
             ->orderBy('id')
             ->get()
             ->filter(fn (Ingredient $candidate): bool => ! (bool) $candidate->file_url)
+            ->take(10)
             ->values();
 
         $generatedCount = 0;
