@@ -258,6 +258,7 @@ class IngredientLibraryController extends Controller
             'model' => $model,
             'prompt' => $prompt,
             'size' => '1024x1024',
+            'quality' => 'low',
             'background' => 'transparent',
         ];
 
@@ -322,22 +323,65 @@ class IngredientLibraryController extends Controller
             throw new RuntimeException('OpenAI image generation returned empty image data.');
         }
 
+        $optimizedImage = $this->buildOptimizedIngredientImage($binary);
         $this->deleteStoredIngredientFile($ingredient);
 
         $slug = Str::slug($ingredient->name) ?: 'ingredient-'.$ingredient->id;
-        $fileName = $slug.'-'.now()->format('YmdHis').'.png';
+        $fileName = $slug.'.'.$optimizedImage['extension'];
         $path = "ingredients/{$ingredient->restaurant_id}/{$fileName}";
-        Storage::disk('public')->put($path, $binary);
+        Storage::disk('public')->put($path, $optimizedImage['binary']);
 
         $ingredient->update([
             'storage_disk' => 'public',
             'file_path' => $path,
             'source_file_name' => $fileName,
-            'file_size' => strlen($binary),
-            'mime_type' => 'image/png',
+            'file_size' => strlen($optimizedImage['binary']),
+            'mime_type' => $optimizedImage['mime_type'],
         ]);
 
         return $ingredient->fresh();
+    }
+
+    /**
+     * @return array{binary: string, extension: string, mime_type: string}
+     */
+    private function buildOptimizedIngredientImage(string $binary): array
+    {
+        $fallback = [
+            'binary' => $binary,
+            'extension' => 'png',
+            'mime_type' => 'image/png',
+        ];
+
+        if (! function_exists('imagecreatefromstring') || ! function_exists('imagewebp')) {
+            return $fallback;
+        }
+
+        $image = @imagecreatefromstring($binary);
+        if ($image === false) {
+            return $fallback;
+        }
+
+        try {
+            imagealphablending($image, false);
+            imagesavealpha($image, true);
+
+            ob_start();
+            $converted = imagewebp($image, null, 82);
+            $webpBinary = ob_get_clean();
+
+            if ($converted && is_string($webpBinary) && $webpBinary !== '') {
+                return [
+                    'binary' => $webpBinary,
+                    'extension' => 'webp',
+                    'mime_type' => 'image/webp',
+                ];
+            }
+        } finally {
+            imagedestroy($image);
+        }
+
+        return $fallback;
     }
 
     private function storeIngredient(Restaurant $restaurant, UploadedFile $file, ?int $requestedGlobalIngredientId = null): Ingredient
