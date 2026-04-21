@@ -88,6 +88,14 @@ class Ingredient extends Model
 
     public function getFileUrlAttribute(): ?string
     {
+        $global = $this->relationLoaded('globalIngredient')
+            ? $this->globalIngredient
+            : $this->globalIngredient()->first();
+
+        if ($global?->file_url) {
+            return $global->file_url;
+        }
+
         if (! $this->file_path) {
             return null;
         }

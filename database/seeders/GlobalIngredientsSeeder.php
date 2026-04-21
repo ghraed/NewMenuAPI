@@ -11,9 +11,9 @@ class GlobalIngredientsSeeder extends Seeder
 {
     public function run(): void
     {
-        $filePath = base_path('../Menu_React/src/i18n/ingredients.ts');
+        $filePath = $this->resolveIngredientsPath();
 
-        if (! file_exists($filePath)) {
+        if (! $filePath || ! file_exists($filePath)) {
             $this->command?->warn('GlobalIngredientsSeeder skipped: ingredients.ts not found.');
 
             return;
@@ -27,14 +27,14 @@ class GlobalIngredientsSeeder extends Seeder
             return;
         }
 
-        if (! preg_match('/export const ingredientTranslations: Record<string, string> = \{(.*?)\n\};/su', $content, $matches)) {
+        if (! preg_match('/ingredientTranslations\s*:\s*Record\s*<\s*string\s*,\s*string\s*>\s*=\s*\{(.*?)\n\s*\};/su', $content, $matches)) {
             $this->command?->warn('GlobalIngredientsSeeder skipped: ingredientTranslations map was not found.');
 
             return;
         }
 
         $rawMap = $matches[1] ?? '';
-        preg_match_all("/^\s*'((?:\\'|[^'])+)'\s*:\s*'((?:\\'|[^'])*)'\s*,?\s*$/mu", $rawMap, $pairs, PREG_SET_ORDER);
+        preg_match_all('/^\s*[\'\"]((?:\\.|[^\'\"])*)[\'\"]\s*:\s*[\'\"]((?:\\.|[^\'\"])*)[\'\"]\s*,?\s*$/mu', $rawMap, $pairs, PREG_SET_ORDER);
 
         $candidates = [];
 
@@ -96,7 +96,25 @@ class GlobalIngredientsSeeder extends Seeder
             $seededCount++;
         }
 
-        $this->command?->info("GlobalIngredientsSeeder completed. Upserted {$seededCount} ingredients.");
+        $this->command?->info("GlobalIngredientsSeeder completed. Upserted {$seededCount} ingredients from {$filePath}.");
+    }
+
+    private function resolveIngredientsPath(): ?string
+    {
+        $paths = [
+            base_path('../Menu_React/src/i18n/ingredients.ts'),
+            base_path('../NewMenuReact/src/i18n/ingredients.ts'),
+            base_path('resources/seed/ingredients.ts'),
+            base_path('storage/app/seed/ingredients.ts'),
+        ];
+
+        foreach ($paths as $path) {
+            if (is_string($path) && $path !== '' && file_exists($path)) {
+                return $path;
+            }
+        }
+
+        return null;
     }
 
     private function normalizeIngredientName(string $value): string

@@ -21,7 +21,7 @@ class IngredientLibraryController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
 
         $ingredients = $restaurant->ingredients()
-            ->whereNotNull('file_path')
+            ->with('globalIngredient')
             ->orderBy('name')
             ->get()
             ->map(fn (Ingredient $ingredient): array => $this->formatIngredient($ingredient))
@@ -169,11 +169,11 @@ class IngredientLibraryController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
 
         $missing = $restaurant->ingredients()
-            ->where(function ($query) {
-                $query->whereNull('file_path')->orWhere('file_path', '');
-            })
+            ->with('globalIngredient')
             ->orderBy('id')
-            ->get();
+            ->get()
+            ->filter(fn (Ingredient $candidate): bool => ! (bool) $candidate->file_url)
+            ->values();
 
         $generatedCount = 0;
         $failed = [];
@@ -249,9 +249,21 @@ class IngredientLibraryController extends Controller
         $model = trim((string) env('OPENAI_IMAGE_MODEL', 'gpt-image-1'));
         $baseUrl = rtrim((string) env('OPENAI_API_BASE', 'https://api.openai.com/v1'), '/');
 
+        $globalIngredient = $this->resolveOrCreateGlobalIngredientForIngredient($ingredient);
+        if ((int) $ingredient->global_ingredient_id !== (int) $globalIngredient->id) {
+            $ingredient->update([
+                'global_ingredient_id' => $globalIngredient->id,
+            ]);
+        }
+
+        $imageSubjectName = trim((string) ($globalIngredient->name ?: $ingredient->name));
+        if ($imageSubjectName === '') {
+            throw new RuntimeException('Unable to resolve ingredient name for image generation.');
+        }
+
         $prompt = sprintf(
-            'A centered, realistic studio product image of a single food ingredient: %s. Transparent background, no plate, no bowl, no utensils, no text, no watermark, PNG-ready cutout.',
-            $ingredient->name
+            'A centered, realistic studio product image of a single food ingredient: %s. Transparent background, no plate, no bowl, no utensils, no text, no watermark, WEBP-ready cutout.',
+            $imageSubjectName
         );
 
         $payload = [
@@ -268,11 +280,16 @@ class IngredientLibraryController extends Controller
 
         $response = $requestClient->post($baseUrl.'/images/generations', $payload);
 
-        // Some OpenAI accounts/models reject `background`; retry once without it.
         if ($response->status() === 400) {
-            $retryPayload = $payload;
-            unset($retryPayload['background']);
-            $response = $requestClient->post($baseUrl.'/images/generations', $retryPayload);
+            $errorCode = (string) data_get($response->json(), 'error.code', '');
+            $errorMessage = strtolower((string) data_get($response->json(), 'error.message', ''));
+            $unknownBackgroundParam = $errorCode === 'unknown_parameter' && str_contains($errorMessage, 'background');
+
+            if ($unknownBackgroundParam) {
+                $retryPayload = $payload;
+                unset($retryPayload['background']);
+                $response = $requestClient->post($baseUrl.'/images/generations', $retryPayload);
+            }
         }
 
         if ($response->failed()) {
@@ -282,7 +299,7 @@ class IngredientLibraryController extends Controller
 
             Log::warning('OpenAI image generation failed', [
                 'ingredient_id' => $ingredient->id,
-                'ingredient_name' => $ingredient->name,
+                'ingredient_name' => $imageSubjectName,
                 'status' => $response->status(),
                 'error_type' => $errorType,
                 'error_code' => $errorCode,
@@ -290,8 +307,8 @@ class IngredientLibraryController extends Controller
             ]);
 
             $details = trim(implode(' | ', array_filter([
-                $errorType !== '' ? "type={$errorType}" : null,
-                $errorCode !== '' ? "code={$errorCode}" : null,
+                $errorType !== '' ? ('type=' . $errorType) : null,
+                $errorCode !== '' ? ('code=' . $errorCode) : null,
                 $errorMessage !== '' ? $errorMessage : null,
             ])));
 
@@ -324,10 +341,14 @@ class IngredientLibraryController extends Controller
         }
 
         $optimizedImage = $this->buildOptimizedIngredientImage($binary);
-        $this->deleteStoredIngredientFile($ingredient);
 
-        $slug = Str::slug($ingredient->name) ?: 'ingredient-'.$ingredient->id;
-        $fileName = $slug.'.'.$optimizedImage['extension'];
+        $slug = $this->safeIngredientFileBaseName((string) $globalIngredient->name, (int) $globalIngredient->id);
+        $fileName = $slug.'.webp';
+
+        $this->syncGlobalIngredientImage($ingredient, $optimizedImage, $fileName);
+
+        // Keep local file metadata for backward compatibility paths.
+        $this->deleteStoredIngredientFile($ingredient);
         $path = "ingredients/{$ingredient->restaurant_id}/{$fileName}";
         Storage::disk('public')->put($path, $optimizedImage['binary']);
 
@@ -339,7 +360,83 @@ class IngredientLibraryController extends Controller
             'mime_type' => $optimizedImage['mime_type'],
         ]);
 
-        return $ingredient->fresh();
+        return $ingredient->fresh(['globalIngredient']);
+    }
+
+    private function syncGlobalIngredientImage(Ingredient $ingredient, array $optimizedImage, string $fileName): void
+    {
+        $globalIngredient = $this->resolveOrCreateGlobalIngredientForIngredient($ingredient);
+
+        $this->deleteStoredGlobalIngredientFile($globalIngredient);
+
+        $path = "global-ingredients/{$globalIngredient->id}/{$fileName}";
+        Storage::disk('public')->put($path, $optimizedImage['binary']);
+
+        $globalIngredient->update([
+            'storage_disk' => 'public',
+            'file_path' => $path,
+            'source_file_name' => $fileName,
+            'file_size' => strlen($optimizedImage['binary']),
+            'mime_type' => $optimizedImage['mime_type'],
+        ]);
+
+        if ((int) $ingredient->global_ingredient_id !== (int) $globalIngredient->id) {
+            $ingredient->update([
+                'global_ingredient_id' => $globalIngredient->id,
+            ]);
+        }
+    }
+
+    private function resolveOrCreateGlobalIngredientForIngredient(Ingredient $ingredient): GlobalIngredient
+    {
+        if ($ingredient->globalIngredient) {
+            return $ingredient->globalIngredient;
+        }
+
+        $normalizedName = $this->normalizeIngredientName($ingredient->name);
+
+        if ($normalizedName === '') {
+            throw new RuntimeException('Unable to resolve global ingredient for empty ingredient name.');
+        }
+
+        return GlobalIngredient::query()->firstOrCreate(
+            ['normalized_name' => $normalizedName],
+            [
+                'uuid' => (string) Str::uuid(),
+                'name' => $ingredient->name,
+                'name_ar' => $ingredient->name_ar ?: $this->translateIngredientNameToArabic($ingredient->name),
+                'storage_disk' => 'public',
+                'file_path' => null,
+                'source_file_name' => null,
+                'file_size' => null,
+                'mime_type' => null,
+            ]
+        );
+    }
+
+    private function deleteStoredGlobalIngredientFile(GlobalIngredient $globalIngredient): void
+    {
+        if (! $globalIngredient->file_path) {
+            return;
+        }
+
+        $disk = $globalIngredient->storage_disk ?: 'public';
+
+        if (Storage::disk($disk)->exists($globalIngredient->file_path)) {
+            Storage::disk($disk)->delete($globalIngredient->file_path);
+        }
+    }
+
+    private function safeIngredientFileBaseName(string $name, int $fallbackId): string
+    {
+        $normalized = trim($name);
+        $slug = Str::slug($normalized);
+
+        if ($slug === '') {
+            $slug = 'ingredient-'.$fallbackId;
+        }
+
+        return $slug;
     }
 
     /**
@@ -347,19 +444,13 @@ class IngredientLibraryController extends Controller
      */
     private function buildOptimizedIngredientImage(string $binary): array
     {
-        $fallback = [
-            'binary' => $binary,
-            'extension' => 'png',
-            'mime_type' => 'image/png',
-        ];
-
         if (! function_exists('imagecreatefromstring') || ! function_exists('imagewebp')) {
-            return $fallback;
+            throw new RuntimeException('GD WebP support is required to store ingredient images as .webp.');
         }
 
         $image = @imagecreatefromstring($binary);
         if ($image === false) {
-            return $fallback;
+            throw new RuntimeException('Unable to decode generated image for WebP conversion.');
         }
 
         try {
@@ -370,18 +461,18 @@ class IngredientLibraryController extends Controller
             $converted = imagewebp($image, null, 82);
             $webpBinary = ob_get_clean();
 
-            if ($converted && is_string($webpBinary) && $webpBinary !== '') {
-                return [
-                    'binary' => $webpBinary,
-                    'extension' => 'webp',
-                    'mime_type' => 'image/webp',
-                ];
+            if (! $converted || ! is_string($webpBinary) || $webpBinary === '') {
+                throw new RuntimeException('Failed to convert generated image to .webp.');
             }
+
+            return [
+                'binary' => $webpBinary,
+                'extension' => 'webp',
+                'mime_type' => 'image/webp',
+            ];
         } finally {
             imagedestroy($image);
         }
-
-        return $fallback;
     }
 
     private function storeIngredient(Restaurant $restaurant, UploadedFile $file, ?int $requestedGlobalIngredientId = null): Ingredient
