@@ -127,7 +127,7 @@ class IngredientLibraryController extends Controller
         return response()->json([
             'message' => 'Ingredient library updated successfully.',
             'uploaded_count' => $uploaded->count(),
-            'ingredients' => $restaurant->ingredients()->whereNotNull('file_path')->orderBy('name')->get(),
+            'ingredients' => $restaurant->ingredients()->with('globalIngredient')->orderBy('name')->get(),
         ], 201);
     }
 
@@ -230,7 +230,7 @@ class IngredientLibraryController extends Controller
             'global_ingredient_id' => $ingredient->global_ingredient_id,
             'file_url' => $ingredient->file_url,
             'image_url' => $ingredient->file_url,
-            'image_status' => $ingredient->file_path ? 'exists' : 'missing',
+            'image_status' => $ingredient->file_url ? 'exists' : 'missing',
             'source_file_name' => $ingredient->source_file_name,
             'file_size' => $ingredient->file_size,
             'mime_type' => $ingredient->mime_type,
