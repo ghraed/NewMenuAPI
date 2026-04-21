@@ -258,7 +258,6 @@ class IngredientLibraryController extends Controller
             'model' => $model,
             'prompt' => $prompt,
             'size' => '1024x1024',
-            'response_format' => 'b64_json',
             'background' => 'transparent',
         ];
 
@@ -302,13 +301,25 @@ class IngredientLibraryController extends Controller
         }
 
         $b64 = data_get($response->json(), 'data.0.b64_json');
-        if (! is_string($b64) || trim($b64) === '') {
-            throw new RuntimeException('OpenAI image generation returned empty image data.');
+        $imageUrl = data_get($response->json(), 'data.0.url');
+        $binary = null;
+
+        if (is_string($b64) && trim($b64) !== '') {
+            $decoded = base64_decode($b64, true);
+            if ($decoded !== false && $decoded !== '') {
+                $binary = $decoded;
+            }
         }
 
-        $binary = base64_decode($b64, true);
-        if ($binary === false || $binary === '') {
-            throw new RuntimeException('Failed to decode generated image.');
+        if (($binary === null || $binary === '') && is_string($imageUrl) && trim($imageUrl) !== '') {
+            $imageResponse = Http::timeout(60)->get($imageUrl);
+            if ($imageResponse->successful()) {
+                $binary = $imageResponse->body();
+            }
+        }
+
+        if (! is_string($binary) || $binary === '') {
+            throw new RuntimeException('OpenAI image generation returned empty image data.');
         }
 
         $this->deleteStoredIngredientFile($ingredient);
