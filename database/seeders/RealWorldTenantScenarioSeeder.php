@@ -24,21 +24,38 @@ class RealWorldTenantScenarioSeeder extends Seeder
     public function run(): void
     {
         $this->cleanupLegacyAlphaSlug();
+        $this->cleanupLegacyTenantUsers();
 
-        $alphaOwner = $this->upsertOwner(
-            name: 'Alpha Owner',
-            email: 'alpha.owner@rozer.fun',
-            password: 'alpha12345'
+        $alphaAdmin = $this->upsertUser(
+            name: 'Alpha Admin',
+            email: 'admin@alpha.com',
+            password: 'admin12345',
+            role: User::ROLE_ADMIN
         );
 
-        $sigmaOwner = $this->upsertOwner(
-            name: 'Sigma Owner',
-            email: 'sigma.owner@rozer.fun',
-            password: 'sigma12345'
+        $sigmaAdmin = $this->upsertUser(
+            name: 'Sigma Admin',
+            email: 'admin@sigma.com',
+            password: 'admin12345',
+            role: User::ROLE_ADMIN
+        );
+
+        $alphaStaff = $this->upsertUser(
+            name: 'Alpha Staff',
+            email: 'staff@alpha.com',
+            password: 'staff12345',
+            role: User::ROLE_STAFF
+        );
+
+        $sigmaStaff = $this->upsertUser(
+            name: 'Sigma Staff',
+            email: 'staff@sigma.com',
+            password: 'staff12345',
+            role: User::ROLE_STAFF
         );
 
         $alphaRestaurant = $this->upsertRestaurant(
-            owner: $alphaOwner,
+            owner: $alphaAdmin,
             slug: 'alpha',
             name: 'Alpha',
             description: 'Modern Mediterranean kitchen with fresh grills, bowls, and handcrafted cold drinks.',
@@ -46,12 +63,15 @@ class RealWorldTenantScenarioSeeder extends Seeder
         );
 
         $sigmaRestaurant = $this->upsertRestaurant(
-            owner: $sigmaOwner,
+            owner: $sigmaAdmin,
             slug: 'sigma',
             name: 'Sigma',
             description: 'Asian fusion kitchen focused on wok dishes, noodle bowls, and tea drinks.',
             address: 'Mar Mikhael, Beirut'
         );
+
+        $alphaRestaurant->staffUsers()->syncWithoutDetaching([$alphaStaff->id]);
+        $sigmaRestaurant->staffUsers()->syncWithoutDetaching([$sigmaStaff->id]);
 
         $this->upsertDomain($alphaRestaurant, 'alpha.rozer.fun');
         $this->upsertDomain($alphaRestaurant, 'rozer.fun', 'custom');
@@ -110,7 +130,14 @@ class RealWorldTenantScenarioSeeder extends Seeder
         $legacy->delete();
     }
 
-    private function upsertOwner(string $name, string $email, string $password): User
+    private function cleanupLegacyTenantUsers(): void
+    {
+        User::query()
+            ->whereIn('email', ['alpha.owner@rozer.fun', 'sigma.owner@rozer.fun'])
+            ->delete();
+    }
+
+    private function upsertUser(string $name, string $email, string $password, string $role): User
     {
         $user = User::query()->firstOrNew(['email' => strtolower($email)]);
 
@@ -119,7 +146,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
         }
 
         $user->name = $name;
-        $user->role = User::ROLE_ADMIN;
+        $user->role = $role;
         $user->save();
 
         return $user;
@@ -294,7 +321,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
                         'category_ar' => $base['category_ar'],
                         'price' => $price,
                         'calories' => $calories,
-                        'image_url' => $this->dishImageUrl('alpha-'.$name),
+                        'image_url' => $this->dishImageUrl($name),
                         'recipe' => $this->alphaRecipe(
                             proteinIngredient: $protein['ingredient'],
                             baseLabel: $base['label'],
@@ -348,7 +375,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
                 'category_ar' => 'مشروبات',
                 'price' => 4.20,
                 'calories' => 130,
-                'image_url' => $this->dishImageUrl('alpha-'.$drink['name']),
+                'image_url' => $this->dishImageUrl($drink['name']),
                 'recipe' => $this->alphaDrinkRecipe($drink['core']),
             ];
         }, $selected);
@@ -413,7 +440,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
                         'category_ar' => $base['category_ar'],
                         'price' => $price,
                         'calories' => $calories,
-                        'image_url' => $this->dishImageUrl('sigma-'.$name),
+                        'image_url' => $this->dishImageUrl($name),
                         'recipe' => $this->sigmaRecipe(
                             proteinIngredient: $protein['ingredient'],
                             baseLabel: $base['label'],
@@ -467,7 +494,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
                 'category_ar' => 'مشروبات',
                 'price' => 4.30,
                 'calories' => 120,
-                'image_url' => $this->dishImageUrl('sigma-'.$drink['name']),
+                'image_url' => $this->dishImageUrl($drink['name']),
                 'recipe' => $this->sigmaDrinkRecipe($drink['core']),
             ];
         }, $selected);
@@ -629,11 +656,15 @@ class RealWorldTenantScenarioSeeder extends Seeder
         return $recipe;
     }
 
-    private function dishImageUrl(string $seed): string
+    private function dishImageUrl(string $name): string
     {
-        $slug = Str::slug($seed);
+        $keywords = trim((string) preg_replace('/[^a-z0-9 ]+/i', ' ', strtolower($name)));
+        $keywords = preg_replace('/\s+/', ',', $keywords) ?: 'food';
 
-        return sprintf('https://picsum.photos/seed/%s/1200/800', $slug !== '' ? $slug : Str::random(8));
+        return sprintf(
+            'https://source.unsplash.com/1600x900/?food,%s',
+            urlencode((string) $keywords)
+        );
     }
 
     /**

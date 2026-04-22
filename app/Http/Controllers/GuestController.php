@@ -21,9 +21,39 @@ class GuestController extends Controller
     ) {
     }
 
-    public function listDishes(Request $request, ?string $restaurant_slug = null): JsonResponse
+    public function listDishes(Request $request): JsonResponse
     {
-        $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurant_slug, $request);
+        return $this->listDishesForRestaurant($request, null);
+    }
+
+    public function listDishesBySlug(Request $request, string $restaurant_slug): JsonResponse
+    {
+        return $this->listDishesForRestaurant($request, $restaurant_slug);
+    }
+
+    public function showDish(Request $request, int $dish_id): JsonResponse
+    {
+        return $this->showDishForRestaurant($request, null, $dish_id);
+    }
+
+    public function showDishBySlug(Request $request, string $restaurant_slug, int $dish_id): JsonResponse
+    {
+        return $this->showDishForRestaurant($request, $restaurant_slug, $dish_id);
+    }
+
+    public function listTables(Request $request): JsonResponse
+    {
+        return $this->listTablesForRestaurant($request, null);
+    }
+
+    public function listTablesBySlug(Request $request, string $restaurant_slug): JsonResponse
+    {
+        return $this->listTablesForRestaurant($request, $restaurant_slug);
+    }
+
+    private function listDishesForRestaurant(Request $request, ?string $restaurantSlug): JsonResponse
+    {
+        $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurantSlug, $request);
 
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -42,13 +72,13 @@ class GuestController extends Controller
         ]);
     }
 
-    public function showDish(Request $request, int $dish_id, ?string $restaurant_slug = null): JsonResponse
+    private function showDishForRestaurant(Request $request, ?string $restaurantSlug, int $dishId): JsonResponse
     {
-        $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurant_slug, $request);
+        $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurantSlug, $request);
 
         $dish = Dish::query()
             ->where('restaurant_id', $restaurant->id)
-            ->where('id', $dish_id)
+            ->where('id', $dishId)
             ->where('status', 'published')
             ->with(['assets', 'dishIngredients.ingredient'])
             ->firstOrFail();
@@ -94,9 +124,9 @@ class GuestController extends Controller
         return response()->json($payload);
     }
 
-    public function listTables(Request $request, ?string $restaurant_slug = null): JsonResponse
+    private function listTablesForRestaurant(Request $request, ?string $restaurantSlug): JsonResponse
     {
-        $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurant_slug, $request);
+        $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurantSlug, $request);
 
         $tables = $restaurant->tables()
             ->orderBy('name')
