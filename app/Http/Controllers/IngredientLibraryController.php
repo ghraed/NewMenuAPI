@@ -678,8 +678,8 @@ class IngredientLibraryController extends Controller
      */
     private function buildOptimizedIngredientImage(string $binary): array
     {
-        if (! function_exists('imagecreatefromstring') || ! function_exists('imagewebp')) {
-            throw new RuntimeException('GD WebP support is required to store ingredient images as .webp.');
+        if (! function_exists('imagecreatefromstring')) {
+            throw new RuntimeException('GD image support is required to process generated images.');
         }
 
         $image = @imagecreatefromstring($binary);
@@ -691,12 +691,60 @@ class IngredientLibraryController extends Controller
             imagealphablending($image, false);
             imagesavealpha($image, true);
 
-            ob_start();
-            $converted = imagewebp($image, null, 82);
-            $webpBinary = ob_get_clean();
+            if (function_exists('imagewebp')) {
+                ob_start();
+                $converted = imagewebp($image, null, 82);
+                $webpBinary = ob_get_clean();
 
-            if (! $converted || ! is_string($webpBinary) || $webpBinary === '') {
-                throw new RuntimeException('Failed to convert generated image to .webp.');
+                if ($converted && is_string($webpBinary) && $webpBinary !== '') {
+                    return [
+                        'binary' => $webpBinary,
+                        'extension' => 'webp',
+                        'mime_type' => 'image/webp',
+                    ];
+                }
+            }
+        } finally {
+            imagedestroy($image);
+        }
+
+        // Strict WebP requirement fallback: use cwebp if GD lacks WebP support.
+        $cwebpPath = trim((string) @shell_exec('command -v cwebp 2>/dev/null'));
+        if ($cwebpPath === '') {
+            throw new RuntimeException('WebP conversion is unavailable. Install GD with WebP support or cwebp.');
+        }
+
+        $inputPath = tempnam(sys_get_temp_dir(), 'ingredient-src-');
+        $outputPath = tempnam(sys_get_temp_dir(), 'ingredient-webp-');
+
+        if (! is_string($inputPath) || $inputPath === '' || ! is_string($outputPath) || $outputPath === '') {
+            throw new RuntimeException('Unable to allocate temporary files for WebP conversion.');
+        }
+
+        try {
+            if (file_put_contents($inputPath, $binary) === false) {
+                throw new RuntimeException('Failed to write temporary source image for WebP conversion.');
+            }
+
+            $cmd = sprintf(
+                '%s -q 82 %s -o %s 2>&1',
+                escapeshellarg($cwebpPath),
+                escapeshellarg($inputPath),
+                escapeshellarg($outputPath)
+            );
+
+            $output = [];
+            $exitCode = 1;
+            @exec($cmd, $output, $exitCode);
+
+            if ($exitCode !== 0 || ! file_exists($outputPath) || filesize($outputPath) === 0) {
+                $details = trim(implode(' ', $output));
+                throw new RuntimeException('Failed to convert generated image to .webp'.($details !== '' ? (': '.$details) : '.'));
+            }
+
+            $webpBinary = file_get_contents($outputPath);
+            if (! is_string($webpBinary) || $webpBinary === '') {
+                throw new RuntimeException('WebP conversion produced empty output.');
             }
 
             return [
@@ -705,7 +753,8 @@ class IngredientLibraryController extends Controller
                 'mime_type' => 'image/webp',
             ];
         } finally {
-            imagedestroy($image);
+            @unlink($inputPath);
+            @unlink($outputPath);
         }
     }
 

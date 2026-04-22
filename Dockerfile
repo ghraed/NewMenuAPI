@@ -3,10 +3,10 @@ FROM php:8.4-apache
 # System deps
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    git curl unzip \
-    libpng-dev libjpeg-dev libfreetype6-dev \
+    git curl unzip webp \
+    libpng-dev libjpeg-dev libfreetype6-dev libwebp-dev \
     libonig-dev libxml2-dev libzip-dev \
-  && docker-php-ext-configure gd --with-freetype --with-jpeg \
+  && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
   && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip \
   && a2enmod rewrite headers \
   && apt-get clean \
