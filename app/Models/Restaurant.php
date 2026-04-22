@@ -72,6 +72,11 @@ class Restaurant extends Model
         return $this->hasMany(TableSession::class);
     }
 
+    public function domains(): HasMany
+    {
+        return $this->hasMany(RestaurantDomain::class);
+    }
+
     public function ensureDefaultTables(): void
     {
         $existingTableNames = $this->tables()

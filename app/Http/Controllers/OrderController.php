@@ -14,6 +14,7 @@ use App\Services\DishAlternativeSuggestionService;
 use App\Services\GuestMenuSessionService;
 use App\Services\OrderInventoryDeductionService;
 use App\Services\OrderInvoiceCalculator;
+use App\Services\TenantRestaurantResolver;
 use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,14 +30,15 @@ class OrderController extends Controller
         private readonly GuestMenuSessionService $guestMenuSessionService,
         private readonly TableSessionAccessService $tableSessionAccessService,
         private readonly OrderInventoryDeductionService $orderInventoryDeductionService,
-        private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService
+        private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService,
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver
     ) {
     }
 
     public function store(
         Request $request,
-        string $restaurant_slug,
-        OrderInvoiceCalculator $invoiceCalculator
+        OrderInvoiceCalculator $invoiceCalculator,
+        ?string $restaurant_slug = null
     ): JsonResponse {
         $validated = $request->validate([
             'table_reference' => 'required|string|max:40',
@@ -46,10 +48,9 @@ class OrderController extends Controller
             'items.*.quantity' => 'required|integer|min:1|max:99',
         ]);
 
-        $restaurant = Restaurant::query()
-            ->with('tables')
-            ->where('slug', $restaurant_slug)
-            ->firstOrFail();
+        $restaurant = $this->tenantRestaurantResolver
+            ->resolveFromSlugOrHost($restaurant_slug, $request)
+            ->load('tables');
 
         $access = $this->tableSessionAccessService->authorizeRequestForRestaurant(
             $request,

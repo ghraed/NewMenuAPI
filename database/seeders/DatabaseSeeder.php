@@ -26,6 +26,9 @@ class DatabaseSeeder extends Seeder
         // Create restaurants
         $this->createRestaurants();
 
+        // Create default tenant domain mappings
+        $this->call(RestaurantDomainSeeder::class);
+
         // Create dishes
         $this->createDishes();
 

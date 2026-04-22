@@ -7,6 +7,7 @@ use App\Models\RestaurantTable;
 use App\Models\TableGuestAccess;
 use App\Models\TableSession;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -17,26 +18,21 @@ class GuestMenuSessionService
 {
     private const PIN_CACHE_PREFIX = 'table-session-pin:';
 
-    public function resolveGuestRestaurant(): Restaurant
-    {
-        $configuredSlug = config('app.guest_restaurant_slug');
-
-        $query = Restaurant::query()->with(['tables' => fn ($builder) => $builder->orderBy('name')]);
-
-        $restaurant = $configuredSlug
-            ? $query->where('slug', $configuredSlug)->first()
-            : $query->first();
-
-        if (! $restaurant) {
-            throw (new ModelNotFoundException())->setModel(Restaurant::class);
-        }
-
-        return $restaurant;
+    public function __construct(
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver
+    ) {
     }
 
-    public function resolveTableContext(int $tableNumber): array
+    public function resolveGuestRestaurant(?Request $request = null): Restaurant
     {
-        $restaurant = $this->resolveGuestRestaurant();
+        return $this->tenantRestaurantResolver
+            ->resolveFromSlugOrHost(null, $request)
+            ->load(['tables' => fn ($builder) => $builder->orderBy('name')]);
+    }
+
+    public function resolveTableContext(int $tableNumber, ?Request $request = null): array
+    {
+        $restaurant = $this->resolveGuestRestaurant($request);
         $table = $this->resolveTableByNumber($restaurant, $tableNumber);
         $session = $this->getOrCreateActiveSession($restaurant, $table, $tableNumber);
 

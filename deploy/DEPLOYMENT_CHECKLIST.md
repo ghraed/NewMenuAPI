@@ -70,3 +70,23 @@ sudo certbot --apache -d your-domain -d www.your-domain --redirect
 
 - `https://your-domain`
 - `https://your-domain/api/test`
+
+## 9) Tenant Domains (Multi-tenant Host Routing)
+
+- Keep wildcard DNS for subdomains:
+  - `*.rozer.fun -> your server IP`
+- For custom domains:
+  - Point customer DNS (`A` or `CNAME`) to your server.
+  - Issue and attach SSL certificate manually for that custom domain.
+- Keep reverse proxy host forwarding enabled:
+  - Apache: `ProxyPreserveHost On`
+- Add domain mapping in DB (`restaurant_domains`):
+  - `restaurant_id`: target restaurant
+  - `domain`: exact host (lowercase)
+  - `kind`: `subdomain` or `custom`
+  - `is_primary`: `true` for canonical tenant host
+  - `verified_at`: timestamp when domain/cert is ready
+- Smoke test:
+  - `https://alpha.rozer.fun/api/menu/dishes`
+  - `https://sigma.rozer.fun/api/menu/dishes`
+  - unknown host should return tenant-not-found behavior.

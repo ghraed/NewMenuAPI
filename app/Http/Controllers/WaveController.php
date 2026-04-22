@@ -10,6 +10,7 @@ use App\Models\TableWave;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
 use App\Services\TableSessionAccessService;
+use App\Services\TenantRestaurantResolver;
 use App\Services\WebPushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,20 +22,20 @@ class WaveController extends Controller
 {
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService,
-        private readonly TableSessionAccessService $tableSessionAccessService
+        private readonly TableSessionAccessService $tableSessionAccessService,
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver
     ) {
     }
 
-    public function store(Request $request, string $restaurant_slug): JsonResponse
+    public function store(Request $request, ?string $restaurant_slug = null): JsonResponse
     {
         $validated = $request->validate([
             'table_reference' => 'required|string|max:40',
         ]);
 
-        $restaurant = Restaurant::query()
-            ->with('tables')
-            ->where('slug', $restaurant_slug)
-            ->firstOrFail();
+        $restaurant = $this->tenantRestaurantResolver
+            ->resolveFromSlugOrHost($restaurant_slug, $request)
+            ->load('tables');
 
         $access = $this->tableSessionAccessService->authorizeRequestForRestaurant(
             $request,

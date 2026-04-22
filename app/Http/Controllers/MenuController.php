@@ -24,7 +24,7 @@ class MenuController extends Controller
 
     public function showTableMenu(int $table_id, Request $request): JsonResponse
     {
-        $context = $this->guestMenuSessionService->resolveTableContext($table_id);
+        $context = $this->guestMenuSessionService->resolveTableContext($table_id, $request);
         $restaurant = $context['restaurant'];
         $table = $context['table'];
         $session = $context['session'];
@@ -54,7 +54,7 @@ class MenuController extends Controller
 
     public function showTableDish(int $table_id, int $dish_id, Request $request): JsonResponse
     {
-        $context = $this->guestMenuSessionService->resolveTableContext($table_id);
+        $context = $this->guestMenuSessionService->resolveTableContext($table_id, $request);
         $restaurant = $context['restaurant'];
         $table = $context['table'];
         $session = $context['session'];

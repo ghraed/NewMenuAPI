@@ -32,6 +32,11 @@ Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, Sta
     ->post('/chat/orders', [OrderController::class, 'storeChatOrder']);
 Route::get('/test', [GuestController::class, 'test']);
 Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
+Route::get('/menu/dishes', [GuestController::class, 'listDishes']);
+Route::get('/menu/dish/{dish_id}', [GuestController::class, 'showDish']);
+Route::get('/menu/tables', [GuestController::class, 'listTables']);
+Route::post('/menu/orders', [OrderController::class, 'store']);
+Route::post('/menu/waves', [WaveController::class, 'store']);
 Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishes']);
 Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 'showDish']);
 Route::get('/menu/{restaurant_slug}/tables', [GuestController::class, 'listTables']);

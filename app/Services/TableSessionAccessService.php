@@ -26,7 +26,7 @@ class TableSessionAccessService
 
     public function verifyPinForTable(Request $request, int $tableNumber, string $pin): array
     {
-        $context = $this->guestMenuSessionService->resolveTableContext($tableNumber);
+        $context = $this->guestMenuSessionService->resolveTableContext($tableNumber, $request);
         $sessionId = $context['session']->id;
 
         return DB::transaction(function () use ($request, $context, $sessionId, $pin) {

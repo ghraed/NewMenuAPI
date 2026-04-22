@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Dish;
-use App\Models\Restaurant;
 use App\Services\GuestMenuSessionService;
 use App\Services\DeepSeekChatService;
+use App\Services\TenantRestaurantResolver;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +21,8 @@ class ChatController extends Controller
 
     public function __construct(
         private readonly DeepSeekChatService $deepSeekChatService,
-        private readonly GuestMenuSessionService $guestMenuSessionService
+        private readonly GuestMenuSessionService $guestMenuSessionService,
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver
     ) {
     }
 
@@ -100,7 +101,7 @@ class ChatController extends Controller
             array_slice($history, -self::MAX_MESSAGES)
         );
 
-        $chatContext = $this->resolveChatContext($validated);
+        $chatContext = $this->resolveChatContext($validated, $request);
 
         try {
             $assistant = $this->deepSeekChatService->chat($chatMessages, $resolvedLanguage, $chatContext);
@@ -209,7 +210,7 @@ class ChatController extends Controller
      *   }>
      * }
      */
-    private function resolveChatContext(array $validated): array
+    private function resolveChatContext(array $validated, Request $request): array
     {
         $providedSlug = isset($validated['restaurant_slug']) ? trim((string) $validated['restaurant_slug']) : '';
         $tableId = isset($validated['table_id']) ? (int) $validated['table_id'] : null;
@@ -232,11 +233,7 @@ class ChatController extends Controller
         }
 
         if ($providedSlug !== '') {
-            $restaurantBySlug = Restaurant::query()->where('slug', $providedSlug)->first();
-
-            if (! $restaurantBySlug) {
-                abort(404, 'Restaurant not found for chat.');
-            }
+            $restaurantBySlug = $this->tenantRestaurantResolver->resolveFromSlugOrHost($providedSlug, $request);
 
             if ($restaurant && $restaurant->id !== $restaurantBySlug->id) {
                 abort(422, 'Chat restaurant slug does not match table context.');
@@ -246,7 +243,7 @@ class ChatController extends Controller
         }
 
         if (! $restaurant) {
-            $restaurant = $this->guestMenuSessionService->resolveGuestRestaurant();
+            $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost(null, $request);
         }
 
         return [
