@@ -166,36 +166,54 @@ class IngredientLibraryController extends Controller
 
     public function generateMissingImages(Request $request): JsonResponse
     {
-        $restaurant = $this->getRestaurantForRequest($request);
+        // Keep the auth guard via restaurant ownership, but run generation globally.
+        $this->getRestaurantForRequest($request);
 
-        $missing = $restaurant->ingredients()
-            ->with('globalIngredient')
+        $limit = (int) $request->input('limit', 10);
+        $limit = max(1, min($limit, 200));
+
+        $linkedIngredientsCount = $this->linkIngredientsToGlobalCatalog();
+        $linkedGlobalImageCount = $this->backfillGlobalImagesFromIngredientFiles();
+
+        $missing = GlobalIngredient::query()
+            ->where(function ($query): void {
+                $query->whereNull('file_path')
+                    ->orWhere('file_path', '');
+            })
             ->orderBy('id')
-            ->get()
-            ->filter(fn (Ingredient $candidate): bool => ! (bool) ($candidate->globalIngredient?->file_url))
-            ->take(10)
-            ->values();
+            ->limit($limit)
+            ->get();
 
         $generatedCount = 0;
         $failed = [];
 
-        foreach ($missing as $ingredient) {
+        foreach ($missing as $globalIngredient) {
             try {
-                $this->generateAndStoreIngredientImage($ingredient);
+                $this->generateAndStoreGlobalIngredientImage($globalIngredient);
                 $generatedCount++;
             } catch (\Throwable $e) {
                 report($e);
                 $failed[] = [
-                    'id' => $ingredient->id,
-                    'name' => $ingredient->name,
+                    'id' => $globalIngredient->id,
+                    'name' => $globalIngredient->name,
                     'message' => $e->getMessage(),
                 ];
             }
         }
 
+        $remainingCount = GlobalIngredient::query()
+            ->where(function ($query): void {
+                $query->whereNull('file_path')
+                    ->orWhere('file_path', '');
+            })
+            ->count();
+
         return response()->json([
             'message' => 'Missing image generation completed.',
+            'linked_ingredients_count' => $linkedIngredientsCount,
+            'linked_existing_global_images_count' => $linkedGlobalImageCount,
             'generated_count' => $generatedCount,
+            'remaining_count' => $remainingCount,
             'failed_count' => count($failed),
             'failed' => $failed,
         ]);
@@ -362,6 +380,221 @@ class IngredientLibraryController extends Controller
         ]);
 
         return $ingredient->fresh(['globalIngredient']);
+    }
+
+    private function generateAndStoreGlobalIngredientImage(GlobalIngredient $globalIngredient): GlobalIngredient
+    {
+        $apiKey = trim((string) env('OPENAI_API_KEY', ''));
+        if ($apiKey === '') {
+            throw new RuntimeException('OPENAI_API_KEY is not configured.');
+        }
+
+        $model = trim((string) env('OPENAI_IMAGE_MODEL', 'gpt-image-1'));
+        $baseUrl = rtrim((string) env('OPENAI_API_BASE', 'https://api.openai.com/v1'), '/');
+        $imageSubjectName = trim((string) $globalIngredient->name);
+
+        if ($imageSubjectName === '') {
+            throw new RuntimeException('Unable to resolve ingredient name for image generation.');
+        }
+
+        $prompt = sprintf(
+            'A centered, realistic studio product image of a single food ingredient: %s. Transparent background, no plate, no bowl, no utensils, no text, no watermark, WEBP-ready cutout.',
+            $imageSubjectName
+        );
+
+        $payload = [
+            'model' => $model,
+            'prompt' => $prompt,
+            'size' => '1024x1024',
+            'quality' => 'low',
+            'background' => 'transparent',
+        ];
+
+        $requestClient = Http::withToken($apiKey)
+            ->acceptJson()
+            ->timeout(60);
+
+        $response = $requestClient->post($baseUrl.'/images/generations', $payload);
+
+        if ($response->status() === 400) {
+            $errorCode = (string) data_get($response->json(), 'error.code', '');
+            $errorMessage = strtolower((string) data_get($response->json(), 'error.message', ''));
+            $unknownBackgroundParam = $errorCode === 'unknown_parameter' && str_contains($errorMessage, 'background');
+
+            if ($unknownBackgroundParam) {
+                $retryPayload = $payload;
+                unset($retryPayload['background']);
+                $response = $requestClient->post($baseUrl.'/images/generations', $retryPayload);
+            }
+        }
+
+        if ($response->failed()) {
+            $errorMessage = (string) data_get($response->json(), 'error.message', '');
+            $errorCode = (string) data_get($response->json(), 'error.code', '');
+            $errorType = (string) data_get($response->json(), 'error.type', '');
+
+            Log::warning('OpenAI global ingredient image generation failed', [
+                'global_ingredient_id' => $globalIngredient->id,
+                'global_ingredient_name' => $imageSubjectName,
+                'status' => $response->status(),
+                'error_type' => $errorType,
+                'error_code' => $errorCode,
+                'error_message' => $errorMessage,
+            ]);
+
+            $details = trim(implode(' | ', array_filter([
+                $errorType !== '' ? ('type=' . $errorType) : null,
+                $errorCode !== '' ? ('code=' . $errorCode) : null,
+                $errorMessage !== '' ? $errorMessage : null,
+            ])));
+
+            throw new RuntimeException(
+                'OpenAI image generation request failed with status '.$response->status()
+                .($details !== '' ? " ({$details})" : '.')
+            );
+        }
+
+        $b64 = data_get($response->json(), 'data.0.b64_json');
+        $imageUrl = data_get($response->json(), 'data.0.url');
+        $binary = null;
+
+        if (is_string($b64) && trim($b64) !== '') {
+            $decoded = base64_decode($b64, true);
+            if ($decoded !== false && $decoded !== '') {
+                $binary = $decoded;
+            }
+        }
+
+        if (($binary === null || $binary === '') && is_string($imageUrl) && trim($imageUrl) !== '') {
+            $imageResponse = Http::timeout(60)->get($imageUrl);
+            if ($imageResponse->successful()) {
+                $binary = $imageResponse->body();
+            }
+        }
+
+        if (! is_string($binary) || $binary === '') {
+            throw new RuntimeException('OpenAI image generation returned empty image data.');
+        }
+
+        $optimizedImage = $this->buildOptimizedIngredientImage($binary);
+        $slug = $this->safeIngredientFileBaseName((string) $globalIngredient->name, (int) $globalIngredient->id);
+        $fileName = $slug.'.webp';
+
+        $this->deleteStoredGlobalIngredientFile($globalIngredient);
+        $path = "global-ingredients/{$globalIngredient->id}/{$fileName}";
+        Storage::disk('public')->put($path, $optimizedImage['binary']);
+
+        $globalIngredient->update([
+            'storage_disk' => 'public',
+            'file_path' => $path,
+            'source_file_name' => $fileName,
+            'file_size' => strlen($optimizedImage['binary']),
+            'mime_type' => $optimizedImage['mime_type'],
+        ]);
+
+        return $globalIngredient->fresh();
+    }
+
+    private function linkIngredientsToGlobalCatalog(): int
+    {
+        $updated = 0;
+
+        $globalByNormalizedName = GlobalIngredient::query()
+            ->select(['id', 'normalized_name'])
+            ->whereNotNull('normalized_name')
+            ->where('normalized_name', '!=', '')
+            ->get()
+            ->pluck('id', 'normalized_name');
+
+        Ingredient::query()
+            ->whereNull('global_ingredient_id')
+            ->orderBy('id')
+            ->chunkById(200, function ($ingredients) use (&$updated, $globalByNormalizedName): void {
+                foreach ($ingredients as $ingredient) {
+                    $normalizedName = $this->normalizeIngredientName((string) $ingredient->name);
+                    if ($normalizedName === '') {
+                        continue;
+                    }
+
+                    $globalId = $globalByNormalizedName->get($normalizedName);
+                    if (! $globalId) {
+                        continue;
+                    }
+
+                    $ingredient->update([
+                        'global_ingredient_id' => (int) $globalId,
+                    ]);
+                    $updated++;
+                }
+            });
+
+        return $updated;
+    }
+
+    private function backfillGlobalImagesFromIngredientFiles(): int
+    {
+        $linked = 0;
+
+        Ingredient::query()
+            ->with('globalIngredient')
+            ->whereNotNull('global_ingredient_id')
+            ->whereNotNull('file_path')
+            ->where('file_path', '!=', '')
+            ->orderBy('id')
+            ->chunkById(200, function ($ingredients) use (&$linked): void {
+                foreach ($ingredients as $ingredient) {
+                    $globalIngredient = $ingredient->globalIngredient;
+
+                    if (! $globalIngredient) {
+                        continue;
+                    }
+
+                    if ((string) $globalIngredient->file_path !== '') {
+                        continue;
+                    }
+
+                    $sourceDisk = $ingredient->storage_disk ?: 'public';
+                    $sourcePath = (string) $ingredient->file_path;
+
+                    if (! Storage::disk($sourceDisk)->exists($sourcePath)) {
+                        continue;
+                    }
+
+                    $binary = Storage::disk($sourceDisk)->get($sourcePath);
+                    if (! is_string($binary) || $binary === '') {
+                        continue;
+                    }
+
+                    $extension = strtolower(pathinfo((string) $ingredient->source_file_name, PATHINFO_EXTENSION));
+                    if ($extension === '') {
+                        $mime = strtolower((string) ($ingredient->mime_type ?: ''));
+                        $extension = match ($mime) {
+                            'image/png' => 'png',
+                            'image/jpeg', 'image/jpg' => 'jpg',
+                            'image/webp' => 'webp',
+                            default => 'webp',
+                        };
+                    }
+
+                    $fileBase = $this->safeIngredientFileBaseName((string) $globalIngredient->name, (int) $globalIngredient->id);
+                    $fileName = $fileBase.'.'.$extension;
+                    $targetPath = "global-ingredients/{$globalIngredient->id}/{$fileName}";
+
+                    Storage::disk('public')->put($targetPath, $binary);
+
+                    $globalIngredient->update([
+                        'storage_disk' => 'public',
+                        'file_path' => $targetPath,
+                        'source_file_name' => $fileName,
+                        'file_size' => strlen($binary),
+                        'mime_type' => $ingredient->mime_type ?: Storage::disk('public')->mimeType($targetPath) ?: 'image/webp',
+                    ]);
+
+                    $linked++;
+                }
+            });
+
+        return $linked;
     }
 
     private function syncGlobalIngredientImage(Ingredient $ingredient, array $optimizedImage, string $fileName): void
