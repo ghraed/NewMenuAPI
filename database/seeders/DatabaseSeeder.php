@@ -41,6 +41,9 @@ class DatabaseSeeder extends Seeder
         // Optional realistic scenario dataset:
         // php artisan db:seed --class=Database\\Seeders\\RealRestaurantScenarioSeeder
 
+        // Optional real-world multi-tenant dataset for alpha/sigma:
+        // php artisan db:seed --class=Database\\Seeders\\RealWorldTenantScenarioSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
