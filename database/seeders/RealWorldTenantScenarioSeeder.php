@@ -739,9 +739,55 @@ class RealWorldTenantScenarioSeeder extends Seeder
                 ];
             }
 
+            $recipeRows = $this->mergeDuplicateRecipeRows($recipeRows, $dishDefinition['name']);
+
             $dish->dishIngredients()->delete();
             $dish->dishIngredients()->createMany($recipeRows);
         }
+    }
+
+    /**
+     * Ensure one row per ingredient_id to satisfy unique(dish_id, ingredient_id).
+     *
+     * @param array<int, array{ingredient_id:int,quantity:float|int,unit:string,order_index:int,show_in_animation:bool}> $recipeRows
+     * @return array<int, array{ingredient_id:int,quantity:float,unit:string,order_index:int,show_in_animation:bool}>
+     */
+    private function mergeDuplicateRecipeRows(array $recipeRows, string $dishName): array
+    {
+        $merged = [];
+
+        foreach ($recipeRows as $row) {
+            $key = (int) $row['ingredient_id'];
+
+            if (! isset($merged[$key])) {
+                $merged[$key] = [
+                    'ingredient_id' => $key,
+                    'quantity' => (float) $row['quantity'],
+                    'unit' => (string) $row['unit'],
+                    'order_index' => (int) $row['order_index'],
+                    'show_in_animation' => (bool) $row['show_in_animation'],
+                ];
+                continue;
+            }
+
+            if ($merged[$key]['unit'] !== (string) $row['unit']) {
+                throw new \RuntimeException(sprintf(
+                    'Unit conflict for duplicate ingredient %d in dish "%s": %s vs %s',
+                    $key,
+                    $dishName,
+                    $merged[$key]['unit'],
+                    (string) $row['unit']
+                ));
+            }
+
+            $merged[$key]['quantity'] += (float) $row['quantity'];
+            $merged[$key]['order_index'] = min($merged[$key]['order_index'], (int) $row['order_index']);
+            $merged[$key]['show_in_animation'] = $merged[$key]['show_in_animation'] || (bool) $row['show_in_animation'];
+        }
+
+        usort($merged, static fn (array $left, array $right): int => $left['order_index'] <=> $right['order_index']);
+
+        return array_values($merged);
     }
 
     private function resolveGlobalIngredient(string $name, ?string $nameAr = null): GlobalIngredient
