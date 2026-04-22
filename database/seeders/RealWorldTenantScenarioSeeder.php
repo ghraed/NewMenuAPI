@@ -15,8 +15,16 @@ use Illuminate\Support\Str;
 
 class RealWorldTenantScenarioSeeder extends Seeder
 {
+    private const DISHES_PER_RESTAURANT = 190;
+    private const ALPHA_FOOD_COUNT = 170;
+    private const ALPHA_DRINK_COUNT = 20;
+    private const SIGMA_FOOD_COUNT = 170;
+    private const SIGMA_DRINK_COUNT = 20;
+
     public function run(): void
     {
+        $this->cleanupLegacyAlphaSlug();
+
         $alphaOwner = $this->upsertOwner(
             name: 'Alpha Owner',
             email: 'alpha.owner@rozer.fun',
@@ -31,395 +39,75 @@ class RealWorldTenantScenarioSeeder extends Seeder
 
         $alphaRestaurant = $this->upsertRestaurant(
             owner: $alphaOwner,
-            slug: 'alph',
-            name: 'Alpha Bistro',
-            description: 'Modern Mediterranean bistro focused on fresh produce, grilled proteins, and handcrafted mocktails.',
+            slug: 'alpha',
+            name: 'Alpha',
+            description: 'Modern Mediterranean kitchen with fresh grills, bowls, and handcrafted cold drinks.',
             address: 'Hamra District, Beirut'
         );
 
         $sigmaRestaurant = $this->upsertRestaurant(
             owner: $sigmaOwner,
             slug: 'sigma',
-            name: 'Sigma Fusion Kitchen',
-            description: 'Asian-fusion kitchen with wok dishes, ramen bowls, and signature tea-based drinks.',
+            name: 'Sigma',
+            description: 'Asian fusion kitchen focused on wok dishes, noodle bowls, and tea drinks.',
             address: 'Mar Mikhael, Beirut'
         );
 
         $this->upsertDomain($alphaRestaurant, 'alpha.rozer.fun');
+        $this->upsertDomain($alphaRestaurant, 'rozer.fun', 'custom');
         $this->upsertDomain($sigmaRestaurant, 'sigma.rozer.fun');
 
-        $alphaIngredientMap = $this->seedRestaurantIngredients($alphaRestaurant, [
-            ['name' => 'Chicken Breast', 'name_ar' => 'صدر دجاج', 'unit' => 'g', 'stock' => 22000, 'low' => 5000],
-            ['name' => 'Beef Sirloin', 'name_ar' => 'لحم بقري سيرلوين', 'unit' => 'g', 'stock' => 18000, 'low' => 4000],
-            ['name' => 'Salmon Fillet', 'name_ar' => 'فيليه سلمون', 'unit' => 'g', 'stock' => 14000, 'low' => 3500],
-            ['name' => 'Shrimp', 'name_ar' => 'روبيان', 'unit' => 'g', 'stock' => 12000, 'low' => 3000],
-            ['name' => 'Halloumi Cheese', 'name_ar' => 'جبنة حلوم', 'unit' => 'g', 'stock' => 9000, 'low' => 2000],
-            ['name' => 'Feta Cheese', 'name_ar' => 'جبنة فيتا', 'unit' => 'g', 'stock' => 8000, 'low' => 1800],
-            ['name' => 'Greek Yogurt', 'name_ar' => 'لبن يوناني', 'unit' => 'g', 'stock' => 10000, 'low' => 2200],
-            ['name' => 'Chickpea', 'name_ar' => 'حمص حب', 'unit' => 'g', 'stock' => 16000, 'low' => 3500],
-            ['name' => 'Basmati Rice', 'name_ar' => 'أرز بسمتي', 'unit' => 'g', 'stock' => 26000, 'low' => 6000],
-            ['name' => 'Pita Bread', 'name_ar' => 'خبز بيتا', 'unit' => 'piece', 'stock' => 240, 'low' => 60],
-            ['name' => 'Lettuce', 'name_ar' => 'خس', 'unit' => 'g', 'stock' => 14000, 'low' => 3000],
-            ['name' => 'Tomato', 'name_ar' => 'بندورة', 'unit' => 'g', 'stock' => 18000, 'low' => 3500],
-            ['name' => 'Cucumber', 'name_ar' => 'خيار', 'unit' => 'g', 'stock' => 15000, 'low' => 3000],
-            ['name' => 'Red Onion', 'name_ar' => 'بصل أحمر', 'unit' => 'g', 'stock' => 9000, 'low' => 1800],
-            ['name' => 'Parsley', 'name_ar' => 'بقدونس', 'unit' => 'g', 'stock' => 5000, 'low' => 1000],
-            ['name' => 'Mint', 'name_ar' => 'نعناع', 'unit' => 'g', 'stock' => 4000, 'low' => 800],
-            ['name' => 'Lemon Juice', 'name_ar' => 'عصير ليمون', 'unit' => 'ml', 'stock' => 12000, 'low' => 2500],
-            ['name' => 'Olive Oil', 'name_ar' => 'زيت زيتون', 'unit' => 'ml', 'stock' => 18000, 'low' => 3000],
-            ['name' => 'Garlic', 'name_ar' => 'ثوم', 'unit' => 'g', 'stock' => 3500, 'low' => 700],
-            ['name' => 'Tahini', 'name_ar' => 'طحينة', 'unit' => 'g', 'stock' => 6000, 'low' => 1200],
-            ['name' => 'Pomegranate Molasses', 'name_ar' => 'دبس رمان', 'unit' => 'ml', 'stock' => 4000, 'low' => 900],
-            ['name' => 'Orange Juice', 'name_ar' => 'عصير برتقال', 'unit' => 'ml', 'stock' => 9000, 'low' => 1800],
-            ['name' => 'Sugar Syrup', 'name_ar' => 'شراب سكر', 'unit' => 'ml', 'stock' => 6000, 'low' => 1200],
-            ['name' => 'Sparkling Water', 'name_ar' => 'مياه غازية', 'unit' => 'ml', 'stock' => 15000, 'low' => 3000],
-            ['name' => 'Ice Cube', 'name_ar' => 'مكعبات ثلج', 'unit' => 'piece', 'stock' => 8000, 'low' => 1500],
-        ]);
+        $alphaIngredientMap = $this->seedRestaurantIngredients($alphaRestaurant, $this->alphaIngredientDefinitions());
+        $sigmaIngredientMap = $this->seedRestaurantIngredients($sigmaRestaurant, $this->sigmaIngredientDefinitions());
 
-        $sigmaIngredientMap = $this->seedRestaurantIngredients($sigmaRestaurant, [
-            ['name' => 'Chicken Thigh', 'name_ar' => 'فخذ دجاج', 'unit' => 'g', 'stock' => 22000, 'low' => 5000],
-            ['name' => 'Beef Tenderloin', 'name_ar' => 'لحم بقري فيليه', 'unit' => 'g', 'stock' => 18000, 'low' => 4000],
-            ['name' => 'Salmon Fillet', 'name_ar' => 'فيليه سلمون', 'unit' => 'g', 'stock' => 12000, 'low' => 2800],
-            ['name' => 'Shrimp', 'name_ar' => 'روبيان', 'unit' => 'g', 'stock' => 13000, 'low' => 3000],
-            ['name' => 'Tofu', 'name_ar' => 'توفو', 'unit' => 'g', 'stock' => 10000, 'low' => 2200],
-            ['name' => 'Egg Noodle', 'name_ar' => 'نودلز البيض', 'unit' => 'g', 'stock' => 26000, 'low' => 6000],
-            ['name' => 'Ramen Noodle', 'name_ar' => 'نودلز رامن', 'unit' => 'g', 'stock' => 24000, 'low' => 5500],
-            ['name' => 'Jasmine Rice', 'name_ar' => 'أرز ياسمين', 'unit' => 'g', 'stock' => 28000, 'low' => 6500],
-            ['name' => 'Soy Sauce', 'name_ar' => 'صلصة الصويا', 'unit' => 'ml', 'stock' => 15000, 'low' => 3000],
-            ['name' => 'Sesame Oil', 'name_ar' => 'زيت السمسم', 'unit' => 'ml', 'stock' => 7000, 'low' => 1500],
-            ['name' => 'Miso Paste', 'name_ar' => 'معجون الميسو', 'unit' => 'g', 'stock' => 8000, 'low' => 1700],
-            ['name' => 'Coconut Milk', 'name_ar' => 'حليب جوز الهند', 'unit' => 'ml', 'stock' => 12000, 'low' => 2500],
-            ['name' => 'Mushroom', 'name_ar' => 'فطر', 'unit' => 'g', 'stock' => 14000, 'low' => 3000],
-            ['name' => 'Bell Pepper', 'name_ar' => 'فليفلة', 'unit' => 'g', 'stock' => 13000, 'low' => 2800],
-            ['name' => 'Carrot', 'name_ar' => 'جزر', 'unit' => 'g', 'stock' => 12000, 'low' => 2500],
-            ['name' => 'Spring Onion', 'name_ar' => 'بصل أخضر', 'unit' => 'g', 'stock' => 5000, 'low' => 1000],
-            ['name' => 'Ginger', 'name_ar' => 'زنجبيل', 'unit' => 'g', 'stock' => 3500, 'low' => 700],
-            ['name' => 'Garlic', 'name_ar' => 'ثوم', 'unit' => 'g', 'stock' => 3800, 'low' => 700],
-            ['name' => 'Lime Juice', 'name_ar' => 'عصير لايم', 'unit' => 'ml', 'stock' => 9000, 'low' => 1800],
-            ['name' => 'Chili Sauce', 'name_ar' => 'صلصة فلفل حار', 'unit' => 'ml', 'stock' => 6000, 'low' => 1200],
-            ['name' => 'Honey', 'name_ar' => 'عسل', 'unit' => 'g', 'stock' => 5000, 'low' => 1000],
-            ['name' => 'Green Tea', 'name_ar' => 'شاي أخضر', 'unit' => 'g', 'stock' => 3000, 'low' => 600],
-            ['name' => 'Black Tea', 'name_ar' => 'شاي أسود', 'unit' => 'g', 'stock' => 3000, 'low' => 600],
-            ['name' => 'Sugar Syrup', 'name_ar' => 'شراب سكر', 'unit' => 'ml', 'stock' => 7000, 'low' => 1200],
-            ['name' => 'Sparkling Water', 'name_ar' => 'مياه غازية', 'unit' => 'ml', 'stock' => 14000, 'low' => 2800],
-            ['name' => 'Ice Cube', 'name_ar' => 'مكعبات ثلج', 'unit' => 'piece', 'stock' => 7000, 'low' => 1400],
-        ]);
+        $alphaDishes = array_merge(
+            $this->generateAlphaFoodDishes(self::ALPHA_FOOD_COUNT),
+            $this->generateAlphaDrinkDishes(self::ALPHA_DRINK_COUNT)
+        );
 
-        $this->seedRestaurantDishes($alphaRestaurant, $alphaIngredientMap, [
-            [
-                'name' => 'Lemon Chicken Souvlaki Bowl',
-                'name_ar' => 'باول سوفلاكي دجاج بالليمون',
-                'description' => 'Char-grilled lemon-marinated chicken breast over basmati rice with cucumber tomato salad and garlic yogurt.',
-                'description_ar' => 'دجاج متبل بالليمون ومشوي على الفحم فوق أرز بسمتي مع سلطة خيار وبندورة وصلصة لبن بالثوم.',
-                'category' => 'Mains',
-                'category_ar' => 'أطباق رئيسية',
-                'price' => 13.50,
-                'calories' => 640,
-                'image_url' => 'https://images.pexels.com/photos/70497/pexels-photo-70497.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Chicken Breast', 'qty' => 180, 'unit' => 'g'],
-                    ['ingredient' => 'Basmati Rice', 'qty' => 160, 'unit' => 'g'],
-                    ['ingredient' => 'Greek Yogurt', 'qty' => 40, 'unit' => 'g'],
-                    ['ingredient' => 'Lemon Juice', 'qty' => 25, 'unit' => 'ml'],
-                    ['ingredient' => 'Olive Oil', 'qty' => 18, 'unit' => 'ml'],
-                    ['ingredient' => 'Garlic', 'qty' => 6, 'unit' => 'g'],
-                    ['ingredient' => 'Cucumber', 'qty' => 35, 'unit' => 'g'],
-                    ['ingredient' => 'Tomato', 'qty' => 45, 'unit' => 'g'],
-                ],
-            ],
-            [
-                'name' => 'Halloumi Avocado Pita',
-                'name_ar' => 'بيتا حلوم وأفوكادو',
-                'description' => 'Grilled halloumi, avocado spread, tomato, and crisp lettuce in warm pita bread.',
-                'description_ar' => 'حلوم مشوي مع كريمة أفوكادو وبندورة وخس مقرمش داخل خبز بيتا دافئ.',
-                'category' => 'Sandwiches',
-                'category_ar' => 'ساندويشات',
-                'price' => 10.50,
-                'calories' => 520,
-                'image_url' => 'https://images.pexels.com/photos/2092507/pexels-photo-2092507.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Halloumi Cheese', 'qty' => 120, 'unit' => 'g'],
-                    ['ingredient' => 'Pita Bread', 'qty' => 1, 'unit' => 'piece'],
-                    ['ingredient' => 'Lettuce', 'qty' => 30, 'unit' => 'g'],
-                    ['ingredient' => 'Tomato', 'qty' => 40, 'unit' => 'g'],
-                    ['ingredient' => 'Olive Oil', 'qty' => 10, 'unit' => 'ml'],
-                ],
-            ],
-            [
-                'name' => 'Seared Salmon Tabbouleh Plate',
-                'name_ar' => 'طبق سلمون مشوي مع تبولة',
-                'description' => 'Pan-seared salmon with parsley tabbouleh, cucumber, tomato, and citrus olive dressing.',
-                'description_ar' => 'فيليه سلمون محمر مع تبولة بقدونس وخيار وبندورة وصلصة زيت زيتون حمضية.',
-                'category' => 'Mains',
-                'category_ar' => 'أطباق رئيسية',
-                'price' => 18.00,
-                'calories' => 590,
-                'image_url' => 'https://images.pexels.com/photos/262959/pexels-photo-262959.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Salmon Fillet', 'qty' => 180, 'unit' => 'g'],
-                    ['ingredient' => 'Parsley', 'qty' => 35, 'unit' => 'g'],
-                    ['ingredient' => 'Cucumber', 'qty' => 30, 'unit' => 'g'],
-                    ['ingredient' => 'Tomato', 'qty' => 40, 'unit' => 'g'],
-                    ['ingredient' => 'Red Onion', 'qty' => 12, 'unit' => 'g'],
-                    ['ingredient' => 'Lemon Juice', 'qty' => 20, 'unit' => 'ml'],
-                    ['ingredient' => 'Olive Oil', 'qty' => 14, 'unit' => 'ml'],
-                ],
-            ],
-            [
-                'name' => 'Shrimp Tahini Rice',
-                'name_ar' => 'أرز روبيان بصلصة الطحينة',
-                'description' => 'Sautéed shrimp over fragrant rice with light tahini lemon sauce and fresh herbs.',
-                'description_ar' => 'روبيان مشوح فوق أرز عطري مع صلصة طحينة خفيفة بالليمون وأعشاب طازجة.',
-                'category' => 'Mains',
-                'category_ar' => 'أطباق رئيسية',
-                'price' => 16.25,
-                'calories' => 610,
-                'image_url' => 'https://images.pexels.com/photos/725997/pexels-photo-725997.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Shrimp', 'qty' => 170, 'unit' => 'g'],
-                    ['ingredient' => 'Basmati Rice', 'qty' => 170, 'unit' => 'g'],
-                    ['ingredient' => 'Tahini', 'qty' => 28, 'unit' => 'g'],
-                    ['ingredient' => 'Lemon Juice', 'qty' => 18, 'unit' => 'ml'],
-                    ['ingredient' => 'Garlic', 'qty' => 5, 'unit' => 'g'],
-                    ['ingredient' => 'Parsley', 'qty' => 10, 'unit' => 'g'],
-                ],
-            ],
-            [
-                'name' => 'Feta Chickpea Garden Salad',
-                'name_ar' => 'سلطة حمص وحديقة مع فيتا',
-                'description' => 'Chickpeas, feta, cucumber, tomato, lettuce, mint, and lemon olive dressing.',
-                'description_ar' => 'حمص مسلوق مع جبنة فيتا وخيار وبندورة وخس ونعناع مع تتبيلة ليمون وزيت زيتون.',
-                'category' => 'Salads',
-                'category_ar' => 'سلطات',
-                'price' => 9.75,
-                'calories' => 430,
-                'image_url' => 'https://images.pexels.com/photos/257816/pexels-photo-257816.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Chickpea', 'qty' => 140, 'unit' => 'g'],
-                    ['ingredient' => 'Feta Cheese', 'qty' => 60, 'unit' => 'g'],
-                    ['ingredient' => 'Cucumber', 'qty' => 60, 'unit' => 'g'],
-                    ['ingredient' => 'Tomato', 'qty' => 70, 'unit' => 'g'],
-                    ['ingredient' => 'Lettuce', 'qty' => 45, 'unit' => 'g'],
-                    ['ingredient' => 'Mint', 'qty' => 6, 'unit' => 'g'],
-                    ['ingredient' => 'Lemon Juice', 'qty' => 16, 'unit' => 'ml'],
-                    ['ingredient' => 'Olive Oil', 'qty' => 14, 'unit' => 'ml'],
-                ],
-            ],
-            [
-                'name' => 'Pomegranate Beef Skillet',
-                'name_ar' => 'مقلاة لحم بدبس الرمان',
-                'description' => 'Tender beef strips sautéed with red onions, tomato, and pomegranate molasses glaze.',
-                'description_ar' => 'شرائح لحم بقري طرية مشوحة مع بصل أحمر وبندورة وتغليفة دبس الرمان.',
-                'category' => 'Mains',
-                'category_ar' => 'أطباق رئيسية',
-                'price' => 17.50,
-                'calories' => 670,
-                'image_url' => 'https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Beef Sirloin', 'qty' => 190, 'unit' => 'g'],
-                    ['ingredient' => 'Red Onion', 'qty' => 35, 'unit' => 'g'],
-                    ['ingredient' => 'Tomato', 'qty' => 55, 'unit' => 'g'],
-                    ['ingredient' => 'Pomegranate Molasses', 'qty' => 20, 'unit' => 'ml'],
-                    ['ingredient' => 'Olive Oil', 'qty' => 12, 'unit' => 'ml'],
-                    ['ingredient' => 'Garlic', 'qty' => 5, 'unit' => 'g'],
-                ],
-            ],
-            [
-                'name' => 'Citrus Mint Sparkler',
-                'name_ar' => 'مشروب حمضيات ونعناع فوار',
-                'description' => 'Fresh lemon and orange blend with mint, sugar syrup, sparkling water, and ice.',
-                'description_ar' => 'مزيج ليمون وبرتقال طازج مع نعناع وشراب السكر ومياه غازية وثلج.',
-                'category' => 'Drinks',
-                'category_ar' => 'مشروبات',
-                'price' => 4.75,
-                'calories' => 150,
-                'image_url' => 'https://images.pexels.com/photos/96974/pexels-photo-96974.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Lemon Juice', 'qty' => 30, 'unit' => 'ml'],
-                    ['ingredient' => 'Orange Juice', 'qty' => 70, 'unit' => 'ml'],
-                    ['ingredient' => 'Sugar Syrup', 'qty' => 18, 'unit' => 'ml'],
-                    ['ingredient' => 'Sparkling Water', 'qty' => 180, 'unit' => 'ml'],
-                    ['ingredient' => 'Mint', 'qty' => 4, 'unit' => 'g'],
-                    ['ingredient' => 'Ice Cube', 'qty' => 8, 'unit' => 'piece'],
-                ],
-            ],
-            [
-                'name' => 'House Lemonade',
-                'name_ar' => 'ليمونادة المنزل',
-                'description' => 'Classic chilled lemonade made with fresh lemons, light syrup, and crushed ice.',
-                'description_ar' => 'ليمونادة باردة كلاسيكية محضرة من ليمون طازج وشراب خفيف وثلج مجروش.',
-                'category' => 'Drinks',
-                'category_ar' => 'مشروبات',
-                'price' => 3.90,
-                'calories' => 120,
-                'image_url' => 'https://images.pexels.com/photos/96974/pexels-photo-96974.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Lemon Juice', 'qty' => 35, 'unit' => 'ml'],
-                    ['ingredient' => 'Sugar Syrup', 'qty' => 16, 'unit' => 'ml'],
-                    ['ingredient' => 'Ice Cube', 'qty' => 7, 'unit' => 'piece'],
-                ],
-            ],
-        ]);
+        $sigmaDishes = array_merge(
+            $this->generateSigmaFoodDishes(self::SIGMA_FOOD_COUNT),
+            $this->generateSigmaDrinkDishes(self::SIGMA_DRINK_COUNT)
+        );
 
-        $this->seedRestaurantDishes($sigmaRestaurant, $sigmaIngredientMap, [
-            [
-                'name' => 'Miso Chicken Ramen',
-                'name_ar' => 'رامن دجاج بالميسو',
-                'description' => 'Slow-simmered miso broth with ramen noodles, grilled chicken thigh, mushrooms, and spring onion.',
-                'description_ar' => 'مرق ميسو مطهو ببطء مع نودلز رامن وفخذ دجاج مشوي وفطر وبصل أخضر.',
-                'category' => 'Bowls',
-                'category_ar' => 'أطباق بول',
-                'price' => 14.25,
-                'calories' => 710,
-                'image_url' => 'https://images.pexels.com/photos/884600/pexels-photo-884600.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Ramen Noodle', 'qty' => 170, 'unit' => 'g'],
-                    ['ingredient' => 'Chicken Thigh', 'qty' => 180, 'unit' => 'g'],
-                    ['ingredient' => 'Miso Paste', 'qty' => 30, 'unit' => 'g'],
-                    ['ingredient' => 'Mushroom', 'qty' => 60, 'unit' => 'g'],
-                    ['ingredient' => 'Spring Onion', 'qty' => 14, 'unit' => 'g'],
-                    ['ingredient' => 'Garlic', 'qty' => 6, 'unit' => 'g'],
-                    ['ingredient' => 'Ginger', 'qty' => 6, 'unit' => 'g'],
-                ],
-            ],
-            [
-                'name' => 'Teriyaki Beef Rice Bowl',
-                'name_ar' => 'باول أرز بلحم ترياكي',
-                'description' => 'Tender beef strips glazed in soy-honey teriyaki, served on jasmine rice with peppers and onions.',
-                'description_ar' => 'شرائح لحم طرية بصلصة ترياكي الصويا والعسل، تقدم مع أرز ياسمين وفليفلة وبصل.',
-                'category' => 'Bowls',
-                'category_ar' => 'أطباق بول',
-                'price' => 16.80,
-                'calories' => 760,
-                'image_url' => 'https://images.pexels.com/photos/1640774/pexels-photo-1640774.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Beef Tenderloin', 'qty' => 190, 'unit' => 'g'],
-                    ['ingredient' => 'Jasmine Rice', 'qty' => 170, 'unit' => 'g'],
-                    ['ingredient' => 'Soy Sauce', 'qty' => 30, 'unit' => 'ml'],
-                    ['ingredient' => 'Honey', 'qty' => 16, 'unit' => 'g'],
-                    ['ingredient' => 'Bell Pepper', 'qty' => 50, 'unit' => 'g'],
-                    ['ingredient' => 'Carrot', 'qty' => 30, 'unit' => 'g'],
-                    ['ingredient' => 'Garlic', 'qty' => 5, 'unit' => 'g'],
-                ],
-            ],
-            [
-                'name' => 'Spicy Shrimp Noodles',
-                'name_ar' => 'نودلز روبيان حار',
-                'description' => 'Wok-tossed egg noodles with shrimp, chili sauce, garlic, and crunchy vegetables.',
-                'description_ar' => 'نودلز بيض مشوحة في الووك مع روبيان وصلصة حارة وثوم وخضار مقرمشة.',
-                'category' => 'Noodles',
-                'category_ar' => 'نودلز',
-                'price' => 15.50,
-                'calories' => 690,
-                'image_url' => 'https://images.pexels.com/photos/2347311/pexels-photo-2347311.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Egg Noodle', 'qty' => 180, 'unit' => 'g'],
-                    ['ingredient' => 'Shrimp', 'qty' => 170, 'unit' => 'g'],
-                    ['ingredient' => 'Chili Sauce', 'qty' => 24, 'unit' => 'ml'],
-                    ['ingredient' => 'Soy Sauce', 'qty' => 22, 'unit' => 'ml'],
-                    ['ingredient' => 'Bell Pepper', 'qty' => 40, 'unit' => 'g'],
-                    ['ingredient' => 'Carrot', 'qty' => 35, 'unit' => 'g'],
-                    ['ingredient' => 'Garlic', 'qty' => 6, 'unit' => 'g'],
-                ],
-            ],
-            [
-                'name' => 'Coconut Salmon Curry',
-                'name_ar' => 'كاري سلمون بجوز الهند',
-                'description' => 'Salmon simmered in coconut curry sauce with mushrooms, ginger, and lime over jasmine rice.',
-                'description_ar' => 'سلمون مطهو بصلصة كاري جوز الهند مع الفطر والزنجبيل واللايم فوق أرز ياسمين.',
-                'category' => 'Curries',
-                'category_ar' => 'كاري',
-                'price' => 18.40,
-                'calories' => 740,
-                'image_url' => 'https://images.pexels.com/photos/262959/pexels-photo-262959.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Salmon Fillet', 'qty' => 180, 'unit' => 'g'],
-                    ['ingredient' => 'Coconut Milk', 'qty' => 140, 'unit' => 'ml'],
-                    ['ingredient' => 'Jasmine Rice', 'qty' => 160, 'unit' => 'g'],
-                    ['ingredient' => 'Mushroom', 'qty' => 55, 'unit' => 'g'],
-                    ['ingredient' => 'Ginger', 'qty' => 7, 'unit' => 'g'],
-                    ['ingredient' => 'Lime Juice', 'qty' => 18, 'unit' => 'ml'],
-                    ['ingredient' => 'Soy Sauce', 'qty' => 12, 'unit' => 'ml'],
-                ],
-            ],
-            [
-                'name' => 'Crispy Tofu Veggie Stir Fry',
-                'name_ar' => 'ستير فراي خضار مع توفو مقرمش',
-                'description' => 'Golden tofu cubes with bell peppers, carrots, mushrooms, and sesame soy glaze.',
-                'description_ar' => 'مكعبات توفو ذهبية مع فليفلة وجزر وفطر وتغليفة صويا وسمسم.',
-                'category' => 'Veggie',
-                'category_ar' => 'نباتي',
-                'price' => 12.90,
-                'calories' => 560,
-                'image_url' => 'https://images.pexels.com/photos/7937434/pexels-photo-7937434.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Tofu', 'qty' => 170, 'unit' => 'g'],
-                    ['ingredient' => 'Bell Pepper', 'qty' => 60, 'unit' => 'g'],
-                    ['ingredient' => 'Carrot', 'qty' => 45, 'unit' => 'g'],
-                    ['ingredient' => 'Mushroom', 'qty' => 50, 'unit' => 'g'],
-                    ['ingredient' => 'Soy Sauce', 'qty' => 26, 'unit' => 'ml'],
-                    ['ingredient' => 'Sesame Oil', 'qty' => 12, 'unit' => 'ml'],
-                    ['ingredient' => 'Garlic', 'qty' => 5, 'unit' => 'g'],
-                ],
-            ],
-            [
-                'name' => 'Honey Chili Chicken Noodles',
-                'name_ar' => 'نودلز دجاج بالعسل والفلفل',
-                'description' => 'Wok-seared chicken thigh noodles with honey chili glaze, spring onion, and sesame finish.',
-                'description_ar' => 'نودلز بدجاج مشوح وتغليفة عسل وفلفل مع بصل أخضر ولمسة سمسم.',
-                'category' => 'Noodles',
-                'category_ar' => 'نودلز',
-                'price' => 14.90,
-                'calories' => 700,
-                'image_url' => 'https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Egg Noodle', 'qty' => 170, 'unit' => 'g'],
-                    ['ingredient' => 'Chicken Thigh', 'qty' => 170, 'unit' => 'g'],
-                    ['ingredient' => 'Honey', 'qty' => 18, 'unit' => 'g'],
-                    ['ingredient' => 'Chili Sauce', 'qty' => 20, 'unit' => 'ml'],
-                    ['ingredient' => 'Soy Sauce', 'qty' => 18, 'unit' => 'ml'],
-                    ['ingredient' => 'Spring Onion', 'qty' => 12, 'unit' => 'g'],
-                    ['ingredient' => 'Sesame Oil', 'qty' => 10, 'unit' => 'ml'],
-                ],
-            ],
-            [
-                'name' => 'Yuzu Green Tea Cooler',
-                'name_ar' => 'كولر شاي أخضر ويوزو',
-                'description' => 'Iced green tea, citrus lime, light syrup, and sparkling water.',
-                'description_ar' => 'شاي أخضر مثلج مع لايم وشراب خفيف ومياه غازية.',
-                'category' => 'Drinks',
-                'category_ar' => 'مشروبات',
-                'price' => 4.60,
-                'calories' => 110,
-                'image_url' => 'https://images.pexels.com/photos/312418/pexels-photo-312418.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Green Tea', 'qty' => 4, 'unit' => 'g'],
-                    ['ingredient' => 'Lime Juice', 'qty' => 24, 'unit' => 'ml'],
-                    ['ingredient' => 'Sugar Syrup', 'qty' => 16, 'unit' => 'ml'],
-                    ['ingredient' => 'Sparkling Water', 'qty' => 170, 'unit' => 'ml'],
-                    ['ingredient' => 'Ice Cube', 'qty' => 8, 'unit' => 'piece'],
-                ],
-            ],
-            [
-                'name' => 'Iced Thai Milk Tea',
-                'name_ar' => 'شاي تايلندي بالحليب مثلج',
-                'description' => 'Strong black tea shaken with milk, syrup, and ice for a creamy finish.',
-                'description_ar' => 'شاي أسود مركز مخفوق مع حليب وشراب سكر وثلج لنكهة كريمية.',
-                'category' => 'Drinks',
-                'category_ar' => 'مشروبات',
-                'price' => 4.20,
-                'calories' => 180,
-                'image_url' => 'https://images.pexels.com/photos/1327866/pexels-photo-1327866.jpeg',
-                'recipe' => [
-                    ['ingredient' => 'Black Tea', 'qty' => 5, 'unit' => 'g'],
-                    ['ingredient' => 'Sugar Syrup', 'qty' => 20, 'unit' => 'ml'],
-                    ['ingredient' => 'Coconut Milk', 'qty' => 80, 'unit' => 'ml'],
-                    ['ingredient' => 'Ice Cube', 'qty' => 8, 'unit' => 'piece'],
-                ],
-            ],
-        ]);
+        $this->seedRestaurantDishes($alphaRestaurant, $alphaIngredientMap, $alphaDishes);
+        $this->seedRestaurantDishes($sigmaRestaurant, $sigmaIngredientMap, $sigmaDishes);
 
-        $this->command?->info('RealWorldTenantScenarioSeeder completed for slugs: alph, sigma.');
+        $alphaCount = Dish::query()->where('restaurant_id', $alphaRestaurant->id)->count();
+        $sigmaCount = Dish::query()->where('restaurant_id', $sigmaRestaurant->id)->count();
+
+        if ($alphaCount !== self::DISHES_PER_RESTAURANT || $sigmaCount !== self::DISHES_PER_RESTAURANT) {
+            throw new \RuntimeException(sprintf(
+                'Unexpected dish count. alpha=%d sigma=%d expected=%d',
+                $alphaCount,
+                $sigmaCount,
+                self::DISHES_PER_RESTAURANT
+            ));
+        }
+
+        $this->command?->info('RealWorldTenantScenarioSeeder completed: alpha=190 dishes, sigma=190 dishes.');
+    }
+
+    private function cleanupLegacyAlphaSlug(): void
+    {
+        $legacy = Restaurant::query()->where('slug', 'alph')->first();
+
+        if (! $legacy) {
+            return;
+        }
+
+        $legacy->dishes()->withTrashed()->get()->each(function (Dish $dish): void {
+            $dish->assets()->delete();
+            $dish->forceDelete();
+        });
+
+        $legacy->ingredients()->delete();
+
+        if (Schema::hasTable('restaurant_domains')) {
+            RestaurantDomain::query()->where('restaurant_id', $legacy->id)->delete();
+        }
+
+        $legacy->delete();
     }
 
     private function upsertOwner(string $name, string $email, string $password): User
@@ -451,18 +139,17 @@ class RealWorldTenantScenarioSeeder extends Seeder
         $restaurant->address = $address;
         $restaurant->save();
 
-        // Clean testing dataset for this restaurant only.
+        // Clean test dataset only for this tenant.
         $restaurant->dishes()->withTrashed()->get()->each(function (Dish $dish): void {
             $dish->assets()->delete();
             $dish->forceDelete();
         });
-
         $restaurant->ingredients()->delete();
 
         return $restaurant;
     }
 
-    private function upsertDomain(Restaurant $restaurant, string $domain): void
+    private function upsertDomain(Restaurant $restaurant, string $domain, string $kind = 'subdomain'): void
     {
         if (! class_exists(RestaurantDomain::class) || ! Schema::hasTable('restaurant_domains')) {
             return;
@@ -472,11 +159,481 @@ class RealWorldTenantScenarioSeeder extends Seeder
             ['domain' => strtolower(trim($domain))],
             [
                 'restaurant_id' => $restaurant->id,
-                'kind' => 'subdomain',
+                'kind' => $kind,
                 'is_primary' => true,
                 'verified_at' => now(),
             ]
         );
+    }
+
+    /**
+     * @return array<int, array{name:string,name_ar:string,unit:string,stock:int|float,low:int|float}>
+     */
+    private function alphaIngredientDefinitions(): array
+    {
+        return [
+            ['name' => 'Chicken Breast', 'name_ar' => 'صدر دجاج', 'unit' => 'g', 'stock' => 26000, 'low' => 5000],
+            ['name' => 'Beef Sirloin', 'name_ar' => 'لحم بقري سيرلوين', 'unit' => 'g', 'stock' => 22000, 'low' => 4200],
+            ['name' => 'Salmon Fillet', 'name_ar' => 'فيليه سلمون', 'unit' => 'g', 'stock' => 18000, 'low' => 3600],
+            ['name' => 'Shrimp', 'name_ar' => 'روبيان', 'unit' => 'g', 'stock' => 16000, 'low' => 3200],
+            ['name' => 'Halloumi Cheese', 'name_ar' => 'جبنة حلوم', 'unit' => 'g', 'stock' => 12000, 'low' => 2200],
+            ['name' => 'Feta Cheese', 'name_ar' => 'جبنة فيتا', 'unit' => 'g', 'stock' => 10000, 'low' => 1900],
+            ['name' => 'Greek Yogurt', 'name_ar' => 'لبن يوناني', 'unit' => 'g', 'stock' => 16000, 'low' => 2800],
+            ['name' => 'Chickpea', 'name_ar' => 'حمص حب', 'unit' => 'g', 'stock' => 20000, 'low' => 3800],
+            ['name' => 'Basmati Rice', 'name_ar' => 'أرز بسمتي', 'unit' => 'g', 'stock' => 32000, 'low' => 6500],
+            ['name' => 'Pita Bread', 'name_ar' => 'خبز بيتا', 'unit' => 'piece', 'stock' => 400, 'low' => 80],
+            ['name' => 'Lettuce', 'name_ar' => 'خس', 'unit' => 'g', 'stock' => 20000, 'low' => 3500],
+            ['name' => 'Tomato', 'name_ar' => 'بندورة', 'unit' => 'g', 'stock' => 24000, 'low' => 4200],
+            ['name' => 'Cucumber', 'name_ar' => 'خيار', 'unit' => 'g', 'stock' => 22000, 'low' => 3800],
+            ['name' => 'Red Onion', 'name_ar' => 'بصل أحمر', 'unit' => 'g', 'stock' => 12000, 'low' => 2000],
+            ['name' => 'Parsley', 'name_ar' => 'بقدونس', 'unit' => 'g', 'stock' => 8000, 'low' => 1200],
+            ['name' => 'Mint', 'name_ar' => 'نعناع', 'unit' => 'g', 'stock' => 7000, 'low' => 1100],
+            ['name' => 'Lemon Juice', 'name_ar' => 'عصير ليمون', 'unit' => 'ml', 'stock' => 18000, 'low' => 3200],
+            ['name' => 'Olive Oil', 'name_ar' => 'زيت زيتون', 'unit' => 'ml', 'stock' => 24000, 'low' => 3600],
+            ['name' => 'Garlic', 'name_ar' => 'ثوم', 'unit' => 'g', 'stock' => 5000, 'low' => 900],
+            ['name' => 'Tahini', 'name_ar' => 'طحينة', 'unit' => 'g', 'stock' => 9000, 'low' => 1400],
+            ['name' => 'Pomegranate Molasses', 'name_ar' => 'دبس رمان', 'unit' => 'ml', 'stock' => 7000, 'low' => 1200],
+            ['name' => 'Orange Juice', 'name_ar' => 'عصير برتقال', 'unit' => 'ml', 'stock' => 12000, 'low' => 2100],
+            ['name' => 'Sugar Syrup', 'name_ar' => 'شراب سكر', 'unit' => 'ml', 'stock' => 9000, 'low' => 1500],
+            ['name' => 'Sparkling Water', 'name_ar' => 'مياه غازية', 'unit' => 'ml', 'stock' => 22000, 'low' => 3400],
+            ['name' => 'Ice Cube', 'name_ar' => 'مكعبات ثلج', 'unit' => 'piece', 'stock' => 10000, 'low' => 1800],
+        ];
+    }
+
+    /**
+     * @return array<int, array{name:string,name_ar:string,unit:string,stock:int|float,low:int|float}>
+     */
+    private function sigmaIngredientDefinitions(): array
+    {
+        return [
+            ['name' => 'Chicken Thigh', 'name_ar' => 'فخذ دجاج', 'unit' => 'g', 'stock' => 26000, 'low' => 5000],
+            ['name' => 'Beef Tenderloin', 'name_ar' => 'لحم بقري فيليه', 'unit' => 'g', 'stock' => 22000, 'low' => 4200],
+            ['name' => 'Salmon Fillet', 'name_ar' => 'فيليه سلمون', 'unit' => 'g', 'stock' => 17000, 'low' => 3200],
+            ['name' => 'Shrimp', 'name_ar' => 'روبيان', 'unit' => 'g', 'stock' => 16000, 'low' => 3000],
+            ['name' => 'Tofu', 'name_ar' => 'توفو', 'unit' => 'g', 'stock' => 14000, 'low' => 2200],
+            ['name' => 'Mushroom', 'name_ar' => 'فطر', 'unit' => 'g', 'stock' => 18000, 'low' => 3200],
+            ['name' => 'Egg Noodle', 'name_ar' => 'نودلز البيض', 'unit' => 'g', 'stock' => 30000, 'low' => 6500],
+            ['name' => 'Ramen Noodle', 'name_ar' => 'نودلز رامن', 'unit' => 'g', 'stock' => 30000, 'low' => 6500],
+            ['name' => 'Jasmine Rice', 'name_ar' => 'أرز ياسمين', 'unit' => 'g', 'stock' => 34000, 'low' => 7000],
+            ['name' => 'Soy Sauce', 'name_ar' => 'صلصة الصويا', 'unit' => 'ml', 'stock' => 22000, 'low' => 3500],
+            ['name' => 'Sesame Oil', 'name_ar' => 'زيت السمسم', 'unit' => 'ml', 'stock' => 11000, 'low' => 1600],
+            ['name' => 'Miso Paste', 'name_ar' => 'معجون الميسو', 'unit' => 'g', 'stock' => 11000, 'low' => 1700],
+            ['name' => 'Coconut Milk', 'name_ar' => 'حليب جوز الهند', 'unit' => 'ml', 'stock' => 16000, 'low' => 2600],
+            ['name' => 'Bell Pepper', 'name_ar' => 'فليفلة', 'unit' => 'g', 'stock' => 18000, 'low' => 3000],
+            ['name' => 'Carrot', 'name_ar' => 'جزر', 'unit' => 'g', 'stock' => 17000, 'low' => 2800],
+            ['name' => 'Spring Onion', 'name_ar' => 'بصل أخضر', 'unit' => 'g', 'stock' => 9000, 'low' => 1300],
+            ['name' => 'Ginger', 'name_ar' => 'زنجبيل', 'unit' => 'g', 'stock' => 6000, 'low' => 900],
+            ['name' => 'Garlic', 'name_ar' => 'ثوم', 'unit' => 'g', 'stock' => 6000, 'low' => 900],
+            ['name' => 'Lime Juice', 'name_ar' => 'عصير لايم', 'unit' => 'ml', 'stock' => 13000, 'low' => 2200],
+            ['name' => 'Chili Sauce', 'name_ar' => 'صلصة فلفل حار', 'unit' => 'ml', 'stock' => 10000, 'low' => 1600],
+            ['name' => 'Honey', 'name_ar' => 'عسل', 'unit' => 'g', 'stock' => 8000, 'low' => 1200],
+            ['name' => 'Green Tea', 'name_ar' => 'شاي أخضر', 'unit' => 'g', 'stock' => 5000, 'low' => 700],
+            ['name' => 'Black Tea', 'name_ar' => 'شاي أسود', 'unit' => 'g', 'stock' => 5000, 'low' => 700],
+            ['name' => 'Sugar Syrup', 'name_ar' => 'شراب سكر', 'unit' => 'ml', 'stock' => 11000, 'low' => 1700],
+            ['name' => 'Sparkling Water', 'name_ar' => 'مياه غازية', 'unit' => 'ml', 'stock' => 22000, 'low' => 3500],
+            ['name' => 'Ice Cube', 'name_ar' => 'مكعبات ثلج', 'unit' => 'piece', 'stock' => 10000, 'low' => 1800],
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function generateAlphaFoodDishes(int $count): array
+    {
+        $styles = [
+            ['en' => 'Charred', 'ar' => 'مشوي'],
+            ['en' => 'Citrus', 'ar' => 'حمضي'],
+            ['en' => 'Herb-Roasted', 'ar' => 'أعشاب مشوية'],
+            ['en' => 'Smoked', 'ar' => 'مدخن'],
+            ['en' => 'Fire-Grilled', 'ar' => 'مشوي على النار'],
+        ];
+
+        $proteins = [
+            ['label' => 'Chicken', 'label_ar' => 'دجاج', 'ingredient' => 'Chicken Breast', 'extra_price' => 1.5, 'cal' => 180],
+            ['label' => 'Beef', 'label_ar' => 'لحم بقري', 'ingredient' => 'Beef Sirloin', 'extra_price' => 3.2, 'cal' => 230],
+            ['label' => 'Salmon', 'label_ar' => 'سلمون', 'ingredient' => 'Salmon Fillet', 'extra_price' => 4.0, 'cal' => 210],
+            ['label' => 'Shrimp', 'label_ar' => 'روبيان', 'ingredient' => 'Shrimp', 'extra_price' => 3.4, 'cal' => 190],
+            ['label' => 'Halloumi', 'label_ar' => 'حلوم', 'ingredient' => 'Halloumi Cheese', 'extra_price' => 2.2, 'cal' => 220],
+            ['label' => 'Chickpea', 'label_ar' => 'حمص', 'ingredient' => 'Chickpea', 'extra_price' => 0.8, 'cal' => 150],
+            ['label' => 'Feta', 'label_ar' => 'فيتا', 'ingredient' => 'Feta Cheese', 'extra_price' => 1.8, 'cal' => 170],
+        ];
+
+        $bases = [
+            ['label' => 'Rice Bowl', 'label_ar' => 'باول أرز', 'category' => 'Bowls', 'category_ar' => 'أطباق بول', 'base_price' => 9.8, 'base_cal' => 360],
+            ['label' => 'Pita Wrap', 'label_ar' => 'لفافة بيتا', 'category' => 'Wraps', 'category_ar' => 'لفائف', 'base_price' => 9.2, 'base_cal' => 320],
+            ['label' => 'Garden Salad', 'label_ar' => 'سلطة الحديقة', 'category' => 'Salads', 'category_ar' => 'سلطات', 'base_price' => 8.9, 'base_cal' => 240],
+            ['label' => 'Mediterranean Plate', 'label_ar' => 'طبق متوسطي', 'category' => 'Mains', 'category_ar' => 'أطباق رئيسية', 'base_price' => 10.4, 'base_cal' => 350],
+            ['label' => 'Lemon Rice Plate', 'label_ar' => 'طبق أرز بالليمون', 'category' => 'Mains', 'category_ar' => 'أطباق رئيسية', 'base_price' => 10.2, 'base_cal' => 370],
+            ['label' => 'Warm Mezze Bowl', 'label_ar' => 'باول مقبلات دافئ', 'category' => 'Mezze', 'category_ar' => 'مقبلات', 'base_price' => 9.4, 'base_cal' => 280],
+        ];
+
+        $dishes = [];
+        foreach ($styles as $style) {
+            foreach ($proteins as $protein) {
+                foreach ($bases as $base) {
+                    if (count($dishes) >= $count) {
+                        break 3;
+                    }
+
+                    $name = sprintf('%s %s %s', $style['en'], $protein['label'], $base['label']);
+                    $nameAr = sprintf('%s %s %s', $base['label_ar'], $protein['label_ar'], $style['ar']);
+
+                    $price = round($base['base_price'] + $protein['extra_price'] + ($style['en'] === 'Fire-Grilled' ? 0.5 : 0.0), 2);
+                    $calories = (int) round($base['base_cal'] + $protein['cal']);
+
+                    $dishes[] = [
+                        'name' => $name,
+                        'name_ar' => $nameAr,
+                        'description' => sprintf(
+                            '%s %s prepared fresh daily with seasonal vegetables, citrus dressing, and house olive oil finish.',
+                            $style['en'],
+                            strtolower($protein['label'])
+                        ),
+                        'description_ar' => 'طبق طازج يومي مع خضار موسمية وتتبيـلة حمضيات ولمسة زيت زيتون خاصة.',
+                        'category' => $base['category'],
+                        'category_ar' => $base['category_ar'],
+                        'price' => $price,
+                        'calories' => $calories,
+                        'image_url' => $this->dishImageUrl('alpha-'.$name),
+                        'recipe' => $this->alphaRecipe(
+                            proteinIngredient: $protein['ingredient'],
+                            baseLabel: $base['label'],
+                            styleLabel: $style['en']
+                        ),
+                    ];
+                }
+            }
+        }
+
+        return $dishes;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function generateAlphaDrinkDishes(int $count): array
+    {
+        $drinkNames = [
+            ['name' => 'Citrus Mint Sparkler', 'name_ar' => 'مشروب حمضيات ونعناع فوار', 'core' => 'citrus'],
+            ['name' => 'Orange Basil Cooler', 'name_ar' => 'كولر برتقال وريحان', 'core' => 'orange'],
+            ['name' => 'Pomegranate Lemon Fizz', 'name_ar' => 'فوار رمان وليمون', 'core' => 'pomegranate'],
+            ['name' => 'Classic House Lemonade', 'name_ar' => 'ليمونادة المنزل الكلاسيكية', 'core' => 'lemonade'],
+            ['name' => 'Cucumber Mint Refresher', 'name_ar' => 'مشروب خيار ونعناع منعش', 'core' => 'cucumber'],
+            ['name' => 'Sunset Orange Spritz', 'name_ar' => 'سبريتز البرتقال عند الغروب', 'core' => 'orange'],
+            ['name' => 'Lemon Garden Cooler', 'name_ar' => 'كولر الليمون الأخضر', 'core' => 'lemonade'],
+            ['name' => 'Sparkling Citrus Punch', 'name_ar' => 'بانش حمضيات فوار', 'core' => 'citrus'],
+            ['name' => 'Minty Orange Burst', 'name_ar' => 'انفجار البرتقال بالنعناع', 'core' => 'orange'],
+            ['name' => 'Pomegranate Mint Soda', 'name_ar' => 'صودا رمان بالنعناع', 'core' => 'pomegranate'],
+            ['name' => 'Lemon Ice Splash', 'name_ar' => 'دفقة ليمون مثلجة', 'core' => 'lemonade'],
+            ['name' => 'Citrus Club Soda', 'name_ar' => 'صودا حمضيات كلوب', 'core' => 'citrus'],
+            ['name' => 'Fresh Mint Lemon Lift', 'name_ar' => 'ليمون ونعناع منعش', 'core' => 'lemonade'],
+            ['name' => 'Orange Cooler No.1', 'name_ar' => 'كولر برتقال رقم 1', 'core' => 'orange'],
+            ['name' => 'Orange Cooler No.2', 'name_ar' => 'كولر برتقال رقم 2', 'core' => 'orange'],
+            ['name' => 'Orange Cooler No.3', 'name_ar' => 'كولر برتقال رقم 3', 'core' => 'orange'],
+            ['name' => 'Pomegranate Spark No.1', 'name_ar' => 'فوار رمان رقم 1', 'core' => 'pomegranate'],
+            ['name' => 'Pomegranate Spark No.2', 'name_ar' => 'فوار رمان رقم 2', 'core' => 'pomegranate'],
+            ['name' => 'Lemonade Signature No.1', 'name_ar' => 'ليمونادة مميزة رقم 1', 'core' => 'lemonade'],
+            ['name' => 'Lemonade Signature No.2', 'name_ar' => 'ليمونادة مميزة رقم 2', 'core' => 'lemonade'],
+        ];
+
+        $selected = array_slice($drinkNames, 0, $count);
+
+        return array_map(function (array $drink): array {
+            return [
+                'name' => $drink['name'],
+                'name_ar' => $drink['name_ar'],
+                'description' => 'Handcrafted cold drink with fresh juice, light syrup, sparkling finish, and served over ice.',
+                'description_ar' => 'مشروب بارد محضر يدويًا بعصير طازج وشراب خفيف ولمسة فوارة يقدم مع الثلج.',
+                'category' => 'Drinks',
+                'category_ar' => 'مشروبات',
+                'price' => 4.20,
+                'calories' => 130,
+                'image_url' => $this->dishImageUrl('alpha-'.$drink['name']),
+                'recipe' => $this->alphaDrinkRecipe($drink['core']),
+            ];
+        }, $selected);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function generateSigmaFoodDishes(int $count): array
+    {
+        $styles = [
+            ['en' => 'Wok-Fired', 'ar' => 'ووك محمّر'],
+            ['en' => 'Umami', 'ar' => 'أومامي'],
+            ['en' => 'Sesame', 'ar' => 'سمسم'],
+            ['en' => 'Spicy', 'ar' => 'حار'],
+            ['en' => 'Teriyaki', 'ar' => 'ترياكي'],
+        ];
+
+        $proteins = [
+            ['label' => 'Chicken', 'label_ar' => 'دجاج', 'ingredient' => 'Chicken Thigh', 'extra_price' => 1.4, 'cal' => 210],
+            ['label' => 'Beef', 'label_ar' => 'لحم بقري', 'ingredient' => 'Beef Tenderloin', 'extra_price' => 3.0, 'cal' => 240],
+            ['label' => 'Shrimp', 'label_ar' => 'روبيان', 'ingredient' => 'Shrimp', 'extra_price' => 3.4, 'cal' => 200],
+            ['label' => 'Salmon', 'label_ar' => 'سلمون', 'ingredient' => 'Salmon Fillet', 'extra_price' => 4.1, 'cal' => 220],
+            ['label' => 'Tofu', 'label_ar' => 'توفو', 'ingredient' => 'Tofu', 'extra_price' => 1.1, 'cal' => 170],
+            ['label' => 'Mushroom', 'label_ar' => 'فطر', 'ingredient' => 'Mushroom', 'extra_price' => 0.9, 'cal' => 130],
+            ['label' => 'Mixed Protein', 'label_ar' => 'بروتين مشكّل', 'ingredient' => 'Chicken Thigh', 'extra_price' => 3.8, 'cal' => 250],
+        ];
+
+        $bases = [
+            ['label' => 'Ramen Bowl', 'label_ar' => 'باول رامن', 'category' => 'Bowls', 'category_ar' => 'أطباق بول', 'base_price' => 10.8, 'base_cal' => 420],
+            ['label' => 'Egg Noodle Bowl', 'label_ar' => 'باول نودلز البيض', 'category' => 'Noodles', 'category_ar' => 'نودلز', 'base_price' => 10.5, 'base_cal' => 400],
+            ['label' => 'Jasmine Rice Bowl', 'label_ar' => 'باول أرز ياسمين', 'category' => 'Bowls', 'category_ar' => 'أطباق بول', 'base_price' => 10.2, 'base_cal' => 380],
+            ['label' => 'Stir Fry Plate', 'label_ar' => 'طبق ستير فراي', 'category' => 'Mains', 'category_ar' => 'أطباق رئيسية', 'base_price' => 10.7, 'base_cal' => 360],
+            ['label' => 'Curry Bowl', 'label_ar' => 'باول كاري', 'category' => 'Curries', 'category_ar' => 'كاري', 'base_price' => 11.4, 'base_cal' => 430],
+            ['label' => 'Street Bowl', 'label_ar' => 'باول ستريت', 'category' => 'Mains', 'category_ar' => 'أطباق رئيسية', 'base_price' => 10.3, 'base_cal' => 370],
+        ];
+
+        $dishes = [];
+        foreach ($styles as $style) {
+            foreach ($proteins as $protein) {
+                foreach ($bases as $base) {
+                    if (count($dishes) >= $count) {
+                        break 3;
+                    }
+
+                    $name = sprintf('%s %s %s', $style['en'], $protein['label'], $base['label']);
+                    $nameAr = sprintf('%s %s %s', $base['label_ar'], $protein['label_ar'], $style['ar']);
+
+                    $price = round($base['base_price'] + $protein['extra_price'] + ($style['en'] === 'Spicy' ? 0.4 : 0.0), 2);
+                    $calories = (int) round($base['base_cal'] + $protein['cal']);
+
+                    $dishes[] = [
+                        'name' => $name,
+                        'name_ar' => $nameAr,
+                        'description' => sprintf(
+                            '%s %s dish cooked to order with house sauces, wok vegetables, and balanced seasoning.',
+                            $style['en'],
+                            strtolower($protein['label'])
+                        ),
+                        'description_ar' => 'طبق يجهز حسب الطلب مع صلصات المنزل وخضار الووك وتوازن نكهات دقيق.',
+                        'category' => $base['category'],
+                        'category_ar' => $base['category_ar'],
+                        'price' => $price,
+                        'calories' => $calories,
+                        'image_url' => $this->dishImageUrl('sigma-'.$name),
+                        'recipe' => $this->sigmaRecipe(
+                            proteinIngredient: $protein['ingredient'],
+                            baseLabel: $base['label'],
+                            styleLabel: $style['en']
+                        ),
+                    ];
+                }
+            }
+        }
+
+        return $dishes;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function generateSigmaDrinkDishes(int $count): array
+    {
+        $drinkNames = [
+            ['name' => 'Yuzu Green Tea Cooler', 'name_ar' => 'كولر شاي أخضر ويوزو', 'core' => 'green'],
+            ['name' => 'Iced Thai Milk Tea', 'name_ar' => 'شاي تايلندي بالحليب مثلج', 'core' => 'black'],
+            ['name' => 'Lime Green Tea Fizz', 'name_ar' => 'فوار شاي أخضر ولايم', 'core' => 'green'],
+            ['name' => 'Sparkling Black Tea Lemon', 'name_ar' => 'شاي أسود فوار بالليمون', 'core' => 'black'],
+            ['name' => 'Cold Brew Tea No.1', 'name_ar' => 'شاي بارد رقم 1', 'core' => 'green'],
+            ['name' => 'Cold Brew Tea No.2', 'name_ar' => 'شاي بارد رقم 2', 'core' => 'black'],
+            ['name' => 'Tea Spritz Signature 1', 'name_ar' => 'تي سبريتز مميز 1', 'core' => 'green'],
+            ['name' => 'Tea Spritz Signature 2', 'name_ar' => 'تي سبريتز مميز 2', 'core' => 'black'],
+            ['name' => 'Tea Spritz Signature 3', 'name_ar' => 'تي سبريتز مميز 3', 'core' => 'green'],
+            ['name' => 'Tea Spritz Signature 4', 'name_ar' => 'تي سبريتز مميز 4', 'core' => 'black'],
+            ['name' => 'Lime Tea Cooler 1', 'name_ar' => 'كولر شاي ولايم 1', 'core' => 'green'],
+            ['name' => 'Lime Tea Cooler 2', 'name_ar' => 'كولر شاي ولايم 2', 'core' => 'black'],
+            ['name' => 'Lime Tea Cooler 3', 'name_ar' => 'كولر شاي ولايم 3', 'core' => 'green'],
+            ['name' => 'Lime Tea Cooler 4', 'name_ar' => 'كولر شاي ولايم 4', 'core' => 'black'],
+            ['name' => 'Tea Fizz Reserve 1', 'name_ar' => 'تي فيز ريزرف 1', 'core' => 'green'],
+            ['name' => 'Tea Fizz Reserve 2', 'name_ar' => 'تي فيز ريزرف 2', 'core' => 'black'],
+            ['name' => 'Tea Fizz Reserve 3', 'name_ar' => 'تي فيز ريزرف 3', 'core' => 'green'],
+            ['name' => 'Tea Fizz Reserve 4', 'name_ar' => 'تي فيز ريزرف 4', 'core' => 'black'],
+            ['name' => 'House Green Tea Soda', 'name_ar' => 'صودا شاي أخضر', 'core' => 'green'],
+            ['name' => 'House Black Tea Soda', 'name_ar' => 'صودا شاي أسود', 'core' => 'black'],
+        ];
+
+        $selected = array_slice($drinkNames, 0, $count);
+
+        return array_map(function (array $drink): array {
+            return [
+                'name' => $drink['name'],
+                'name_ar' => $drink['name_ar'],
+                'description' => 'Iced tea beverage finished with lime, syrup balance, and sparkling water over ice.',
+                'description_ar' => 'مشروب شاي مثلج مع لايم وتوازن شراب سكر ولمسة مياه غازية فوق الثلج.',
+                'category' => 'Drinks',
+                'category_ar' => 'مشروبات',
+                'price' => 4.30,
+                'calories' => 120,
+                'image_url' => $this->dishImageUrl('sigma-'.$drink['name']),
+                'recipe' => $this->sigmaDrinkRecipe($drink['core']),
+            ];
+        }, $selected);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function alphaRecipe(string $proteinIngredient, string $baseLabel, string $styleLabel): array
+    {
+        $recipe = [
+            ['ingredient' => $proteinIngredient, 'qty' => $proteinIngredient === 'Chickpea' ? 150 : 180, 'unit' => 'g'],
+            ['ingredient' => 'Tomato', 'qty' => 45, 'unit' => 'g'],
+            ['ingredient' => 'Cucumber', 'qty' => 40, 'unit' => 'g'],
+            ['ingredient' => 'Red Onion', 'qty' => 14, 'unit' => 'g'],
+            ['ingredient' => 'Olive Oil', 'qty' => 16, 'unit' => 'ml'],
+            ['ingredient' => 'Lemon Juice', 'qty' => 18, 'unit' => 'ml'],
+            ['ingredient' => 'Garlic', 'qty' => 5, 'unit' => 'g'],
+        ];
+
+        if (str_contains($baseLabel, 'Rice')) {
+            $recipe[] = ['ingredient' => 'Basmati Rice', 'qty' => 170, 'unit' => 'g'];
+        }
+
+        if (str_contains($baseLabel, 'Pita')) {
+            $recipe[] = ['ingredient' => 'Pita Bread', 'qty' => 1, 'unit' => 'piece'];
+        }
+
+        if (str_contains($baseLabel, 'Salad') || str_contains($baseLabel, 'Bowl')) {
+            $recipe[] = ['ingredient' => 'Lettuce', 'qty' => 45, 'unit' => 'g'];
+            $recipe[] = ['ingredient' => 'Parsley', 'qty' => 8, 'unit' => 'g'];
+        }
+
+        if (str_contains($styleLabel, 'Smoked')) {
+            $recipe[] = ['ingredient' => 'Pomegranate Molasses', 'qty' => 14, 'unit' => 'ml'];
+        }
+
+        if (str_contains($styleLabel, 'Herb')) {
+            $recipe[] = ['ingredient' => 'Mint', 'qty' => 4, 'unit' => 'g'];
+            $recipe[] = ['ingredient' => 'Greek Yogurt', 'qty' => 35, 'unit' => 'g'];
+        }
+
+        if (str_contains($styleLabel, 'Citrus')) {
+            $recipe[] = ['ingredient' => 'Lemon Juice', 'qty' => 10, 'unit' => 'ml'];
+        }
+
+        if (in_array($proteinIngredient, ['Halloumi Cheese', 'Feta Cheese'], true)) {
+            $recipe[] = ['ingredient' => 'Tahini', 'qty' => 20, 'unit' => 'g'];
+        }
+
+        return $recipe;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function alphaDrinkRecipe(string $core): array
+    {
+        $recipe = [
+            ['ingredient' => 'Sugar Syrup', 'qty' => 16, 'unit' => 'ml'],
+            ['ingredient' => 'Sparkling Water', 'qty' => 170, 'unit' => 'ml'],
+            ['ingredient' => 'Ice Cube', 'qty' => 8, 'unit' => 'piece'],
+            ['ingredient' => 'Mint', 'qty' => 3, 'unit' => 'g'],
+        ];
+
+        if ($core === 'orange') {
+            $recipe[] = ['ingredient' => 'Orange Juice', 'qty' => 90, 'unit' => 'ml'];
+            $recipe[] = ['ingredient' => 'Lemon Juice', 'qty' => 14, 'unit' => 'ml'];
+        } elseif ($core === 'pomegranate') {
+            $recipe[] = ['ingredient' => 'Orange Juice', 'qty' => 50, 'unit' => 'ml'];
+            $recipe[] = ['ingredient' => 'Pomegranate Molasses', 'qty' => 12, 'unit' => 'ml'];
+            $recipe[] = ['ingredient' => 'Lemon Juice', 'qty' => 12, 'unit' => 'ml'];
+        } elseif ($core === 'cucumber') {
+            $recipe[] = ['ingredient' => 'Cucumber', 'qty' => 45, 'unit' => 'g'];
+            $recipe[] = ['ingredient' => 'Lemon Juice', 'qty' => 18, 'unit' => 'ml'];
+        } else {
+            $recipe[] = ['ingredient' => 'Lemon Juice', 'qty' => 30, 'unit' => 'ml'];
+            $recipe[] = ['ingredient' => 'Orange Juice', 'qty' => 55, 'unit' => 'ml'];
+        }
+
+        return $recipe;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function sigmaRecipe(string $proteinIngredient, string $baseLabel, string $styleLabel): array
+    {
+        $recipe = [
+            ['ingredient' => $proteinIngredient, 'qty' => $proteinIngredient === 'Mushroom' ? 160 : 180, 'unit' => 'g'],
+            ['ingredient' => 'Soy Sauce', 'qty' => 24, 'unit' => 'ml'],
+            ['ingredient' => 'Garlic', 'qty' => 6, 'unit' => 'g'],
+            ['ingredient' => 'Ginger', 'qty' => 6, 'unit' => 'g'],
+            ['ingredient' => 'Spring Onion', 'qty' => 12, 'unit' => 'g'],
+            ['ingredient' => 'Bell Pepper', 'qty' => 45, 'unit' => 'g'],
+            ['ingredient' => 'Carrot', 'qty' => 35, 'unit' => 'g'],
+        ];
+
+        if (str_contains($baseLabel, 'Ramen')) {
+            $recipe[] = ['ingredient' => 'Ramen Noodle', 'qty' => 170, 'unit' => 'g'];
+            $recipe[] = ['ingredient' => 'Miso Paste', 'qty' => 24, 'unit' => 'g'];
+        }
+
+        if (str_contains($baseLabel, 'Egg Noodle')) {
+            $recipe[] = ['ingredient' => 'Egg Noodle', 'qty' => 175, 'unit' => 'g'];
+        }
+
+        if (str_contains($baseLabel, 'Rice') || str_contains($baseLabel, 'Street')) {
+            $recipe[] = ['ingredient' => 'Jasmine Rice', 'qty' => 170, 'unit' => 'g'];
+        }
+
+        if (str_contains($baseLabel, 'Curry')) {
+            $recipe[] = ['ingredient' => 'Coconut Milk', 'qty' => 130, 'unit' => 'ml'];
+            $recipe[] = ['ingredient' => 'Lime Juice', 'qty' => 16, 'unit' => 'ml'];
+        }
+
+        if (str_contains($styleLabel, 'Sesame')) {
+            $recipe[] = ['ingredient' => 'Sesame Oil', 'qty' => 12, 'unit' => 'ml'];
+        }
+
+        if (str_contains($styleLabel, 'Spicy')) {
+            $recipe[] = ['ingredient' => 'Chili Sauce', 'qty' => 22, 'unit' => 'ml'];
+        }
+
+        if (str_contains($styleLabel, 'Teriyaki')) {
+            $recipe[] = ['ingredient' => 'Honey', 'qty' => 16, 'unit' => 'g'];
+        }
+
+        if ($proteinIngredient === 'Chicken Thigh' && str_contains($baseLabel, 'Street')) {
+            $recipe[] = ['ingredient' => 'Egg Noodle', 'qty' => 90, 'unit' => 'g'];
+        }
+
+        if ($proteinIngredient === 'Chicken Thigh' && str_contains($baseLabel, 'Street') && str_contains($styleLabel, 'Mixed')) {
+            $recipe[] = ['ingredient' => 'Shrimp', 'qty' => 70, 'unit' => 'g'];
+        }
+
+        return $recipe;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function sigmaDrinkRecipe(string $core): array
+    {
+        $recipe = [
+            ['ingredient' => 'Sugar Syrup', 'qty' => 16, 'unit' => 'ml'],
+            ['ingredient' => 'Sparkling Water', 'qty' => 165, 'unit' => 'ml'],
+            ['ingredient' => 'Lime Juice', 'qty' => 18, 'unit' => 'ml'],
+            ['ingredient' => 'Ice Cube', 'qty' => 8, 'unit' => 'piece'],
+        ];
+
+        if ($core === 'black') {
+            $recipe[] = ['ingredient' => 'Black Tea', 'qty' => 5, 'unit' => 'g'];
+            $recipe[] = ['ingredient' => 'Coconut Milk', 'qty' => 80, 'unit' => 'ml'];
+        } else {
+            $recipe[] = ['ingredient' => 'Green Tea', 'qty' => 5, 'unit' => 'g'];
+        }
+
+        return $recipe;
+    }
+
+    private function dishImageUrl(string $seed): string
+    {
+        $slug = Str::slug($seed);
+
+        return sprintf('https://picsum.photos/seed/%s/1200/800', $slug !== '' ? $slug : Str::random(8));
     }
 
     /**
