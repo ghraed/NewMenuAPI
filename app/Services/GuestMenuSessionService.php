@@ -34,7 +34,7 @@ class GuestMenuSessionService
     {
         $restaurant = $this->resolveGuestRestaurant($request);
         $table = $this->resolveTableByNumber($restaurant, $tableNumber);
-        $session = $this->getOrCreateActiveSession($restaurant, $table, $tableNumber);
+        $session = $this->findActiveSessionForTable($restaurant, $table);
 
         return [
             'restaurant' => $restaurant,
@@ -42,6 +42,25 @@ class GuestMenuSessionService
             'table_number' => $tableNumber,
             'session' => $session,
         ];
+    }
+
+    public function findActiveSessionForTable(Restaurant $restaurant, RestaurantTable $table): ?TableSession
+    {
+        $now = now();
+        $this->expireActiveSessionsForRestaurant($restaurant->id, $now);
+
+        return TableSession::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('restaurant_table_id', $table->id)
+            ->where('status', TableSession::STATUS_ACTIVE)
+            ->where(function ($query) use ($now) {
+                $query->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', $now);
+            })
+            ->with('restaurantTable')
+            ->latest('opened_at')
+            ->latest('id')
+            ->first();
     }
 
     public function resolveTableByNumber(Restaurant $restaurant, int $tableNumber): RestaurantTable

@@ -19,7 +19,7 @@ class TableSessionSecurityTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_valid_table_page_loads_in_view_only_mode_and_creates_a_session(): void
+    public function test_valid_table_page_loads_in_view_only_mode_without_auto_session_activation(): void
     {
         $restaurant = $this->createRestaurant();
         $this->createDish($restaurant, 'Session Burger', 12.50);
@@ -30,10 +30,9 @@ class TableSessionSecurityTest extends TestCase
             ->assertJsonPath('table.number', 2)
             ->assertJsonPath('guest_access.verified', false)
             ->assertJsonPath('protected_actions.ordering_unlocked', false)
-            ->assertJsonPath('table_session.status', TableSession::STATUS_ACTIVE);
+            ->assertJsonPath('table_session', null);
 
-        $this->assertSame(1, TableSession::query()->count());
-        $this->assertNotNull($this->activeSessionPin());
+        $this->assertSame(0, TableSession::query()->count());
     }
 
     public function test_correct_pin_unlocks_guest_access_and_protected_ordering(): void
@@ -300,6 +299,7 @@ class TableSessionSecurityTest extends TestCase
     public function test_revisiting_same_table_reuses_the_same_active_session_until_it_is_closed(): void
     {
         $this->createRestaurant();
+        $this->openGuestTable(3);
 
         $firstResponse = $this->getJson('/api/menu/table/3');
         $secondResponse = $this->getJson('/api/menu/table/3');
@@ -346,7 +346,18 @@ class TableSessionSecurityTest extends TestCase
 
     private function openGuestTable(int $tableNumber): TableSession
     {
-        $this->getJson("/api/menu/table/{$tableNumber}")->assertOk();
+        $restaurant = Restaurant::query()
+            ->where('slug', config('app.guest_restaurant_slug'))
+            ->with('user')
+            ->firstOrFail();
+
+        $table = $restaurant->tables()->orderBy('name')->get()->values()->get($tableNumber - 1);
+        $this->assertNotNull($table);
+
+        Sanctum::actingAs($restaurant->user);
+        $this->postJson('/api/table-sessions/activate', [
+            'table_id' => $table->id,
+        ])->assertOk();
 
         return TableSession::query()
             ->where('table_number', $tableNumber)

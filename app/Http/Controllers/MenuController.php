@@ -28,7 +28,9 @@ class MenuController extends Controller
         $restaurant = $context['restaurant'];
         $table = $context['table'];
         $session = $context['session'];
-        $guestAccess = $this->tableSessionAccessService->findRequestGuestAccess($request, $session);
+        $guestAccess = $session
+            ? $this->tableSessionAccessService->findRequestGuestAccess($request, $session)
+            : null;
 
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -40,13 +42,13 @@ class MenuController extends Controller
         return response()->json([
             'restaurant' => $this->guestMenuSessionService->formatRestaurant($restaurant),
             'table' => $this->guestMenuSessionService->formatTable($table, $table_id),
-            'table_session' => $this->guestMenuSessionService->formatSession($session),
+            'table_session' => $session ? $this->guestMenuSessionService->formatSession($session) : null,
             'guest_access' => $this->guestMenuSessionService->formatGuestAccess($guestAccess),
             'protected_actions' => [
-                'ordering_unlocked' => $guestAccess !== null,
-                'can_place_order' => $guestAccess !== null,
-                'can_call_waiter' => $guestAccess !== null,
-                'can_request_bill' => $guestAccess !== null,
+                'ordering_unlocked' => $session !== null && $guestAccess !== null,
+                'can_place_order' => $session !== null && $guestAccess !== null,
+                'can_call_waiter' => $session !== null && $guestAccess !== null,
+                'can_request_bill' => $session !== null && $guestAccess !== null,
             ],
             'dishes' => $this->localizeDishes($dishes),
         ]);
@@ -58,7 +60,9 @@ class MenuController extends Controller
         $restaurant = $context['restaurant'];
         $table = $context['table'];
         $session = $context['session'];
-        $guestAccess = $this->tableSessionAccessService->findRequestGuestAccess($request, $session);
+        $guestAccess = $session
+            ? $this->tableSessionAccessService->findRequestGuestAccess($request, $session)
+            : null;
 
         $dish = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -101,13 +105,13 @@ class MenuController extends Controller
         return response()->json([
             'restaurant' => $this->guestMenuSessionService->formatRestaurant($restaurant),
             'table' => $this->guestMenuSessionService->formatTable($table, $table_id),
-            'table_session' => $this->guestMenuSessionService->formatSession($session),
+            'table_session' => $session ? $this->guestMenuSessionService->formatSession($session) : null,
             'guest_access' => $this->guestMenuSessionService->formatGuestAccess($guestAccess),
             'protected_actions' => [
-                'ordering_unlocked' => $guestAccess !== null,
-                'can_place_order' => $guestAccess !== null,
-                'can_call_waiter' => $guestAccess !== null,
-                'can_request_bill' => $guestAccess !== null,
+                'ordering_unlocked' => $session !== null && $guestAccess !== null,
+                'can_place_order' => $session !== null && $guestAccess !== null,
+                'can_call_waiter' => $session !== null && $guestAccess !== null,
+                'can_request_bill' => $session !== null && $guestAccess !== null,
             ],
             'dish' => $this->localizeDish($dish),
         ]);

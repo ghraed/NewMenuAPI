@@ -554,7 +554,18 @@ class OrderWorkflowTest extends TestCase
 
     private function openGuestTable(int $tableNumber): TableSession
     {
-        $this->getJson("/api/menu/table/{$tableNumber}")->assertOk();
+        $restaurant = Restaurant::query()
+            ->where('slug', config('app.guest_restaurant_slug'))
+            ->with('user')
+            ->firstOrFail();
+
+        $table = $restaurant->tables()->orderBy('name')->get()->values()->get($tableNumber - 1);
+        $this->assertNotNull($table);
+
+        Sanctum::actingAs($restaurant->user);
+        $this->postJson('/api/table-sessions/activate', [
+            'table_id' => $table->id,
+        ])->assertOk();
 
         return TableSession::query()
             ->where('table_number', $tableNumber)

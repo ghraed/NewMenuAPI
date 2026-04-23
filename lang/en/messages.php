@@ -52,6 +52,7 @@ return [
         'pin_verified' => 'Ordering unlocked for this table.',
         'activated' => 'Table activated and PIN is ready.',
         'pin_reset' => 'A new table PIN has been generated.',
+        'not_active' => 'This table is ready but not active yet. Ask staff to activate the table first.',
         'authorization_required' => 'Unlock this table with the current PIN before using this action.',
         'expired' => 'This table session has expired. Ask staff for a new PIN.',
         'closed' => 'This table session has been finalized. Ask staff to open a new dining session.',

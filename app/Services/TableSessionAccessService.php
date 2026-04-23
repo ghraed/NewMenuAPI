@@ -27,7 +27,16 @@ class TableSessionAccessService
     public function verifyPinForTable(Request $request, int $tableNumber, string $pin): array
     {
         $context = $this->guestMenuSessionService->resolveTableContext($tableNumber, $request);
-        $sessionId = $context['session']->id;
+        /** @var TableSession|null $sessionFromContext */
+        $sessionFromContext = $context['session'];
+
+        if (! $sessionFromContext) {
+            throw new HttpResponseException(response()->json([
+                'message' => __('messages.table_sessions.not_active'),
+            ], 409));
+        }
+
+        $sessionId = $sessionFromContext->id;
 
         return DB::transaction(function () use ($request, $context, $sessionId, $pin) {
             /** @var TableSession $session */

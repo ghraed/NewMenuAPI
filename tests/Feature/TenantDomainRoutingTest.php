@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\GuestMenuSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class TenantDomainRoutingTest extends TestCase
@@ -70,6 +71,11 @@ class TenantDomainRoutingTest extends TestCase
             ->getJson('/api/menu/table/1')
             ->assertOk()
             ->assertJsonPath('restaurant.id', $alpha->id);
+
+        Sanctum::actingAs($alpha->user);
+        $this->postJson('/api/table-sessions/activate', [
+            'table_id' => $alpha->tables()->orderBy('name')->firstOrFail()->id,
+        ])->assertOk();
 
         $pin = $this->activeSessionPin();
 
