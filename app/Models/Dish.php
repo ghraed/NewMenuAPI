@@ -35,6 +35,7 @@ class Dish extends Model
         'category_ar',
         'status',
         'is_anchor',
+        'is_profitable',
         'image_url',
     ];
 
@@ -44,6 +45,7 @@ class Dish extends Model
         'currency' => 'string',
         'calories' => 'integer',
         'is_anchor' => 'boolean',
+        'is_profitable' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
