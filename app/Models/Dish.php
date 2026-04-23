@@ -33,6 +33,7 @@ class Dish extends Model
         'category',
         'category_ar',
         'status',
+        'is_anchor',
         'image_url',
     ];
 
@@ -40,6 +41,7 @@ class Dish extends Model
         'uuid' => 'string',
         'price' => 'decimal:2',
         'calories' => 'integer',
+        'is_anchor' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
