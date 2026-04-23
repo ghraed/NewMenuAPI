@@ -125,6 +125,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
         Route::get('/inventory/stock-history', [InventoryStockHistoryController::class, 'index']);
         Route::post('/inventory/ingredients', [InventoryIngredientController::class, 'store']);
+        Route::post('/inventory/ingredients/import-global', [InventoryIngredientController::class, 'importGlobal']);
         Route::patch('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'update']);
         Route::post('/inventory/ingredients/{ingredient}/activate', [InventoryIngredientController::class, 'activate']);
         Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
