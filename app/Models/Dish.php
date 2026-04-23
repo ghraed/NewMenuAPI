@@ -29,6 +29,7 @@ class Dish extends Model
         'description',
         'description_ar',
         'price',
+        'currency',
         'calories',
         'category',
         'category_ar',
@@ -40,6 +41,7 @@ class Dish extends Model
     protected $casts = [
         'uuid' => 'string',
         'price' => 'decimal:2',
+        'currency' => 'string',
         'calories' => 'integer',
         'is_anchor' => 'boolean',
         'created_at' => 'datetime',

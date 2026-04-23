@@ -5,6 +5,7 @@ use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\CurrencySettingsController;
 use App\Http\Controllers\DishController;
 use App\Http\Controllers\GuestTableAccessController;
 use App\Http\Controllers\GuestController;
@@ -104,6 +105,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Restaurant
         Route::patch('/restaurant/name', [RestaurantController::class, 'updateName']);
+        Route::get('/restaurant/currency-settings', [CurrencySettingsController::class, 'show']);
+        Route::patch('/restaurant/currency-settings', [CurrencySettingsController::class, 'update']);
         Route::get('/restaurant/staff', [RestaurantController::class, 'indexStaff']);
         Route::post('/restaurant/staff', [RestaurantController::class, 'storeStaff']);
         Route::patch('/restaurant/staff/{staff}/tables', [RestaurantController::class, 'updateStaffTables']);

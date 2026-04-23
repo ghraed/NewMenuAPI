@@ -16,11 +16,14 @@ class Restaurant extends Model
         'slug',
         'description',
         'address',
+        'currency',
+        'dollar_rate',
     ];
 
     protected $casts = [
         'uuid' => 'string',
         'created_at' => 'datetime',
+        'dollar_rate' => 'decimal:2',
         'updated_at' => 'datetime',
     ];
 

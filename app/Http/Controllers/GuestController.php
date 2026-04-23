@@ -67,6 +67,8 @@ class GuestController extends Controller
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
+                'currency' => $restaurant->currency,
+                'dollar_rate' => $restaurant->dollar_rate,
             ],
             'dishes' => $this->localizeDishes($dishes),
         ]);
@@ -119,6 +121,8 @@ class GuestController extends Controller
             'id' => $restaurant->id,
             'name' => $restaurant->name,
             'slug' => $restaurant->slug,
+                'currency' => $restaurant->currency,
+                'dollar_rate' => $restaurant->dollar_rate,
         ];
 
         return response()->json($payload);
@@ -142,6 +146,8 @@ class GuestController extends Controller
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
+                'currency' => $restaurant->currency,
+                'dollar_rate' => $restaurant->dollar_rate,
             ],
             'tables' => $tables,
         ]);
