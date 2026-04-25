@@ -320,13 +320,19 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
                 'restaurant_table_id' => $table->id,
                 'table_session_id' => $session->id,
                 'order_number' => sprintf(
-                    'ORD-%s-%05d',
+                    'ORD-%s-%s-%05d',
+                    strtoupper(substr($restaurant->slug, 0, 3)),
                     Carbon::parse($baseDate)->format('Ymd'),
                     $invoiceSequence
                 ),
                 'invoice_number' => $invoiceStatus === Invoice::STATUS_DRAFT
                     ? null
-                    : sprintf('INV-%s-%05d', Carbon::parse($baseDate)->format('Ymd'), $invoiceSequence),
+                    : sprintf(
+                        'INV-%s-%s-%05d',
+                        strtoupper(substr($restaurant->slug, 0, 3)),
+                        Carbon::parse($baseDate)->format('Ymd'),
+                        $invoiceSequence
+                    ),
                 'status' => $orderStatus,
                 'guest_name' => $table->name,
                 'table_reference' => $table->name,
