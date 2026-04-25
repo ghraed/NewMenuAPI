@@ -13,7 +13,6 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderItemIngredientUsage;
 use App\Models\PushSubscription;
-use App\Models\QRCode;
 use App\Models\Restaurant;
 use App\Models\RestaurantTable;
 use App\Models\Scan;
@@ -145,12 +144,14 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
             ];
             $asset->save();
 
-            QRCode::query()->updateOrCreate(
+            DB::table('qr_codes')->updateOrInsert(
                 ['dish_id' => $dish->id],
                 [
                     'uuid' => (string) Str::uuid(),
                     'code_url' => sprintf('https://%s/menu/%s/dish/%d', $domain, $restaurant->slug, $dish->id),
                     'qr_data' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]
             );
         }
