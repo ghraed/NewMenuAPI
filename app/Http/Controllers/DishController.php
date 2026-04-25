@@ -6,6 +6,7 @@ use App\Models\Dish;
 use App\Models\DishAsset;
 use App\Models\Ingredient;
 use App\Models\Restaurant;
+use App\Services\DishDescriptionGenerationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -17,6 +18,11 @@ use RuntimeException;
 
 class DishController extends Controller
 {
+    public function __construct(
+        private readonly DishDescriptionGenerationService $dishDescriptionGenerationService
+    ) {
+    }
+
     public function index(Request $request): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -142,6 +148,78 @@ class DishController extends Controller
             'relatedDishes.assets',
             'dishIngredients.ingredient',
         ]));
+    }
+
+    public function generateDescription(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'category' => ['required', 'string', 'max:100'],
+            'calories' => ['nullable', 'integer', 'min:0'],
+            'recipe_ingredients' => ['required', 'array', 'min:1'],
+            'recipe_ingredients.*.ingredient_id' => ['required', 'integer', 'exists:ingredients,id'],
+            'recipe_ingredients.*.ingredient_name' => ['nullable', 'string', 'max:255'],
+            'recipe_ingredients.*.quantity_required' => ['required', 'numeric', 'gt:0'],
+            'recipe_ingredients.*.unit' => ['required', 'string', 'max:20'],
+            'recipe_ingredients.*.order_index' => ['nullable', 'integer', 'min:0'],
+            'target_languages' => ['required', 'array', 'min:1'],
+            'target_languages.*' => ['required', 'string', 'in:en,ar'],
+        ]);
+
+        $rows = $validated['recipe_ingredients'];
+        $ingredientIds = array_values(array_unique(array_map(
+            fn (array $row): int => (int) $row['ingredient_id'],
+            $rows
+        )));
+
+        $ingredientsById = Ingredient::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('id', $ingredientIds)
+            ->get()
+            ->keyBy('id');
+
+        if ($ingredientsById->count() !== count($ingredientIds)) {
+            throw ValidationException::withMessages([
+                'recipe_ingredients' => 'Recipe ingredients must belong to your restaurant.',
+            ]);
+        }
+
+        $normalizedIngredients = [];
+        foreach ($rows as $index => $row) {
+            $ingredientId = (int) $row['ingredient_id'];
+            /** @var Ingredient|null $ingredient */
+            $ingredient = $ingredientsById->get($ingredientId);
+
+            $normalizedIngredients[] = [
+                'ingredient_name' => trim((string) ($row['ingredient_name'] ?? '')) !== ''
+                    ? trim((string) $row['ingredient_name'])
+                    : trim((string) ($ingredient?->name ?? 'Ingredient')),
+                'quantity_required' => round((float) $row['quantity_required'], 3),
+                'unit' => trim((string) $row['unit']),
+                'order_index' => (int) ($row['order_index'] ?? $index),
+            ];
+        }
+
+        usort(
+            $normalizedIngredients,
+            fn (array $left, array $right): int => $left['order_index'] <=> $right['order_index']
+        );
+
+        $generated = $this->dishDescriptionGenerationService->generate([
+            'name' => trim((string) $validated['name']),
+            'category' => trim((string) $validated['category']),
+            'calories' => $validated['calories'] ?? null,
+            'recipe_ingredients' => $normalizedIngredients,
+            'target_languages' => array_values(array_unique($validated['target_languages'])),
+            'restaurant_name' => (string) $restaurant->name,
+        ]);
+
+        return response()->json([
+            'description' => $generated['description'],
+            'description_ar' => $generated['description_ar'],
+        ]);
     }
 
     public function copyModel(Request $request, Dish $dish): JsonResponse

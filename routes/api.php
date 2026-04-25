@@ -83,6 +83,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Dishes
         Route::apiResource('dishes', DishController::class);
+        Route::post('/admin/dishes/generate-description', [DishController::class, 'generateDescription']);
         Route::post('/dishes/{dish}/copy-model', [DishController::class, 'copyModel']);
         Route::patch('/dishes/{dish}/publish', [DishController::class, 'publish']);
         Route::patch('/dishes/{dish}/unpublish', [DishController::class, 'unpublish']);
