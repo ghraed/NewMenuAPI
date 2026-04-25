@@ -13,6 +13,7 @@ use App\Http\Controllers\GlobalIngredientController;
 use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\InventoryIngredientController;
 use App\Http\Controllers\InventoryStockHistoryController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MenuController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
@@ -89,6 +90,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/dishes/{dish}/unpublish', [DishController::class, 'unpublish']);
         Route::post('/dishes/{dish}/restore', [DishController::class, 'restore']);
         Route::delete('/dishes/{dish}/force', [DishController::class, 'forceDelete']);
+        Route::get('/admin/finance/invoices/revenue-trends', [InvoiceController::class, 'revenueTrends']);
+        Route::get('/admin/finance/invoices', [InvoiceController::class, 'index']);
+        Route::post('/admin/finance/invoices', [InvoiceController::class, 'store']);
+        Route::get('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'show']);
+        Route::patch('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'update']);
 
         // Assets
         Route::post('/dishes/{dish}/assets', [AssetController::class, 'upload']);
