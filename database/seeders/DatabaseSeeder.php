@@ -44,6 +44,9 @@ class DatabaseSeeder extends Seeder
         // Optional real-world multi-tenant dataset for alpha/sigma:
         // php artisan db:seed --class=Database\\Seeders\\RealWorldTenantScenarioSeeder
 
+        // Optional full reset + complete tenant/finance/history dataset:
+        // php artisan db:seed --class=Database\\Seeders\\FullResetTenantFinanceScenarioSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
