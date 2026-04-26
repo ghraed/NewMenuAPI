@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Owner;
 
 use App\Http\Controllers\Controller;
+use App\Models\SaasOwner;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,23 +18,30 @@ class OwnerAuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        $configuredOwnerEmail = strtolower(trim((string) config('saas.owner_email')));
         $email = strtolower(trim((string) $validated['email']));
 
-        $user = User::query()
+        $saasOwner = SaasOwner::query()
             ->where('email', $email)
             ->first();
 
         if (
-            $email !== $configuredOwnerEmail
-            || ! $user
-            || ! $user->hasRole(User::ROLE_SAAS_OWNER)
-            || ! Hash::check($validated['password'], $user->password)
+            ! $saasOwner
+            || ! Hash::check($validated['password'], $saasOwner->password)
         ) {
             return response()->json([
                 'message' => 'Invalid owner credentials.',
             ], 401);
         }
+
+        $user = User::query()->updateOrCreate(
+            ['email' => $saasOwner->email],
+            [
+                'name' => $saasOwner->name,
+                'role' => User::ROLE_SAAS_OWNER,
+                // Keep auth hash in sync with saas_owners.
+                'password' => $saasOwner->password,
+            ]
+        );
 
         $token = $user->createToken('saas-owner-token')->plainTextToken;
 
