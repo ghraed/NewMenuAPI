@@ -35,6 +35,9 @@ class MenuController extends Controller
             : null;
         $waiterCallEnabled = $this->featureFlagService->isEnabled($restaurant, 'waiter_call');
         $requestBillEnabled = $this->featureFlagService->isEnabled($restaurant, 'request_bill');
+        $ar3dEnabled = $this->featureFlagService->isEnabled($restaurant, 'ar_3d_dishes');
+        $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
+        $tableOrderingEnabled = $this->featureFlagService->isEnabled($restaurant, 'table_ordering');
 
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -49,12 +52,12 @@ class MenuController extends Controller
             'table_session' => $session ? $this->guestMenuSessionService->formatSession($session) : null,
             'guest_access' => $this->guestMenuSessionService->formatGuestAccess($guestAccess),
             'protected_actions' => [
-                'ordering_unlocked' => $session !== null && $guestAccess !== null,
-                'can_place_order' => $session !== null && $guestAccess !== null,
+                'ordering_unlocked' => $session !== null && $guestAccess !== null && $tableOrderingEnabled,
+                'can_place_order' => $session !== null && $guestAccess !== null && $tableOrderingEnabled,
                 'can_call_waiter' => $session !== null && $guestAccess !== null && $waiterCallEnabled,
                 'can_request_bill' => $session !== null && $guestAccess !== null && $requestBillEnabled,
             ],
-            'dishes' => $this->localizeDishes($dishes),
+            'dishes' => $this->localizeDishes($dishes, $ar3dEnabled, $animatedIngredientsEnabled),
         ]);
     }
 
@@ -69,6 +72,9 @@ class MenuController extends Controller
             : null;
         $waiterCallEnabled = $this->featureFlagService->isEnabled($restaurant, 'waiter_call');
         $requestBillEnabled = $this->featureFlagService->isEnabled($restaurant, 'request_bill');
+        $ar3dEnabled = $this->featureFlagService->isEnabled($restaurant, 'ar_3d_dishes');
+        $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
+        $tableOrderingEnabled = $this->featureFlagService->isEnabled($restaurant, 'table_ordering');
 
         $dish = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -122,12 +128,12 @@ class MenuController extends Controller
             'table_session' => $session ? $this->guestMenuSessionService->formatSession($session) : null,
             'guest_access' => $this->guestMenuSessionService->formatGuestAccess($guestAccess),
             'protected_actions' => [
-                'ordering_unlocked' => $session !== null && $guestAccess !== null,
-                'can_place_order' => $session !== null && $guestAccess !== null,
+                'ordering_unlocked' => $session !== null && $guestAccess !== null && $tableOrderingEnabled,
+                'can_place_order' => $session !== null && $guestAccess !== null && $tableOrderingEnabled,
                 'can_call_waiter' => $session !== null && $guestAccess !== null && $waiterCallEnabled,
                 'can_request_bill' => $session !== null && $guestAccess !== null && $requestBillEnabled,
             ],
-            'dish' => $this->localizeDish($dish),
+            'dish' => $this->localizeDish($dish, $ar3dEnabled, $animatedIngredientsEnabled),
         ]);
     }
 

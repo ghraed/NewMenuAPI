@@ -327,7 +327,7 @@ class OrderController extends Controller
         }
 
         try {
-            $order = DB::transaction(function () use ($order, $request) {
+            $order = DB::transaction(function () use ($order, $request, $restaurant) {
                 /** @var Order $lockedOrder */
                 $lockedOrder = Order::query()
                     ->whereKey($order->id)
@@ -346,10 +346,12 @@ class OrderController extends Controller
                     'confirmed_at' => now(),
                 ]);
 
-                $this->orderInventoryDeductionService->deductForConfirmedOrder(
-                    $lockedOrder,
-                    $request->user()->id
-                );
+                if (feature_enabled('ingredient_stock_deduction', $restaurant)) {
+                    $this->orderInventoryDeductionService->deductForConfirmedOrder(
+                        $lockedOrder,
+                        $request->user()->id
+                    );
+                }
 
                 return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy']);
             });
@@ -395,7 +397,7 @@ class OrderController extends Controller
         }
 
         try {
-            $order = DB::transaction(function () use ($order, $request) {
+            $order = DB::transaction(function () use ($order, $request, $restaurant) {
                 /** @var Order $lockedOrder */
                 $lockedOrder = Order::query()
                     ->whereKey($order->id)
@@ -419,7 +421,7 @@ class OrderController extends Controller
                     'cancelled_at' => now(),
                 ]);
 
-                if ($wasConfirmed) {
+                if ($wasConfirmed && feature_enabled('ingredient_stock_deduction', $restaurant)) {
                     $this->orderInventoryDeductionService->restoreForCancelledOrder(
                         $lockedOrder,
                         $request->user()->id

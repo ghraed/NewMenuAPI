@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'guest.table.access' => \App\Http\Middleware\EnsureGuestTableAccess::class,
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
             'saas_owner' => \App\Http\Middleware\EnsureSaasOwner::class,
+            'feature' => \App\Http\Middleware\EnsureRestaurantFeatureEnabled::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

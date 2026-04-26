@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\AnalyticsEvent;
+use App\Models\Dish;
+use App\Services\FeatureFlagService;
+use App\Services\TenantRestaurantResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -11,6 +14,12 @@ use Jenssegers\Agent\Agent;
 
 class AnalyticsController extends Controller
 {
+    public function __construct(
+        private readonly FeatureFlagService $featureFlagService,
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver,
+    ) {
+    }
+
     /**
      * Track analytics events from the AR menu frontend
      * POST /api/analytics/track
@@ -25,6 +34,28 @@ class AnalyticsController extends Controller
                 'session_id' => 'nullable|string|max:255',
                 'duration_ms' => 'nullable|integer',
             ]);
+
+            $restaurant = null;
+
+            if (! empty($validated['dish_id'])) {
+                $dish = Dish::query()->select(['id', 'restaurant_id'])->find($validated['dish_id']);
+                $restaurant = $dish?->restaurant()->first();
+            }
+
+            if (! $restaurant) {
+                try {
+                    $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost(null, $request);
+                } catch (\Throwable) {
+                    $restaurant = null;
+                }
+            }
+
+            if ($restaurant && ! $this->featureFlagService->isEnabled($restaurant, 'analytics')) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Analytics is disabled for this restaurant.',
+                ], 403);
+            }
 
             $deviceType = $this->detectDeviceType($request);
             $sessionId = $validated['session_id'] ?? (string) \Illuminate\Support\Str::uuid();

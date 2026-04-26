@@ -30,8 +30,8 @@ class GuestTableAccessController extends Controller
             'table_session' => $this->guestMenuSessionService->formatSession($result['session']),
             'guest_access' => $this->tableSessionAccessService->buildGuestAccessPayload($result['guest_access'], $result['token']),
             'protected_actions' => [
-                'ordering_unlocked' => true,
-                'can_place_order' => true,
+                'ordering_unlocked' => feature_enabled('table_ordering', $result['restaurant']),
+                'can_place_order' => feature_enabled('table_ordering', $result['restaurant']),
                 'can_call_waiter' => feature_enabled('waiter_call', $result['restaurant']),
                 'can_request_bill' => feature_enabled('request_bill', $result['restaurant']),
             ],

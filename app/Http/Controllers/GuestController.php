@@ -56,6 +56,8 @@ class GuestController extends Controller
     private function listDishesForRestaurant(Request $request, ?string $restaurantSlug): JsonResponse
     {
         $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurantSlug, $request);
+        $ar3dEnabled = $this->featureFlagService->isEnabled($restaurant, 'ar_3d_dishes');
+        $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
 
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -66,13 +68,15 @@ class GuestController extends Controller
 
         return response()->json([
             'restaurant' => $this->formatGuestRestaurant($restaurant),
-            'dishes' => $this->localizeDishes($dishes),
+            'dishes' => $this->localizeDishes($dishes, $ar3dEnabled, $animatedIngredientsEnabled),
         ]);
     }
 
     private function showDishForRestaurant(Request $request, ?string $restaurantSlug, int $dishId): JsonResponse
     {
         $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurantSlug, $request);
+        $ar3dEnabled = $this->featureFlagService->isEnabled($restaurant, 'ar_3d_dishes');
+        $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
 
         $dish = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -120,7 +124,7 @@ class GuestController extends Controller
             $dish->setRelation('alternativeDishes', collect());
         }
 
-        $payload = $this->localizeDish($dish);
+        $payload = $this->localizeDish($dish, $ar3dEnabled, $animatedIngredientsEnabled);
         $payload['restaurant'] = $this->formatGuestRestaurant($restaurant);
 
         return response()->json($payload);

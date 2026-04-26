@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\Feature;
 use App\Models\Restaurant;
 use App\Models\RestaurantDomain;
+use App\Models\RestaurantFeature;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 
@@ -52,7 +54,15 @@ class TenantRestaurantResolver
             ->with('restaurant')
             ->first();
 
-        return $domain?->restaurant;
+        if (! $domain?->restaurant) {
+            return null;
+        }
+
+        if (! $this->isCustomDomainEnabledForRestaurant((int) $domain->restaurant->id)) {
+            return null;
+        }
+
+        return $domain->restaurant;
     }
 
     private function resolveLocalFallback(): Restaurant
@@ -98,5 +108,29 @@ class TenantRestaurantResolver
     private function isLocalHost(string $host): bool
     {
         return in_array($this->normalizeDomain($host), self::LOCAL_HOSTS, true);
+    }
+
+    private function isCustomDomainEnabledForRestaurant(int $restaurantId): bool
+    {
+        $feature = Feature::query()
+            ->select(['id', 'is_active_by_default'])
+            ->where('key', 'custom_domain')
+            ->first();
+
+        if (! $feature) {
+            return false;
+        }
+
+        $override = RestaurantFeature::query()
+            ->select(['enabled'])
+            ->where('restaurant_id', $restaurantId)
+            ->where('feature_id', $feature->id)
+            ->first();
+
+        if ($override) {
+            return (bool) $override->enabled;
+        }
+
+        return (bool) $feature->is_active_by_default;
     }
 }

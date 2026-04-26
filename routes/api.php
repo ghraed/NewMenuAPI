@@ -38,24 +38,28 @@ Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, Sta
     ->post('/chat/orders', [OrderController::class, 'storeChatOrder']);
 Route::get('/test', [GuestController::class, 'test']);
 Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
-Route::get('/menu/dishes', [GuestController::class, 'listDishes']);
-Route::get('/menu/dish/{dish_id}', [GuestController::class, 'showDish']);
-Route::get('/menu/tables', [GuestController::class, 'listTables']);
-Route::post('/menu/orders', [OrderController::class, 'store']);
-Route::post('/menu/waves', [WaveController::class, 'store']);
-Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishesBySlug']);
-Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 'showDishBySlug']);
-Route::get('/menu/{restaurant_slug}/tables', [GuestController::class, 'listTablesBySlug']);
-Route::post('/menu/{restaurant_slug}/orders', [OrderController::class, 'store']);
-Route::post('/menu/{restaurant_slug}/waves', [WaveController::class, 'store']);
-Route::get('/menu/table/{table_id}', [MenuController::class, 'showTableMenu']);
-Route::get('/menu/table/{table_id}/dish/{dish_id}', [MenuController::class, 'showTableDish']);
-Route::post('/menu/table/{table_id}/verify-pin', [GuestTableAccessController::class, 'verifyPin']);
+Route::get('/menu/dishes', [GuestController::class, 'listDishes'])->middleware('feature:qr_menu');
+Route::get('/menu/dish/{dish_id}', [GuestController::class, 'showDish'])->middleware('feature:qr_menu');
+Route::get('/menu/tables', [GuestController::class, 'listTables'])->middleware('feature:qr_menu');
+Route::post('/menu/orders', [OrderController::class, 'store'])->middleware('feature:table_ordering');
+Route::post('/menu/waves', [WaveController::class, 'store'])->middleware('feature:waiter_call');
+Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishesBySlug'])->middleware('feature:qr_menu');
+Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 'showDishBySlug'])->middleware('feature:qr_menu');
+Route::get('/menu/{restaurant_slug}/tables', [GuestController::class, 'listTablesBySlug'])->middleware('feature:qr_menu');
+Route::post('/menu/{restaurant_slug}/orders', [OrderController::class, 'store'])->middleware('feature:table_ordering');
+Route::post('/menu/{restaurant_slug}/waves', [WaveController::class, 'store'])->middleware('feature:waiter_call');
+Route::get('/menu/table/{table_id}', [MenuController::class, 'showTableMenu'])->middleware('feature:qr_menu');
+Route::get('/menu/table/{table_id}/dish/{dish_id}', [MenuController::class, 'showTableDish'])->middleware('feature:qr_menu');
+Route::post('/menu/table/{table_id}/verify-pin', [GuestTableAccessController::class, 'verifyPin'])->middleware('feature:qr_menu');
 Route::middleware('guest.table.access')->group(function () {
-    Route::get('/table-session/{tableSession}/orders', [OrderController::class, 'indexForSession']);
-    Route::post('/table-session/{tableSession}/order', [OrderController::class, 'storeForSession']);
-    Route::post('/table-session/{tableSession}/call-waiter', [WaveController::class, 'storeForSession']);
-    Route::post('/table-session/{tableSession}/request-bill', [TableSessionController::class, 'requestBill']);
+    Route::get('/table-session/{tableSession}/orders', [OrderController::class, 'indexForSession'])
+        ->middleware('feature:table_ordering');
+    Route::post('/table-session/{tableSession}/order', [OrderController::class, 'storeForSession'])
+        ->middleware('feature:table_ordering');
+    Route::post('/table-session/{tableSession}/call-waiter', [WaveController::class, 'storeForSession'])
+        ->middleware('feature:waiter_call');
+    Route::post('/table-session/{tableSession}/request-bill', [TableSessionController::class, 'requestBill'])
+        ->middleware('feature:request_bill');
 });
 Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
     ->name('api.assets.show');
@@ -78,24 +82,28 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
     Route::middleware('role:admin,staff')->group(function () {
-        Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
-        Route::patch('/orders/{order}', [OrderController::class, 'update']);
-        Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
-        Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
-        Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
-        Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
-        Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
-        Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
-        Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
-        Route::get('/waves/pending', [WaveController::class, 'pending']);
-        Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
-        Route::get('/push/config', [PushSubscriptionController::class, 'config']);
-        Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store']);
+        Route::middleware('feature:realtime_staff_orders')->group(function () {
+            Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
+            Route::patch('/orders/{order}', [OrderController::class, 'update']);
+            Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
+            Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+            Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
+            Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
+            Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
+            Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
+            Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
+            Route::get('/waves/pending', [WaveController::class, 'pending']);
+            Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
+        });
+        Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
+        Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
     });
 
     Route::middleware('role:admin')->group(function () {
-        Route::get('/orders/accounting', [OrderController::class, 'accounting']);
-        Route::post('/orders/{order}/account', [OrderController::class, 'account']);
+        Route::get('/orders/accounting', [OrderController::class, 'accounting'])
+            ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
+        Route::post('/orders/{order}/account', [OrderController::class, 'account'])
+            ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
 
         // Dishes
         Route::apiResource('dishes', DishController::class);
@@ -105,11 +113,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/dishes/{dish}/unpublish', [DishController::class, 'unpublish']);
         Route::post('/dishes/{dish}/restore', [DishController::class, 'restore']);
         Route::delete('/dishes/{dish}/force', [DishController::class, 'forceDelete']);
-        Route::get('/admin/finance/invoices/revenue-trends', [InvoiceController::class, 'revenueTrends']);
-        Route::get('/admin/finance/invoices', [InvoiceController::class, 'index']);
-        Route::post('/admin/finance/invoices', [InvoiceController::class, 'store']);
-        Route::get('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'show']);
-        Route::patch('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'update']);
+        Route::get('/admin/finance/invoices/revenue-trends', [InvoiceController::class, 'revenueTrends'])
+            ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
+        Route::get('/admin/finance/invoices', [InvoiceController::class, 'index'])
+            ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
+        Route::post('/admin/finance/invoices', [InvoiceController::class, 'store'])
+            ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
+        Route::get('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'show'])
+            ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
+        Route::patch('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'update'])
+            ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
 
         // Assets
         Route::post('/dishes/{dish}/assets', [AssetController::class, 'upload']);
@@ -123,7 +136,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/restaurant/tables/{restaurantTable}/qr-download', [QRCodeController::class, 'downloadTable']);
 
         // Analytics
-        Route::get('/analytics/dashboard', [AnalyticsController::class, 'dashboard']);
+        Route::get('/analytics/dashboard', [AnalyticsController::class, 'dashboard'])
+            ->middleware('feature:analytics');
 
         // Restaurant
         Route::patch('/restaurant/name', [RestaurantController::class, 'updateName']);
@@ -137,24 +151,28 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/global-ingredients', [GlobalIngredientController::class, 'index']);
 
         // Ingredient library
-        Route::get('/ingredients', [IngredientLibraryController::class, 'index']);
-        Route::post('/ingredients', [IngredientLibraryController::class, 'store']);
-        Route::patch('/ingredients/{ingredient}', [IngredientLibraryController::class, 'update']);
-        Route::delete('/ingredients/{ingredient}', [IngredientLibraryController::class, 'destroy']);
-        Route::post('/ingredients/{ingredient}/generate-image', [IngredientLibraryController::class, 'generateImage']);
-        Route::post('/ingredients/generate-missing-images', [IngredientLibraryController::class, 'generateMissingImages']);
-        Route::post('/ingredients/bulk-upload', [IngredientLibraryController::class, 'bulkUpload']);
-        Route::delete('/ingredients', [IngredientLibraryController::class, 'destroyAll']);
+        Route::middleware('feature:inventory')->group(function () {
+            Route::get('/ingredients', [IngredientLibraryController::class, 'index']);
+            Route::post('/ingredients', [IngredientLibraryController::class, 'store']);
+            Route::patch('/ingredients/{ingredient}', [IngredientLibraryController::class, 'update']);
+            Route::delete('/ingredients/{ingredient}', [IngredientLibraryController::class, 'destroy']);
+            Route::post('/ingredients/{ingredient}/generate-image', [IngredientLibraryController::class, 'generateImage']);
+            Route::post('/ingredients/generate-missing-images', [IngredientLibraryController::class, 'generateMissingImages']);
+            Route::post('/ingredients/bulk-upload', [IngredientLibraryController::class, 'bulkUpload']);
+            Route::delete('/ingredients', [IngredientLibraryController::class, 'destroyAll']);
+        });
 
         // Inventory ingredients
-        Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
-        Route::get('/inventory/stock-history', [InventoryStockHistoryController::class, 'index']);
-        Route::post('/inventory/ingredients', [InventoryIngredientController::class, 'store']);
-        Route::post('/inventory/ingredients/import-global', [InventoryIngredientController::class, 'importGlobal']);
-        Route::patch('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'update']);
-        Route::post('/inventory/ingredients/{ingredient}/activate', [InventoryIngredientController::class, 'activate']);
-        Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
-        Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
-        Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
+        Route::middleware('feature:inventory')->group(function () {
+            Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
+            Route::get('/inventory/stock-history', [InventoryStockHistoryController::class, 'index']);
+            Route::post('/inventory/ingredients', [InventoryIngredientController::class, 'store']);
+            Route::post('/inventory/ingredients/import-global', [InventoryIngredientController::class, 'importGlobal']);
+            Route::patch('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'update']);
+            Route::post('/inventory/ingredients/{ingredient}/activate', [InventoryIngredientController::class, 'activate']);
+            Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
+            Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
+            Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
+        });
     });
 });
