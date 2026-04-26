@@ -44,6 +44,12 @@ class WaveController extends Controller
         );
         $session = $this->guestMenuSessionService->resolveActiveSession($access->table_session_id);
 
+        if (! feature_enabled('waiter_call', $session->restaurant)) {
+            return response()->json([
+                'message' => 'Waiter call is disabled for this restaurant.',
+            ], 403);
+        }
+
         $result = $this->createWave(
             $session->restaurant,
             $session->restaurantTable,
@@ -68,6 +74,13 @@ class WaveController extends Controller
     public function storeForSession(TableSession $tableSession): JsonResponse
     {
         $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+
+        if (! feature_enabled('waiter_call', $session->restaurant)) {
+            return response()->json([
+                'message' => 'Waiter call is disabled for this restaurant.',
+            ], 403);
+        }
+
         $result = $this->createWave(
             $session->restaurant,
             $session->restaurantTable,

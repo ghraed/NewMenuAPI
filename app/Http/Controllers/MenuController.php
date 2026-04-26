@@ -33,6 +33,8 @@ class MenuController extends Controller
         $guestAccess = $session
             ? $this->tableSessionAccessService->findRequestGuestAccess($request, $session)
             : null;
+        $waiterCallEnabled = $this->featureFlagService->isEnabled($restaurant, 'waiter_call');
+        $requestBillEnabled = $this->featureFlagService->isEnabled($restaurant, 'request_bill');
 
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -49,8 +51,8 @@ class MenuController extends Controller
             'protected_actions' => [
                 'ordering_unlocked' => $session !== null && $guestAccess !== null,
                 'can_place_order' => $session !== null && $guestAccess !== null,
-                'can_call_waiter' => $session !== null && $guestAccess !== null,
-                'can_request_bill' => $session !== null && $guestAccess !== null,
+                'can_call_waiter' => $session !== null && $guestAccess !== null && $waiterCallEnabled,
+                'can_request_bill' => $session !== null && $guestAccess !== null && $requestBillEnabled,
             ],
             'dishes' => $this->localizeDishes($dishes),
         ]);
@@ -65,6 +67,8 @@ class MenuController extends Controller
         $guestAccess = $session
             ? $this->tableSessionAccessService->findRequestGuestAccess($request, $session)
             : null;
+        $waiterCallEnabled = $this->featureFlagService->isEnabled($restaurant, 'waiter_call');
+        $requestBillEnabled = $this->featureFlagService->isEnabled($restaurant, 'request_bill');
 
         $dish = Dish::query()
             ->where('restaurant_id', $restaurant->id)
@@ -120,8 +124,8 @@ class MenuController extends Controller
             'protected_actions' => [
                 'ordering_unlocked' => $session !== null && $guestAccess !== null,
                 'can_place_order' => $session !== null && $guestAccess !== null,
-                'can_call_waiter' => $session !== null && $guestAccess !== null,
-                'can_request_bill' => $session !== null && $guestAccess !== null,
+                'can_call_waiter' => $session !== null && $guestAccess !== null && $waiterCallEnabled,
+                'can_request_bill' => $session !== null && $guestAccess !== null && $requestBillEnabled,
             ],
             'dish' => $this->localizeDish($dish),
         ]);

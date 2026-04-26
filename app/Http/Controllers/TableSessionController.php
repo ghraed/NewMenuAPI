@@ -25,6 +25,13 @@ class TableSessionController extends Controller
     public function requestBill(TableSession $tableSession, WaveController $waveController): JsonResponse
     {
         $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+
+        if (! feature_enabled('request_bill', $session->restaurant)) {
+            return response()->json([
+                'message' => 'Bill request is disabled for this restaurant.',
+            ], 403);
+        }
+
         $wave = $waveController->createGuestWaveForSession($session, TableWave::REQUEST_TYPE_REQUEST_BILL);
 
         return response()->json([

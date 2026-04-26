@@ -32,8 +32,8 @@ class GuestTableAccessController extends Controller
             'protected_actions' => [
                 'ordering_unlocked' => true,
                 'can_place_order' => true,
-                'can_call_waiter' => true,
-                'can_request_bill' => true,
+                'can_call_waiter' => feature_enabled('waiter_call', $result['restaurant']),
+                'can_request_bill' => feature_enabled('request_bill', $result['restaurant']),
             ],
         ]);
     }
