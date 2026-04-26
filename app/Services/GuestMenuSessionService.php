@@ -19,7 +19,8 @@ class GuestMenuSessionService
     private const PIN_CACHE_PREFIX = 'table-session-pin:';
 
     public function __construct(
-        private readonly TenantRestaurantResolver $tenantRestaurantResolver
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver,
+        private readonly FeatureFlagService $featureFlagService,
     ) {
     }
 
@@ -199,6 +200,7 @@ class GuestMenuSessionService
             'currency' => $restaurant->currency,
             'dollar_rate' => $restaurant->dollar_rate,
             'max_tables' => $tables->count(),
+            'feature_flags' => $this->featureFlagService->flagsForRestaurant($restaurant),
         ];
     }
 

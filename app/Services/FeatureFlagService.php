@@ -33,6 +33,32 @@ class FeatureFlagService
         return new RestaurantFeatureFlagScope($this, $restaurant);
     }
 
+    /**
+     * @return array<string, bool>
+     */
+    public function flagsForRestaurant(Restaurant $restaurant): array
+    {
+        $features = Feature::query()
+            ->select(['id', 'key', 'is_active_by_default'])
+            ->orderBy('id')
+            ->get();
+
+        $overridesByFeatureId = RestaurantFeature::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->pluck('enabled', 'feature_id');
+
+        $flags = [];
+
+        foreach ($features as $feature) {
+            $override = $overridesByFeatureId->get($feature->id);
+            $flags[$feature->key] = $override === null
+                ? (bool) $feature->is_active_by_default
+                : (bool) $override;
+        }
+
+        return $flags;
+    }
+
     public function isEnabled(Restaurant $restaurant, string $featureKey): bool
     {
         $feature = Feature::query()

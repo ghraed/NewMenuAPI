@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\FormatsGuestDishes;
 use App\Models\AnalyticsEvent;
 use App\Models\Dish;
 use App\Services\DishAlternativeSuggestionService;
+use App\Services\FeatureFlagService;
 use App\Services\TenantRestaurantResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +18,8 @@ class GuestController extends Controller
 
     public function __construct(
         private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService,
-        private readonly TenantRestaurantResolver $tenantRestaurantResolver
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver,
+        private readonly FeatureFlagService $featureFlagService,
     ) {
     }
 
@@ -63,13 +65,7 @@ class GuestController extends Controller
             ->get();
 
         return response()->json([
-            'restaurant' => [
-                'id' => $restaurant->id,
-                'name' => $restaurant->name,
-                'slug' => $restaurant->slug,
-                'currency' => $restaurant->currency,
-                'dollar_rate' => $restaurant->dollar_rate,
-            ],
+            'restaurant' => $this->formatGuestRestaurant($restaurant),
             'dishes' => $this->localizeDishes($dishes),
         ]);
     }
@@ -117,13 +113,7 @@ class GuestController extends Controller
         }
 
         $payload = $this->localizeDish($dish);
-        $payload['restaurant'] = [
-            'id' => $restaurant->id,
-            'name' => $restaurant->name,
-            'slug' => $restaurant->slug,
-                'currency' => $restaurant->currency,
-                'dollar_rate' => $restaurant->dollar_rate,
-        ];
+        $payload['restaurant'] = $this->formatGuestRestaurant($restaurant);
 
         return response()->json($payload);
     }
@@ -142,15 +132,21 @@ class GuestController extends Controller
             ->values();
 
         return response()->json([
-            'restaurant' => [
-                'id' => $restaurant->id,
-                'name' => $restaurant->name,
-                'slug' => $restaurant->slug,
-                'currency' => $restaurant->currency,
-                'dollar_rate' => $restaurant->dollar_rate,
-            ],
+            'restaurant' => $this->formatGuestRestaurant($restaurant),
             'tables' => $tables,
         ]);
+    }
+
+    private function formatGuestRestaurant(\App\Models\Restaurant $restaurant): array
+    {
+        return [
+            'id' => $restaurant->id,
+            'name' => $restaurant->name,
+            'slug' => $restaurant->slug,
+            'currency' => $restaurant->currency,
+            'dollar_rate' => $restaurant->dollar_rate,
+            'feature_flags' => $this->featureFlagService->flagsForRestaurant($restaurant),
+        ];
     }
 
     private function getDeviceType(Request $request): string
