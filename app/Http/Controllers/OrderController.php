@@ -103,6 +103,12 @@ class OrderController extends Controller
 
     public function storeChatOrder(Request $request): JsonResponse
     {
+        if (! feature_enabled('ai_chatbot')) {
+            return response()->json([
+                'message' => 'AI chatbot is disabled for this restaurant.',
+            ], 403);
+        }
+
         if (! $request->isJson()) {
             return response()->json([
                 'message' => 'Invalid content type. Expected application/json.',

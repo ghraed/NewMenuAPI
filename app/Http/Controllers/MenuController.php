@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\FormatsGuestDishes;
 use App\Models\AnalyticsEvent;
 use App\Models\Dish;
 use App\Services\DishAlternativeSuggestionService;
+use App\Services\FeatureFlagService;
 use App\Services\GuestMenuSessionService;
 use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
@@ -18,7 +19,8 @@ class MenuController extends Controller
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService,
         private readonly TableSessionAccessService $tableSessionAccessService,
-        private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService
+        private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService,
+        private readonly FeatureFlagService $featureFlagService,
     ) {
     }
 
@@ -82,24 +84,32 @@ class MenuController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        $dish->load([
-            'suggestedDishes' => function ($query) {
-                $query->where('status', 'published')
-                    ->with(['assets', 'dishIngredients.ingredient'])
-                    ->orderBy('name');
-            },
-            'relatedDishes' => function ($query) {
-                $query->where('status', 'published')
-                    ->with(['assets', 'dishIngredients.ingredient'])
-                    ->orderBy('name');
-            },
-        ]);
+        $aiRecommendationsEnabled = $this->featureFlagService->isEnabled($restaurant, 'ai_recommendations');
 
-        if (! $dish->isOrderable()) {
-            $dish->setRelation(
-                'alternativeDishes',
-                $this->dishAlternativeSuggestionService->suggestForDish($dish, 4)
-            );
+        if ($aiRecommendationsEnabled) {
+            $dish->load([
+                'suggestedDishes' => function ($query) {
+                    $query->where('status', 'published')
+                        ->with(['assets', 'dishIngredients.ingredient'])
+                        ->orderBy('name');
+                },
+                'relatedDishes' => function ($query) {
+                    $query->where('status', 'published')
+                        ->with(['assets', 'dishIngredients.ingredient'])
+                        ->orderBy('name');
+                },
+            ]);
+
+            if (! $dish->isOrderable()) {
+                $dish->setRelation(
+                    'alternativeDishes',
+                    $this->dishAlternativeSuggestionService->suggestForDish($dish, 4)
+                );
+            }
+        } else {
+            $dish->setRelation('suggestedDishes', collect());
+            $dish->setRelation('relatedDishes', collect());
+            $dish->setRelation('alternativeDishes', collect());
         }
 
         return response()->json([

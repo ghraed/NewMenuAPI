@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Dish;
+use App\Models\Restaurant;
 use App\Services\GuestMenuSessionService;
 use App\Services\DeepSeekChatService;
 use App\Services\TenantRestaurantResolver;
@@ -41,6 +42,13 @@ class ChatController extends Controller
             'restaurant_slug' => 'nullable|string|max:120',
             'table_id' => 'nullable|integer|min:1',
         ]);
+
+        $chatRestaurant = $this->resolveChatRestaurant($validated, $request);
+        if (! feature_enabled('ai_chatbot', $chatRestaurant)) {
+            return response()->json([
+                'message' => 'AI chatbot is disabled for this restaurant.',
+            ], 403);
+        }
 
         $conversationId = $this->sanitizeConversationId((string) ($validated['conversation_id'] ?? ''));
 
@@ -253,6 +261,42 @@ class ChatController extends Controller
             ...($resolvedTableId !== null ? ['table_id' => $resolvedTableId] : []),
             'menu_items' => $this->buildMenuItems((int) $restaurant->id),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     */
+    private function resolveChatRestaurant(array $validated, Request $request): Restaurant
+    {
+        $providedSlug = isset($validated['restaurant_slug']) ? trim((string) $validated['restaurant_slug']) : '';
+        $tableId = isset($validated['table_id']) ? (int) $validated['table_id'] : null;
+
+        $restaurant = null;
+
+        if ($tableId !== null) {
+            try {
+                $tableContext = $this->guestMenuSessionService->resolveTableContext($tableId);
+                $restaurant = $tableContext['restaurant'] ?? null;
+            } catch (ModelNotFoundException) {
+                $restaurant = null;
+            }
+        }
+
+        if ($providedSlug !== '') {
+            $restaurantBySlug = $this->tenantRestaurantResolver->resolveFromSlugOrHost($providedSlug, $request);
+
+            if ($restaurant && $restaurant->id !== $restaurantBySlug->id) {
+                abort(422, 'Chat restaurant slug does not match table context.');
+            }
+
+            $restaurant = $restaurantBySlug;
+        }
+
+        if (! $restaurant) {
+            $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost(null, $request);
+        }
+
+        return $restaurant;
     }
 
     /**
