@@ -13,7 +13,7 @@ class SaasOwnerSeeder extends Seeder
     {
         $ownerEmail = strtolower(trim((string) config('saas.owner_email')));
         $ownerName = trim((string) config('saas.owner_name', 'SaaS Owner'));
-        $ownerPassword = (string) env('SAAS_OWNER_PASSWORD', '');
+        $ownerPassword = (string) config('saas.owner_password', '');
 
         if ($ownerEmail === '') {
             throw new RuntimeException('SAAS_OWNER_EMAIL is required.');
