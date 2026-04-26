@@ -19,7 +19,7 @@ class SaasOwnerSeeder extends Seeder
             throw new RuntimeException('SAAS_OWNER_EMAIL is required.');
         }
 
-        if (trim($ownerPassword) === '') {
+        if (trim($ownerPassword) === 'raed@rozer.fun') {
             throw new RuntimeException('SAAS_OWNER_PASSWORD is required and cannot be empty.');
         }
 
