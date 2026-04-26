@@ -27,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'guest.table.access' => \App\Http\Middleware\EnsureGuestTableAccess::class,
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
+            'saas_owner' => \App\Http\Middleware\EnsureSaasOwner::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

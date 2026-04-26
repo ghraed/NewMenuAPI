@@ -15,6 +15,8 @@ use App\Http\Controllers\InventoryIngredientController;
 use App\Http\Controllers\InventoryStockHistoryController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MenuController;
+use App\Http\Controllers\Owner\OwnerAuthController;
+use App\Http\Controllers\Owner\OwnerFeatureFlagController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\QRCodeController;
@@ -28,6 +30,8 @@ use Illuminate\Support\Facades\Route;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/owner/auth/login', [OwnerAuthController::class, 'login'])
+    ->middleware('throttle:owner-login');
 Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat'])
     ->post('/chat', [ChatController::class, 'chat']);
 Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat-orders'])
@@ -58,6 +62,17 @@ Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
 Route::post('/analytics/track', [AnalyticsController::class, 'track']);
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::prefix('owner')->middleware('saas_owner')->group(function () {
+        Route::get('/auth/me', [OwnerAuthController::class, 'me']);
+        Route::post('/auth/logout', [OwnerAuthController::class, 'logout']);
+
+        Route::get('/restaurants', [OwnerFeatureFlagController::class, 'restaurants']);
+        Route::get('/features', [OwnerFeatureFlagController::class, 'features']);
+        Route::get('/restaurants/{restaurant}/features', [OwnerFeatureFlagController::class, 'restaurantFeatures']);
+        Route::patch('/restaurants/{restaurant}/features/bulk', [OwnerFeatureFlagController::class, 'bulkUpdate']);
+        Route::patch('/restaurants/{restaurant}/features/{feature}', [OwnerFeatureFlagController::class, 'updateFeature']);
+    });
+
     // Auth
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);

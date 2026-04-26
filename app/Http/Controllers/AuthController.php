@@ -37,6 +37,12 @@ class AuthController extends Controller
             ], 401);
         }
 
+        if ($user->hasRole(User::ROLE_SAAS_OWNER)) {
+            return response()->json([
+                'message' => 'Use /owner/login for SaaS owner access.',
+            ], 403);
+        }
+
         $user->loadMissing('restaurant', 'staffRestaurants');
         $restaurant = $user->currentRestaurant();
 

@@ -14,6 +14,7 @@ class Restaurant extends Model
         'user_id',
         'name',
         'slug',
+        'status',
         'description',
         'address',
         'currency',
@@ -22,6 +23,7 @@ class Restaurant extends Model
 
     protected $casts = [
         'uuid' => 'string',
+        'status' => 'string',
         'created_at' => 'datetime',
         'dollar_rate' => 'decimal:2',
         'updated_at' => 'datetime',
@@ -83,6 +85,23 @@ class Restaurant extends Model
     public function domains(): HasMany
     {
         return $this->hasMany(RestaurantDomain::class);
+    }
+
+    public function features(): BelongsToMany
+    {
+        return $this->belongsToMany(Feature::class, 'restaurant_features')
+            ->withPivot('enabled')
+            ->withTimestamps();
+    }
+
+    public function restaurantFeatures(): HasMany
+    {
+        return $this->hasMany(RestaurantFeature::class);
+    }
+
+    public function featureFlagAuditLogs(): HasMany
+    {
+        return $this->hasMany(FeatureFlagAuditLog::class);
     }
 
     public function ensureDefaultTables(): void

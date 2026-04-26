@@ -16,6 +16,8 @@ class User extends Authenticatable
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
+    public const ROLE_SAAS_OWNER = 'saas_owner';
+    public const ROLE_RESTAURANT_ADMIN = 'restaurant_admin';
     public const ROLE_ADMIN = 'admin';
     public const ROLE_STAFF = 'staff';
 
@@ -84,6 +86,10 @@ class User extends Authenticatable
 
     public function currentRestaurant(): ?Restaurant
     {
+        if ($this->hasRole(self::ROLE_SAAS_OWNER)) {
+            return null;
+        }
+
         if ($this->relationLoaded('restaurant') && $this->restaurant) {
             return $this->restaurant;
         }
@@ -102,12 +108,18 @@ class User extends Authenticatable
 
     public function hasRole(string ...$roles): bool
     {
-        return in_array($this->role ?? self::ROLE_ADMIN, $roles, true);
+        $userRole = $this->normalizeRole($this->role ?? self::ROLE_ADMIN);
+        $normalizedRoles = array_map(
+            fn (string $role): string => $this->normalizeRole($role),
+            $roles
+        );
+
+        return in_array($userRole, $normalizedRoles, true);
     }
 
     public function isAdmin(): bool
     {
-        return $this->hasRole(self::ROLE_ADMIN);
+        return $this->hasRole(self::ROLE_ADMIN, self::ROLE_RESTAURANT_ADMIN);
     }
 
     public function isStaff(): bool
@@ -128,5 +140,12 @@ class User extends Authenticatable
         return $this->assignedTables()
             ->where('restaurant_tables.id', $tableId)
             ->exists();
+    }
+
+    private function normalizeRole(string $role): string
+    {
+        return $role === self::ROLE_RESTAURANT_ADMIN
+            ? self::ROLE_ADMIN
+            : $role;
     }
 }

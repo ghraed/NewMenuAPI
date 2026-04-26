@@ -20,6 +20,9 @@ class DatabaseSeeder extends Seeder
         // Seed the global ingredient catalog from Menu_React/src/i18n/ingredients.ts
         $this->call(GlobalIngredientsSeeder::class);
 
+        // Seed feature flags catalog.
+        $this->call(FeatureSeeder::class);
+
         // Create users
         $this->createUsers();
 
@@ -46,6 +49,9 @@ class DatabaseSeeder extends Seeder
 
         // Optional full reset + complete tenant/finance/history dataset:
         // php artisan db:seed --class=Database\\Seeders\\FullResetTenantFinanceScenarioSeeder
+
+        // Optional SaaS owner account:
+        // php artisan db:seed --class=Database\\Seeders\\SaasOwnerSeeder
 
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder

@@ -14,7 +14,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $helpersPath = app_path('Support/helpers.php');
+        if (is_file($helpersPath)) {
+            require_once $helpersPath;
+        }
     }
 
     /**
@@ -39,6 +42,16 @@ class AppServiceProvider extends ServiceProvider
             return [
                 Limit::perMinute(6)->by("chat-orders:{$ip}:{$sessionId}"),
                 Limit::perHour(40)->by("chat-orders-hour:{$ip}"),
+            ];
+        });
+
+        RateLimiter::for('owner-login', function (Request $request): array {
+            $email = strtolower(trim((string) $request->input('email', 'unknown')));
+            $ip = $request->ip() ?: 'unknown';
+
+            return [
+                Limit::perMinute(5)->by("owner-login:{$email}:{$ip}"),
+                Limit::perHour(30)->by("owner-login-hour:{$ip}"),
             ];
         });
     }
