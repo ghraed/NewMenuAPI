@@ -32,6 +32,7 @@ use Illuminate\Support\Str;
 class FullResetTenantFinanceScenarioSeeder extends Seeder
 {
     private const SEEDED_INGREDIENT_PLACEHOLDER_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Z0dcAAAAASUVORK5CYII=';
+    private const SEEDED_DISH_PLACEHOLDER_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Z0dcAAAAASUVORK5CYII=';
 
     /**
      * Tables are truncated in a dependency-safe order (children -> parents).
@@ -77,16 +78,21 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
         $this->resetAllData();
         $this->call(RealWorldTenantScenarioSeeder::class);
 
+        $with = [
+            'user',
+            'staffUsers',
+            'tables',
+            'dishes.dishIngredients',
+            'ingredients.globalIngredient',
+        ];
+
+        if (Schema::hasTable('restaurant_domains')) {
+            $with[] = 'domains';
+        }
+
         $restaurants = Restaurant::query()
             ->whereIn('slug', ['alpha', 'sigma'])
-            ->with([
-                'user',
-                'staffUsers',
-                'domains',
-                'tables',
-                'dishes.dishIngredients',
-                'ingredients.globalIngredient',
-            ])
+            ->with($with)
             ->get();
 
         foreach ($restaurants as $restaurant) {
@@ -121,11 +127,17 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
 
     private function seedDishAssetsAndQrCodes(Restaurant $restaurant): void
     {
-        $domain = $restaurant->domains->first()?->domain ?? ($restaurant->slug.'.rozer.fun');
+        $domain = $restaurant->slug.'.rozer.fun';
+
+        if (Schema::hasTable('restaurant_domains')) {
+            $domain = $restaurant->domains->first()?->domain ?? $domain;
+        }
 
         foreach ($restaurant->dishes as $dish) {
-            // Force a deterministic image URL for every dish so frontend loading tests are consistent.
-            $dish->image_url = $this->stableDishImageUrl($dish->name, $dish->id);
+            $path = $this->ensureSeedDishPlaceholderImage($dish);
+            $dishUrl = Storage::disk('public')->url($path);
+            // Force a deterministic local image URL for every dish.
+            $dish->image_url = $dishUrl;
             $dish->save();
 
             $asset = DishAsset::query()->firstOrNew([
@@ -138,26 +150,28 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
             }
 
             $asset->storage_disk = 'public';
-            $asset->file_path = "external/dishes/{$dish->uuid}/preview.jpg";
-            $asset->file_url = $dish->image_url;
-            $asset->file_size = 350000;
-            $asset->mime_type = 'image/jpeg';
+            $asset->file_path = $path;
+            $asset->file_url = $dishUrl;
+            $asset->file_size = (int) (Storage::disk('public')->size($path) ?: 0);
+            $asset->mime_type = 'image/png';
             $asset->metadata = [
-                'source' => 'seeded_external_real_image',
-                'external_url' => $dish->image_url,
+                'source' => 'seeded_local_placeholder_image',
+                'storage_path' => $path,
             ];
             $asset->save();
 
-            DB::table('qr_codes')->updateOrInsert(
-                ['dish_id' => $dish->id],
-                [
-                    'uuid' => (string) Str::uuid(),
-                    'code_url' => sprintf('https://%s/menu/%s/dish/%d', $domain, $restaurant->slug, $dish->id),
-                    'qr_data' => null,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]
-            );
+            if (Schema::hasTable('qr_codes')) {
+                DB::table('qr_codes')->updateOrInsert(
+                    ['dish_id' => $dish->id],
+                    [
+                        'uuid' => (string) Str::uuid(),
+                        'code_url' => sprintf('https://%s/menu/%s/dish/%d', $domain, $restaurant->slug, $dish->id),
+                        'qr_data' => null,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]
+                );
+            }
         }
     }
 
@@ -836,12 +850,18 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
     private function seedIngredientImageLinks(Restaurant $restaurant): void
     {
         $restaurant->loadMissing('ingredients.globalIngredient');
+        $canPersistGlobalImageData = Schema::hasTable('global_ingredients')
+            && Schema::hasColumn('global_ingredients', 'storage_disk')
+            && Schema::hasColumn('global_ingredients', 'file_path')
+            && Schema::hasColumn('global_ingredients', 'source_file_name')
+            && Schema::hasColumn('global_ingredients', 'file_size')
+            && Schema::hasColumn('global_ingredients', 'mime_type');
 
         foreach ($restaurant->ingredients as $ingredient) {
             $payload = $this->resolveIngredientImagePayload($ingredient);
             $globalIngredient = $ingredient->globalIngredient;
 
-            if ($globalIngredient) {
+            if ($globalIngredient && $canPersistGlobalImageData) {
                 $globalChanged = false;
 
                 if ((string) ($globalIngredient->storage_disk ?: 'public') !== $payload['storage_disk']) {
@@ -1004,6 +1024,27 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
         $seed = trim(($dishId ? $dishId.'-' : '').$seedSource, '-');
 
         return sprintf('https://picsum.photos/seed/%s/1280/720', rawurlencode($seed));
+    }
+
+    private function ensureSeedDishPlaceholderImage(Dish $dish): string
+    {
+        $slug = strtolower(trim($dish->name));
+        $slug = preg_replace('/[^a-z0-9]+/i', '-', $slug) ?: 'dish';
+        $slug = trim($slug, '-') ?: 'dish';
+
+        $path = sprintf('dishes/seed/%d/%d-%s.png', $dish->restaurant_id, $dish->id, $slug);
+
+        $disk = Storage::disk('public');
+        if (! $disk->exists($path)) {
+            $binary = base64_decode(self::SEEDED_DISH_PLACEHOLDER_PNG_BASE64, true);
+            if ($binary === false) {
+                throw new \RuntimeException('Failed to decode seeded dish placeholder image.');
+            }
+
+            $disk->put($path, $binary);
+        }
+
+        return $path;
     }
 
     private function mismatchedUnitForStock(string $stockUnit): string
