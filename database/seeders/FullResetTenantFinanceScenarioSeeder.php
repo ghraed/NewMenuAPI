@@ -26,10 +26,13 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class FullResetTenantFinanceScenarioSeeder extends Seeder
 {
+    private const SEEDED_INGREDIENT_PLACEHOLDER_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Z0dcAAAAASUVORK5CYII=';
+
     /**
      * Tables are truncated in a dependency-safe order (children -> parents).
      *
@@ -82,11 +85,12 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
                 'domains',
                 'tables',
                 'dishes.dishIngredients',
-                'ingredients',
+                'ingredients.globalIngredient',
             ])
             ->get();
 
         foreach ($restaurants as $restaurant) {
+            $this->seedIngredientImageLinks($restaurant);
             $this->seedDishAssetsAndQrCodes($restaurant);
             $this->seedDishLinks($restaurant);
             $this->seedStaffTableAssignments($restaurant);
@@ -827,6 +831,144 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
                 ]);
             }
         }
+    }
+
+    private function seedIngredientImageLinks(Restaurant $restaurant): void
+    {
+        $restaurant->loadMissing('ingredients.globalIngredient');
+
+        foreach ($restaurant->ingredients as $ingredient) {
+            $payload = $this->resolveIngredientImagePayload($ingredient);
+            $globalIngredient = $ingredient->globalIngredient;
+
+            if ($globalIngredient) {
+                $globalChanged = false;
+
+                if ((string) ($globalIngredient->storage_disk ?: 'public') !== $payload['storage_disk']) {
+                    $globalIngredient->storage_disk = $payload['storage_disk'];
+                    $globalChanged = true;
+                }
+
+                if ((string) $globalIngredient->file_path !== $payload['file_path']) {
+                    $globalIngredient->file_path = $payload['file_path'];
+                    $globalChanged = true;
+                }
+
+                if ((string) ($globalIngredient->source_file_name ?? '') !== $payload['source_file_name']) {
+                    $globalIngredient->source_file_name = $payload['source_file_name'];
+                    $globalChanged = true;
+                }
+
+                if ((int) ($globalIngredient->file_size ?? 0) !== $payload['file_size']) {
+                    $globalIngredient->file_size = $payload['file_size'];
+                    $globalChanged = true;
+                }
+
+                if ((string) ($globalIngredient->mime_type ?? '') !== $payload['mime_type']) {
+                    $globalIngredient->mime_type = $payload['mime_type'];
+                    $globalChanged = true;
+                }
+
+                if ($globalChanged) {
+                    $globalIngredient->save();
+                }
+            }
+
+            $ingredientChanged = false;
+
+            if ((string) ($ingredient->storage_disk ?: 'public') !== $payload['storage_disk']) {
+                $ingredient->storage_disk = $payload['storage_disk'];
+                $ingredientChanged = true;
+            }
+
+            if ((string) $ingredient->file_path !== $payload['file_path']) {
+                $ingredient->file_path = $payload['file_path'];
+                $ingredientChanged = true;
+            }
+
+            if ((string) ($ingredient->source_file_name ?? '') !== $payload['source_file_name']) {
+                $ingredient->source_file_name = $payload['source_file_name'];
+                $ingredientChanged = true;
+            }
+
+            if ((int) ($ingredient->file_size ?? 0) !== $payload['file_size']) {
+                $ingredient->file_size = $payload['file_size'];
+                $ingredientChanged = true;
+            }
+
+            if ((string) ($ingredient->mime_type ?? '') !== $payload['mime_type']) {
+                $ingredient->mime_type = $payload['mime_type'];
+                $ingredientChanged = true;
+            }
+
+            if ($ingredientChanged) {
+                $ingredient->save();
+            }
+        }
+    }
+
+    /**
+     * @return array{storage_disk:string,file_path:string,source_file_name:string,file_size:int,mime_type:string}
+     */
+    private function resolveIngredientImagePayload(Ingredient $ingredient): array
+    {
+        $globalIngredient = $ingredient->globalIngredient;
+
+        if ($globalIngredient && is_string($globalIngredient->file_path) && trim($globalIngredient->file_path) !== '') {
+            return [
+                'storage_disk' => (string) ($globalIngredient->storage_disk ?: 'public'),
+                'file_path' => (string) $globalIngredient->file_path,
+                'source_file_name' => (string) ($globalIngredient->source_file_name ?: basename((string) $globalIngredient->file_path)),
+                'file_size' => (int) ($globalIngredient->file_size ?? 0),
+                'mime_type' => (string) ($globalIngredient->mime_type ?: 'image/png'),
+            ];
+        }
+
+        if (is_string($ingredient->file_path) && trim($ingredient->file_path) !== '') {
+            return [
+                'storage_disk' => (string) ($ingredient->storage_disk ?: 'public'),
+                'file_path' => (string) $ingredient->file_path,
+                'source_file_name' => (string) ($ingredient->source_file_name ?: basename((string) $ingredient->file_path)),
+                'file_size' => (int) ($ingredient->file_size ?? 0),
+                'mime_type' => (string) ($ingredient->mime_type ?: 'image/png'),
+            ];
+        }
+
+        $path = $this->ensureSeedIngredientPlaceholderImage($ingredient);
+
+        return [
+            'storage_disk' => 'public',
+            'file_path' => $path,
+            'source_file_name' => basename($path),
+            'file_size' => (int) (Storage::disk('public')->size($path) ?: 0),
+            'mime_type' => 'image/png',
+        ];
+    }
+
+    private function ensureSeedIngredientPlaceholderImage(Ingredient $ingredient): string
+    {
+        $slug = strtolower(trim($ingredient->name));
+        $slug = preg_replace('/[^a-z0-9]+/i', '-', $slug) ?: 'ingredient';
+        $slug = trim($slug, '-') ?: 'ingredient';
+
+        $path = sprintf(
+            'ingredients/seed/%d/%d-%s.png',
+            $ingredient->restaurant_id,
+            $ingredient->id,
+            $slug
+        );
+
+        $disk = Storage::disk('public');
+        if (! $disk->exists($path)) {
+            $binary = base64_decode(self::SEEDED_INGREDIENT_PLACEHOLDER_PNG_BASE64, true);
+            if ($binary === false) {
+                throw new \RuntimeException('Failed to decode seeded ingredient placeholder image.');
+            }
+
+            $disk->put($path, $binary);
+        }
+
+        return $path;
     }
 
     private function randomInvoiceNote(string $status): string
