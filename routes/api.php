@@ -19,6 +19,10 @@ use App\Http\Controllers\Owner\OwnerAuthController;
 use App\Http\Controllers\Owner\OwnerFeatureFlagController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
+use App\Http\Controllers\PublicReservationController;
+use App\Http\Controllers\ReservationController;
+use App\Http\Controllers\RoomPlanController;
+use App\Http\Controllers\RoomPlanItemController;
 use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\RestaurantController;
 use App\Http\Controllers\TableSessionController;
@@ -51,6 +55,10 @@ Route::post('/menu/{restaurant_slug}/waves', [WaveController::class, 'store'])->
 Route::get('/menu/table/{table_id}', [MenuController::class, 'showTableMenu'])->middleware('feature:qr_menu');
 Route::get('/menu/table/{table_id}/dish/{dish_id}', [MenuController::class, 'showTableDish'])->middleware('feature:qr_menu');
 Route::post('/menu/table/{table_id}/verify-pin', [GuestTableAccessController::class, 'verifyPin'])->middleware('feature:qr_menu');
+Route::get('/reservations/room-plans', [PublicReservationController::class, 'listRoomPlans'])->middleware('feature:table_reservations');
+Route::get('/reservations/room-plans/{roomPlan}', [PublicReservationController::class, 'showRoomPlan'])->middleware('feature:table_reservations');
+Route::get('/reservations/availability', [PublicReservationController::class, 'availability'])->middleware('feature:table_reservations');
+Route::post('/reservations', [PublicReservationController::class, 'store'])->middleware('feature:table_reservations');
 Route::middleware('guest.table.access')->group(function () {
     Route::get('/table-session/{tableSession}/orders', [OrderController::class, 'indexForSession'])
         ->middleware('feature:table_ordering');
@@ -99,6 +107,31 @@ Route::middleware('auth:sanctum')->group(function () {
                 ->middleware('feature:table_ordering');
             Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
             Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
+
+            Route::middleware('feature:room_plan_editor')->group(function () {
+                Route::get('/room-plans', [RoomPlanController::class, 'index']);
+                Route::post('/room-plans', [RoomPlanController::class, 'store']);
+                Route::get('/room-plans/{roomPlan}', [RoomPlanController::class, 'show']);
+                Route::patch('/room-plans/{roomPlan}', [RoomPlanController::class, 'update']);
+                Route::delete('/room-plans/{roomPlan}', [RoomPlanController::class, 'destroy']);
+                Route::post('/room-plans/{roomPlan}/background', [RoomPlanController::class, 'uploadBackground']);
+                Route::put('/room-plans/{roomPlan}/items/bulk', [RoomPlanController::class, 'saveItems']);
+
+                Route::post('/room-plans/{roomPlan}/items', [RoomPlanItemController::class, 'store']);
+                Route::patch('/room-plans/{roomPlan}/items/{roomPlanItem}', [RoomPlanItemController::class, 'update']);
+                Route::delete('/room-plans/{roomPlan}/items/{roomPlanItem}', [RoomPlanItemController::class, 'destroy']);
+                Route::post('/room-plans/{roomPlan}/items/{roomPlanItem}/duplicate', [RoomPlanItemController::class, 'duplicate']);
+            });
+
+            Route::middleware('feature:table_reservations')->group(function () {
+                Route::get('/admin/reservations', [ReservationController::class, 'index']);
+                Route::post('/admin/reservations', [ReservationController::class, 'store']);
+                Route::patch('/admin/reservations/{reservation}', [ReservationController::class, 'update']);
+                Route::post('/admin/reservations/{reservation}/cancel', [ReservationController::class, 'cancel']);
+                Route::post('/admin/reservations/{reservation}/busy', [ReservationController::class, 'markBusy']);
+                Route::post('/admin/reservations/{reservation}/complete', [ReservationController::class, 'markCompleted']);
+                Route::post('/admin/reservations/{reservation}/no-show', [ReservationController::class, 'markNoShow']);
+            });
         });
 
     Route::middleware('role:admin')->group(function () {

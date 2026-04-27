@@ -27,6 +27,8 @@ class FeatureSeeder extends Seeder
         ['key' => 'animated_ingredients', 'name' => 'Animated Ingredients', 'description' => 'Animated ingredient storytelling in dish view.', 'category' => 'AR/3D'],
         ['key' => 'push_notifications', 'name' => 'Push Notifications', 'description' => 'Browser or device push notifications.', 'category' => 'Notifications'],
         ['key' => 'realtime_staff_orders', 'name' => 'Realtime Staff Orders', 'description' => 'Realtime incoming orders for staff dashboards.', 'category' => 'Orders'],
+        ['key' => 'room_plan_editor', 'name' => 'Room Plan Editor', 'description' => 'Create and maintain visual room plan layouts.', 'category' => 'Operations'],
+        ['key' => 'table_reservations', 'name' => 'Table Reservations', 'description' => 'Allow table reservations with room-plan availability checks.', 'category' => 'Operations'],
         ['key' => 'analytics', 'name' => 'Analytics', 'description' => 'Visitor, interaction, and conversion analytics.', 'category' => 'Analytics'],
         ['key' => 'multi_language', 'name' => 'Multi-language', 'description' => 'Enable multi-language guest menu experiences.', 'category' => 'Localization'],
         ['key' => 'custom_domain', 'name' => 'Custom Domain', 'description' => 'Allow tenant custom domains and host mapping.', 'category' => 'Domain'],

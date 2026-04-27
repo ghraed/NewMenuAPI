@@ -12,9 +12,13 @@ class RestaurantTable extends Model
     protected $fillable = [
         'restaurant_id',
         'name',
+        'is_active',
+        'seats',
     ];
 
     protected $casts = [
+        'is_active' => 'boolean',
+        'seats' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -42,6 +46,11 @@ class RestaurantTable extends Model
     public function tableSessions(): HasMany
     {
         return $this->hasMany(TableSession::class);
+    }
+
+    public function roomPlanItems(): HasMany
+    {
+        return $this->hasMany(RoomPlanItem::class);
     }
 
     public function staffUsers(): BelongsToMany

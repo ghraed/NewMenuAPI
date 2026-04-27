@@ -135,6 +135,7 @@ class GuestController extends Controller
         $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurantSlug, $request);
 
         $tables = $restaurant->tables()
+            ->where('is_active', true)
             ->orderBy('name')
             ->get()
             ->map(fn ($table) => [

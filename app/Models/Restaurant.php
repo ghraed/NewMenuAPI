@@ -82,6 +82,16 @@ class Restaurant extends Model
         return $this->hasMany(TableSession::class);
     }
 
+    public function roomPlans(): HasMany
+    {
+        return $this->hasMany(RoomPlan::class);
+    }
+
+    public function reservations(): HasMany
+    {
+        return $this->hasMany(Reservation::class);
+    }
+
     public function domains(): HasMany
     {
         return $this->hasMany(RestaurantDomain::class);
