@@ -91,6 +91,7 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
             $this->seedDishLinks($restaurant);
             $this->seedStaffTableAssignments($restaurant);
             $this->seedFinancialAndOperationalHistory($restaurant);
+            $this->seedPosStockReadiness($restaurant);
             $this->seedScans($restaurant);
             $this->seedAnalytics($restaurant);
         }
@@ -119,10 +120,9 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
         $domain = $restaurant->domains->first()?->domain ?? ($restaurant->slug.'.rozer.fun');
 
         foreach ($restaurant->dishes as $dish) {
-            if (! is_string($dish->image_url) || trim($dish->image_url) === '') {
-                $dish->image_url = $this->stableDishImageUrl($dish->name);
-                $dish->save();
-            }
+            // Force a deterministic image URL for every dish so frontend loading tests are consistent.
+            $dish->image_url = $this->stableDishImageUrl($dish->name, $dish->id);
+            $dish->save();
 
             $asset = DishAsset::query()->firstOrNew([
                 'dish_id' => $dish->id,
@@ -154,6 +154,110 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
                     'updated_at' => now(),
                 ]
             );
+        }
+    }
+
+    private function seedPosStockReadiness(Restaurant $restaurant): void
+    {
+        $restaurant->loadMissing([
+            'ingredients',
+            'dishes.dishIngredients.ingredient',
+        ]);
+
+        $this->restockIngredientsForPosOrdering($restaurant);
+        $this->markOnlySomeDishesOutOfStock($restaurant);
+    }
+
+    private function restockIngredientsForPosOrdering(Restaurant $restaurant): void
+    {
+        $occurredAt = now()->subHours(6);
+
+        foreach ($restaurant->ingredients as $ingredient) {
+            if (! $ingredient->is_active) {
+                continue;
+            }
+
+            $before = round((float) $ingredient->current_stock_quantity, 3);
+            $threshold = round((float) $ingredient->low_stock_threshold, 3);
+            $target = max($threshold * 12, 120.000);
+
+            if ($before >= $target) {
+                continue;
+            }
+
+            $after = round($target, 3);
+            $delta = round($after - $before, 3);
+
+            $ingredient->current_stock_quantity = number_format($after, 3, '.', '');
+            $ingredient->save();
+
+            StockMovement::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'ingredient_id' => $ingredient->id,
+                'order_id' => null,
+                'order_item_id' => null,
+                'performed_by' => null,
+                'movement_type' => StockMovement::TYPE_RESTOCK,
+                'unit' => $ingredient->stock_unit,
+                'quantity_delta' => number_format($delta, 3, '.', ''),
+                'quantity_before' => number_format($before, 3, '.', ''),
+                'quantity_after' => number_format($after, 3, '.', ''),
+                'ingredient_name_snapshot' => $ingredient->name,
+                'reference' => 'SEED-POS-RESTOCK',
+                'notes' => 'Seeder restock for POS ordering readiness.',
+                'occurred_at' => $occurredAt,
+                'created_at' => $occurredAt,
+                'updated_at' => $occurredAt,
+            ]);
+        }
+    }
+
+    private function markOnlySomeDishesOutOfStock(Restaurant $restaurant): void
+    {
+        $dishes = $restaurant->dishes
+            ->where('status', 'published')
+            ->values();
+
+        if ($dishes->count() < 3) {
+            return;
+        }
+
+        foreach ($dishes as $dish) {
+            foreach ($dish->dishIngredients as $dishIngredient) {
+                $ingredient = $dishIngredient->ingredient;
+                if (! $ingredient) {
+                    continue;
+                }
+
+                if ($dishIngredient->unit !== $ingredient->stock_unit) {
+                    $dishIngredient->unit = $ingredient->stock_unit;
+                    $dishIngredient->save();
+                }
+            }
+        }
+
+        $dishCount = $dishes->count();
+        $outOfStockCount = (int) floor($dishCount * 0.15);
+        $outOfStockCount = max(3, $outOfStockCount);
+        $outOfStockCount = min($outOfStockCount, max(1, $dishCount - 2));
+
+        $targetDishIds = $dishes
+            ->sortBy('id')
+            ->take($outOfStockCount)
+            ->pluck('id')
+            ->all();
+
+        $targetDishes = $dishes->whereIn('id', $targetDishIds)->values();
+
+        foreach ($targetDishes as $dish) {
+            $primaryIngredient = $dish->dishIngredients->first(fn (DishIngredient $dishIngredient): bool => $dishIngredient->ingredient !== null);
+            if (! $primaryIngredient || ! $primaryIngredient->ingredient) {
+                continue;
+            }
+
+            $stockUnit = (string) $primaryIngredient->ingredient->stock_unit;
+            $primaryIngredient->unit = $this->mismatchedUnitForStock($stockUnit);
+            $primaryIngredient->save();
         }
     }
 
@@ -751,12 +855,23 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
         };
     }
 
-    private function stableDishImageUrl(string $name): string
+    private function stableDishImageUrl(string $name, ?int $dishId = null): string
     {
-        $keywords = trim((string) preg_replace('/[^a-z0-9 ]+/i', ' ', strtolower($name)));
-        $keywords = preg_replace('/\s+/', ',', $keywords) ?: 'restaurant,dish';
+        $seedSource = strtolower(trim($name));
+        $seedSource = preg_replace('/[^a-z0-9]+/i', '-', $seedSource) ?: 'dish';
+        $seed = trim(($dishId ? $dishId.'-' : '').$seedSource, '-');
 
-        return sprintf('https://source.unsplash.com/1600x900/?food,%s', urlencode((string) $keywords));
+        return sprintf('https://picsum.photos/seed/%s/1280/720', rawurlencode($seed));
+    }
+
+    private function mismatchedUnitForStock(string $stockUnit): string
+    {
+        return match (strtolower(trim($stockUnit))) {
+            'g' => 'ml',
+            'ml' => 'piece',
+            'piece' => 'g',
+            default => 'piece',
+        };
     }
 
     private function tableNumberFromName(string $name): int
