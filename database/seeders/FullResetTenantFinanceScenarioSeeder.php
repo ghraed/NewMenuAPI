@@ -197,7 +197,7 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
 
             $before = round((float) $ingredient->current_stock_quantity, 3);
             $threshold = round((float) $ingredient->low_stock_threshold, 3);
-            $target = max($threshold * 12, 120.000);
+            $target = $this->highPosTargetStock($ingredient->stock_unit, $threshold);
 
             if ($before >= $target) {
                 continue;
@@ -228,6 +228,17 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
                 'updated_at' => $occurredAt,
             ]);
         }
+    }
+
+    private function highPosTargetStock(string $unit, float $threshold): float
+    {
+        $normalizedUnit = strtolower(trim($unit));
+
+        if ($normalizedUnit === 'piece') {
+            return max($threshold * 40, 5000.000);
+        }
+
+        return max($threshold * 40, 100000.000);
     }
 
     private function markOnlySomeDishesOutOfStock(Restaurant $restaurant): void
