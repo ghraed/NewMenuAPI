@@ -81,11 +81,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
-    Route::middleware('role:admin,staff')->group(function () {
-        Route::middleware('feature:realtime_staff_orders')->group(function () {
-            Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
-            Route::patch('/orders/{order}', [OrderController::class, 'update']);
-            Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
+        Route::middleware('role:admin,staff')->group(function () {
+            Route::middleware('feature:realtime_staff_orders')->group(function () {
+                Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
+                Route::patch('/orders/{order}', [OrderController::class, 'update']);
+                Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
             Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
             Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
             Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
@@ -93,11 +93,13 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
             Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
             Route::get('/waves/pending', [WaveController::class, 'pending']);
-            Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
+                Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
+            });
+            Route::post('/pos/checkout', [OrderController::class, 'quickCheckout'])
+                ->middleware('feature:table_ordering');
+            Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
+            Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
         });
-        Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
-        Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
-    });
 
     Route::middleware('role:admin')->group(function () {
         Route::get('/orders/accounting', [OrderController::class, 'accounting'])

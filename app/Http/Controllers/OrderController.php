@@ -525,6 +525,144 @@ class OrderController extends Controller
         ]);
     }
 
+    public function quickCheckout(Request $request, OrderInvoiceCalculator $invoiceCalculator): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $validated = $request->validate([
+            'table_reference' => 'nullable|string|max:40',
+            'notes' => 'nullable|string|max:1000',
+            'items' => 'required|array|min:1',
+            'items.*.dish_id' => 'required|integer|distinct',
+            'items.*.quantity' => 'required|integer|min:1|max:99',
+            'vat_rate' => 'nullable|numeric|min:0|max:100',
+            'discount_type' => 'nullable|in:fixed,percentage',
+            'discount_value' => 'nullable|numeric|min:0',
+            'payment_method' => 'required|in:cash,card,wallet',
+            'amount_received' => 'nullable|numeric|min:0',
+        ]);
+
+        $discountType = $validated['discount_type'] ?? null;
+        $discountValue = (float) ($validated['discount_value'] ?? 0);
+
+        if ($discountType === null && $discountValue > 0) {
+            throw ValidationException::withMessages([
+                'discount_type' => __('messages.orders.discount_type_required'),
+            ]);
+        }
+
+        [$restaurantTable, $tableReference] = $this->resolvePosTableReference(
+            $restaurant,
+            $validated['table_reference'] ?? null
+        );
+
+        $preparedItems = $this->prepareOrderItems($restaurant, $validated['items']);
+        $invoice = $invoiceCalculator->calculate(
+            $preparedItems,
+            (float) ($validated['vat_rate'] ?? 0),
+            $discountType,
+            $discountValue
+        );
+
+        $paymentMethod = (string) $validated['payment_method'];
+        $totalAmount = (float) $invoice['total'];
+        $amountReceived = (float) ($validated['amount_received'] ?? 0);
+
+        if ($paymentMethod === 'cash' && ($amountReceived + 0.0005) < $totalAmount) {
+            return response()->json([
+                'message' => __('messages.orders.pos_cash_insufficient'),
+            ], 422);
+        }
+
+        $userId = (int) $request->user()->id;
+
+        try {
+            $order = DB::transaction(function () use (
+                $restaurant,
+                $restaurantTable,
+                $tableReference,
+                $validated,
+                $preparedItems,
+                $invoice,
+                $userId
+            ) {
+                $order = $restaurant->orders()->create([
+                    'uuid' => (string) Str::uuid(),
+                    'restaurant_table_id' => $restaurantTable?->id,
+                    'table_session_id' => null,
+                    'status' => Order::STATUS_STAFF_CONFIRMED,
+                    'guest_name' => $tableReference,
+                    'table_reference' => $tableReference,
+                    'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
+                    'confirmed_by' => $userId,
+                    'confirmed_at' => now(),
+                    ...$invoice,
+                ]);
+
+                $order->items()->createMany(array_map(
+                    fn (array $item): array => [
+                        'dish_id' => $item['dish_id'],
+                        'dish_name' => $item['dish_name'],
+                        'unit_price' => $item['unit_price'],
+                        'quantity' => $item['quantity'],
+                        'line_subtotal' => $item['line_subtotal'],
+                    ],
+                    $preparedItems
+                ));
+
+                $order->update([
+                    'order_number' => $this->formatOrderNumber($order),
+                ]);
+
+                if (feature_enabled('ingredient_stock_deduction', $restaurant)) {
+                    $this->orderInventoryDeductionService->deductForConfirmedOrder($order, $userId);
+                }
+
+                $order->update([
+                    'status' => Order::STATUS_ACCOUNTED,
+                    'invoice_number' => $this->formatInvoiceNumber($order),
+                    'accounted_by' => $userId,
+                    'accounted_at' => now(),
+                ]);
+
+                return $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
+            });
+        } catch (ValidationException $exception) {
+            $firstError = collect($exception->errors())
+                ->flatten()
+                ->first();
+
+            return response()->json([
+                'message' => is_string($firstError) && $firstError !== ''
+                    ? $firstError
+                    : __('messages.orders.confirm_failed_inventory_guard'),
+                'errors' => $exception->errors(),
+            ], 422);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => __('messages.orders.confirm_failed_inventory_guard'),
+            ], 422);
+        }
+
+        $effectiveAmountReceived = $paymentMethod === 'cash' ? $amountReceived : $totalAmount;
+        $changeDue = $paymentMethod === 'cash'
+            ? max($effectiveAmountReceived - $totalAmount, 0)
+            : 0.0;
+
+        return response()->json([
+            'message' => __('messages.orders.pos_checkout_completed'),
+            'order' => $this->formatOrder($order),
+            'payment' => [
+                'method' => $paymentMethod,
+                'amount_received' => number_format($effectiveAmountReceived, 2, '.', ''),
+                'change_due' => number_format($changeDue, 2, '.', ''),
+                'total' => number_format($totalAmount, 2, '.', ''),
+            ],
+        ], 201);
+    }
+
     private function preparePendingOrderUpdateItems(Restaurant $restaurant, Order $order, array $requestedItems): array
     {
         if ($order->items->contains(fn (OrderItem $item) => $item->dish_id === null)) {
@@ -778,6 +916,27 @@ class OrderController extends Controller
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    /**
+     * @return array{0: RestaurantTable|null, 1: string}
+     */
+    private function resolvePosTableReference(Restaurant $restaurant, mixed $requestedReference): array
+    {
+        $normalizedReference = is_string($requestedReference)
+            ? trim($requestedReference)
+            : '';
+
+        if ($normalizedReference === '') {
+            return [null, 'POS-WALK-IN'];
+        }
+
+        $restaurantTable = RestaurantTable::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('name', $normalizedReference)
+            ->first();
+
+        return [$restaurantTable, $normalizedReference];
     }
 
     private function ensureDishIsOrderable(Dish $dish): void

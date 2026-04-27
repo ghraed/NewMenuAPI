@@ -20,6 +20,8 @@ return [
         'cancelled' => 'Order request cancelled successfully.',
         'account_only_confirmed' => 'Only staff-confirmed orders can be processed by accounting.',
         'accounted' => 'Order accounted successfully.',
+        'pos_checkout_completed' => 'POS checkout completed successfully.',
+        'pos_cash_insufficient' => 'Cash received is less than the order total.',
         'discount_type_required' => 'A discount type is required when a discount value is provided.',
         'dishes_out_of_stock' => 'Some selected dishes are currently out of stock: :dishes.',
         'inventory_deduction_confirmed_only' => 'Inventory deduction is only allowed for staff-confirmed orders.',

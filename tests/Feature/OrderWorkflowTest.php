@@ -134,6 +134,91 @@ class OrderWorkflowTest extends TestCase
         ]);
     }
 
+    public function test_staff_can_complete_pos_checkout_in_one_step(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T02']);
+        $dish = $this->createDish($restaurant, 'POS Burger', 12.50, 'published');
+
+        Sanctum::actingAs($staff);
+
+        $response = $this->postJson('/api/pos/checkout', [
+            'table_reference' => 'T02',
+            'payment_method' => 'cash',
+            'amount_received' => 30,
+            'vat_rate' => 10,
+            'discount_type' => 'fixed',
+            'discount_value' => 5,
+            'items' => [
+                [
+                    'dish_id' => $dish->id,
+                    'quantity' => 2,
+                ],
+            ],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('order.status', Order::STATUS_ACCOUNTED)
+            ->assertJsonPath('order.table_reference', 'T02')
+            ->assertJsonPath('order.confirmed_by.id', $staff->id)
+            ->assertJsonPath('order.accounted_by.id', $staff->id)
+            ->assertJsonPath('order.invoice.subtotal', '25.00')
+            ->assertJsonPath('order.invoice.discount_amount', '5.00')
+            ->assertJsonPath('order.invoice.taxable_subtotal', '20.00')
+            ->assertJsonPath('order.invoice.vat_amount', '2.00')
+            ->assertJsonPath('order.invoice.total', '22.00')
+            ->assertJsonPath('payment.method', 'cash')
+            ->assertJsonPath('payment.amount_received', '30.00')
+            ->assertJsonPath('payment.change_due', '8.00');
+
+        $orderId = $response->json('order.id');
+        $this->assertIsInt($orderId);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $orderId,
+            'restaurant_id' => $restaurant->id,
+            'status' => Order::STATUS_ACCOUNTED,
+            'table_reference' => 'T02',
+            'confirmed_by' => $staff->id,
+            'accounted_by' => $staff->id,
+            'subtotal' => '25.00',
+            'discount_amount' => '5.00',
+            'vat_amount' => '2.00',
+            'total' => '22.00',
+        ]);
+    }
+
+    public function test_pos_checkout_rejects_cash_payment_when_received_amount_is_too_low(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T03']);
+        $dish = $this->createDish($restaurant, 'POS Juice', 9.00, 'published');
+
+        Sanctum::actingAs($staff);
+
+        $response = $this->postJson('/api/pos/checkout', [
+            'table_reference' => 'T03',
+            'payment_method' => 'cash',
+            'amount_received' => 5,
+            'items' => [
+                [
+                    'dish_id' => $dish->id,
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('message', 'Cash received is less than the order total.');
+
+        $this->assertDatabaseMissing('orders', [
+            'restaurant_id' => $restaurant->id,
+            'status' => Order::STATUS_ACCOUNTED,
+            'table_reference' => 'T03',
+            'total' => '9.00',
+        ]);
+    }
+
     public function test_staff_can_update_pending_orders_by_editing_quantities_removing_items_and_adding_new_dishes(): void
     {
         $restaurant = $this->createRestaurant();
