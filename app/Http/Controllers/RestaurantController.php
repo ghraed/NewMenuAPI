@@ -18,7 +18,7 @@ class RestaurantController extends Controller
         $restaurant = $this->getOwnedRestaurant($request);
 
         $staffMembers = $restaurant->staffUsers()
-            ->where('role', User::ROLE_STAFF)
+            ->whereIn('role', [User::ROLE_STAFF, User::ROLE_CHEF])
             ->with(['assignedTables' => function ($query) use ($restaurant) {
                 $query->where('restaurant_id', $restaurant->id)
                     ->orderBy('name');
@@ -65,6 +65,7 @@ class RestaurantController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255|required_without:phone|unique:users,email',
             'phone' => 'nullable|string|max:40|required_without:email|unique:users,phone',
+            'role' => 'nullable|in:staff,chef',
             'table_ids' => 'nullable|array',
             'table_ids.*' => 'integer|distinct',
         ]);
@@ -79,7 +80,7 @@ class RestaurantController extends Controller
                 'name' => $validated['name'],
                 'email' => $validated['email'] ?? null,
                 'phone' => $validated['phone'] ?? null,
-                'role' => User::ROLE_STAFF,
+                'role' => $validated['role'] ?? User::ROLE_STAFF,
                 'password' => $temporaryPassword,
             ]);
 
@@ -100,7 +101,7 @@ class RestaurantController extends Controller
     {
         $restaurant = $this->getOwnedRestaurant($request);
 
-        if (! $staff->isStaff()) {
+        if (! $staff->hasRole(User::ROLE_STAFF, User::ROLE_CHEF)) {
             abort(404);
         }
 

@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\KitchenOrderCreated;
+use App\Events\KitchenOrderReady;
+use App\Events\KitchenOrderUpdated;
 use App\Models\Dish;
 use App\Models\ChatOrder;
 use App\Models\Order;
@@ -20,6 +23,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 use Illuminate\Validation\ValidationException;
@@ -199,6 +203,170 @@ class OrderController extends Controller
         ]);
     }
 
+    public function kitchenActiveOrders(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $statusFilter = $request->query('status');
+
+        $allowedKitchenStatuses = [
+            Order::KITCHEN_STATUS_NEW,
+            Order::KITCHEN_STATUS_IN_PROGRESS,
+            Order::KITCHEN_STATUS_READY,
+        ];
+
+        $ordersQuery = Order::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('status', Order::STATUS_STAFF_CONFIRMED)
+            ->whereNotNull('kitchen_status')
+            ->whereIn('kitchen_status', $allowedKitchenStatuses)
+            ->with(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy'])
+            ->orderByRaw(
+                "CASE kitchen_status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'ready' THEN 2 ELSE 3 END"
+            )
+            ->orderBy('confirmed_at')
+            ->orderBy('created_at');
+
+        if (is_string($statusFilter) && $statusFilter !== '' && in_array($statusFilter, $allowedKitchenStatuses, true)) {
+            $ordersQuery->where('kitchen_status', $statusFilter);
+        }
+
+        $orders = $ordersQuery->get();
+
+        return response()->json([
+            'orders' => $orders->map(fn (Order $order) => $this->formatKitchenOrder($order))->values(),
+        ]);
+    }
+
+    public function kitchenOrderDetails(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+
+        return response()->json([
+            'order' => $this->formatKitchenOrder($order),
+        ]);
+    }
+
+    public function startKitchenPreparation(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+
+        if (
+            $order->status !== Order::STATUS_STAFF_CONFIRMED
+            || $order->kitchen_status !== Order::KITCHEN_STATUS_NEW
+        ) {
+            return response()->json([
+                'message' => __('messages.orders.kitchen_start_only_new'),
+            ], 422);
+        }
+
+        try {
+            $order = DB::transaction(function () use ($order, $request) {
+                /** @var Order $lockedOrder */
+                $lockedOrder = Order::query()
+                    ->whereKey($order->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if (
+                    $lockedOrder->status !== Order::STATUS_STAFF_CONFIRMED
+                    || $lockedOrder->kitchen_status !== Order::KITCHEN_STATUS_NEW
+                ) {
+                    throw ValidationException::withMessages([
+                        'order' => __('messages.orders.kitchen_start_only_new'),
+                    ]);
+                }
+
+                $lockedOrder->update([
+                    'kitchen_status' => Order::KITCHEN_STATUS_IN_PROGRESS,
+                    'kitchen_started_at' => $lockedOrder->kitchen_started_at ?? now(),
+                    'kitchen_updated_by' => $request->user()->id,
+                ]);
+
+                return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy']);
+            });
+        } catch (ValidationException $exception) {
+            $firstError = collect($exception->errors())
+                ->flatten()
+                ->first();
+
+            return response()->json([
+                'message' => is_string($firstError) && $firstError !== ''
+                    ? $firstError
+                    : __('messages.orders.kitchen_start_only_new'),
+                'errors' => $exception->errors(),
+            ], 422);
+        }
+
+        $this->broadcastKitchenOrderUpdated($order);
+
+        return response()->json([
+            'message' => __('messages.orders.kitchen_started'),
+            'order' => $this->formatKitchenOrder($order),
+        ]);
+    }
+
+    public function markKitchenReady(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+
+        if (
+            $order->status !== Order::STATUS_STAFF_CONFIRMED
+            || $order->kitchen_status !== Order::KITCHEN_STATUS_IN_PROGRESS
+        ) {
+            return response()->json([
+                'message' => __('messages.orders.kitchen_ready_only_in_progress'),
+            ], 422);
+        }
+
+        try {
+            $order = DB::transaction(function () use ($order, $request) {
+                /** @var Order $lockedOrder */
+                $lockedOrder = Order::query()
+                    ->whereKey($order->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if (
+                    $lockedOrder->status !== Order::STATUS_STAFF_CONFIRMED
+                    || $lockedOrder->kitchen_status !== Order::KITCHEN_STATUS_IN_PROGRESS
+                ) {
+                    throw ValidationException::withMessages([
+                        'order' => __('messages.orders.kitchen_ready_only_in_progress'),
+                    ]);
+                }
+
+                $lockedOrder->update([
+                    'kitchen_status' => Order::KITCHEN_STATUS_READY,
+                    'kitchen_ready_at' => now(),
+                    'kitchen_updated_by' => $request->user()->id,
+                ]);
+
+                return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy']);
+            });
+        } catch (ValidationException $exception) {
+            $firstError = collect($exception->errors())
+                ->flatten()
+                ->first();
+
+            return response()->json([
+                'message' => is_string($firstError) && $firstError !== ''
+                    ? $firstError
+                    : __('messages.orders.kitchen_ready_only_in_progress'),
+                'errors' => $exception->errors(),
+            ], 422);
+        }
+
+        $this->broadcastKitchenOrderUpdated($order, true);
+
+        return response()->json([
+            'message' => __('messages.orders.kitchen_ready'),
+            'order' => $this->formatKitchenOrder($order),
+        ]);
+    }
+
     public function publishedDishes(Request $request): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -344,6 +512,11 @@ class OrderController extends Controller
                     'status' => Order::STATUS_STAFF_CONFIRMED,
                     'confirmed_by' => $request->user()->id,
                     'confirmed_at' => now(),
+                    'kitchen_status' => Order::KITCHEN_STATUS_NEW,
+                    'kitchen_started_at' => null,
+                    'kitchen_ready_at' => null,
+                    'kitchen_completed_at' => null,
+                    'kitchen_updated_by' => null,
                 ]);
 
                 if (feature_enabled('ingredient_stock_deduction', $restaurant)) {
@@ -373,6 +546,8 @@ class OrderController extends Controller
                 'message' => __('messages.orders.confirm_failed_inventory_guard'),
             ], 422);
         }
+
+        $this->broadcastKitchenOrderCreated($order);
 
         return response()->json([
             'message' => __('messages.orders.confirmed'),
@@ -842,6 +1017,7 @@ class OrderController extends Controller
             'order_number' => $order->order_number,
             'invoice_number' => $order->invoice_number,
             'status' => $order->status,
+            'kitchen_status' => $order->kitchen_status,
             'table_session_id' => $order->table_session_id,
             'table_reference' => $order->table_reference ?: $order->guest_name,
             'table' => $order->restaurantTable ? [
@@ -853,6 +1029,9 @@ class OrderController extends Controller
             'confirmed_at' => $order->confirmed_at?->toIso8601String(),
             'cancelled_at' => $order->cancelled_at?->toIso8601String(),
             'accounted_at' => $order->accounted_at?->toIso8601String(),
+            'kitchen_started_at' => $order->kitchen_started_at?->toIso8601String(),
+            'kitchen_ready_at' => $order->kitchen_ready_at?->toIso8601String(),
+            'kitchen_completed_at' => $order->kitchen_completed_at?->toIso8601String(),
             'restaurant' => [
                 'id' => $order->restaurant->id,
                 'name' => $order->restaurant->name,
@@ -895,6 +1074,71 @@ class OrderController extends Controller
             'phone' => $user->phone,
             'role' => $user->role,
         ];
+    }
+
+    private function formatKitchenOrder(Order $order): array
+    {
+        $orderPayload = $this->formatOrder($order);
+
+        return [
+            ...$orderPayload,
+            'guest_identifier' => $order->table_session_id
+                ? 'session-'.$order->table_session_id
+                : ($order->guest_name ?: null),
+            'time_ordered' => $order->confirmed_at?->toIso8601String()
+                ?? $order->created_at?->toIso8601String(),
+            'waiter_name' => $order->confirmedBy?->name,
+            'special_requests' => $order->notes,
+            'items' => collect($orderPayload['items'])
+                ->map(fn (array $item) => [
+                    ...$item,
+                    'modifiers' => [],
+                    'dish_notes' => null,
+                ])
+                ->values()
+                ->all(),
+        ];
+    }
+
+    private function broadcastKitchenOrderCreated(Order $order): void
+    {
+        $payload = $this->formatKitchenOrder($order);
+
+        try {
+            event(new KitchenOrderCreated($order, $payload));
+        } catch (Throwable $exception) {
+            Log::warning('Failed to broadcast a kitchen-order.created event.', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function broadcastKitchenOrderUpdated(Order $order, bool $includeReadyEvent = false): void
+    {
+        $payload = $this->formatKitchenOrder($order);
+
+        try {
+            event(new KitchenOrderUpdated($order, $payload));
+        } catch (Throwable $exception) {
+            Log::warning('Failed to broadcast a kitchen-order.updated event.', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+
+        if (! $includeReadyEvent) {
+            return;
+        }
+
+        try {
+            event(new KitchenOrderReady($order, $payload));
+        } catch (Throwable $exception) {
+            Log::warning('Failed to broadcast a kitchen-order.ready event.', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function formatOrderNumber(Order $order): string

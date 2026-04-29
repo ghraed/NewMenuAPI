@@ -57,4 +57,11 @@ class UserFactory extends Factory
             'role' => User::ROLE_STAFF,
         ]);
     }
+
+    public function chef(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => User::ROLE_CHEF,
+        ]);
+    }
 }

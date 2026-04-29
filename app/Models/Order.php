@@ -12,6 +12,10 @@ class Order extends Model
     public const STATUS_STAFF_CONFIRMED = 'staff_confirmed';
     public const STATUS_STAFF_CANCELLED = 'staff_cancelled';
     public const STATUS_ACCOUNTED = 'accounted';
+    public const KITCHEN_STATUS_NEW = 'new';
+    public const KITCHEN_STATUS_IN_PROGRESS = 'in_progress';
+    public const KITCHEN_STATUS_READY = 'ready';
+    public const KITCHEN_STATUS_SERVED = 'served';
 
     protected $fillable = [
         'uuid',
@@ -21,6 +25,7 @@ class Order extends Model
         'order_number',
         'invoice_number',
         'status',
+        'kitchen_status',
         'guest_name',
         'guest_phone',
         'guest_email',
@@ -40,6 +45,10 @@ class Order extends Model
         'cancelled_at',
         'accounted_by',
         'accounted_at',
+        'kitchen_started_at',
+        'kitchen_ready_at',
+        'kitchen_completed_at',
+        'kitchen_updated_by',
     ];
 
     protected $casts = [
@@ -53,6 +62,9 @@ class Order extends Model
         'confirmed_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'accounted_at' => 'datetime',
+        'kitchen_started_at' => 'datetime',
+        'kitchen_ready_at' => 'datetime',
+        'kitchen_completed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

@@ -32,6 +32,9 @@ class DatabaseSeeder extends Seeder
         // Create default tenant domain mappings
         $this->call(RestaurantDomainSeeder::class);
 
+        // Create default chef login and attach to the first restaurant.
+        $this->call(ChefSeeder::class);
+
         // Create dishes
         $this->createDishes();
 

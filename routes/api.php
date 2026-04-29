@@ -210,4 +210,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
         });
     });
+
+    Route::middleware(['role:chef', 'feature:realtime_staff_orders'])->group(function () {
+        Route::get('/kitchen/orders', [OrderController::class, 'kitchenActiveOrders']);
+        Route::get('/kitchen/orders/{order}', [OrderController::class, 'kitchenOrderDetails']);
+        Route::post('/kitchen/orders/{order}/start', [OrderController::class, 'startKitchenPreparation']);
+        Route::post('/kitchen/orders/{order}/ready', [OrderController::class, 'markKitchenReady']);
+    });
 });

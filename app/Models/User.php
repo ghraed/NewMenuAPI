@@ -20,6 +20,7 @@ class User extends Authenticatable
     public const ROLE_RESTAURANT_ADMIN = 'restaurant_admin';
     public const ROLE_ADMIN = 'admin';
     public const ROLE_STAFF = 'staff';
+    public const ROLE_CHEF = 'chef';
 
     /**
      * The attributes that are mass assignable.
@@ -125,6 +126,11 @@ class User extends Authenticatable
     public function isStaff(): bool
     {
         return $this->hasRole(self::ROLE_STAFF);
+    }
+
+    public function isChef(): bool
+    {
+        return $this->hasRole(self::ROLE_CHEF);
     }
 
     public function hasTableAssignmentFor(int $tableId): bool

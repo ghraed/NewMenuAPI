@@ -18,3 +18,15 @@ Broadcast::channel('restaurant.{restaurantId}.table.{tableId}.waves', function (
 
     return $user->hasTableAssignmentFor($tableId);
 });
+
+Broadcast::channel('restaurant.{restaurantId}.kitchen', function (User $user, int $restaurantId) {
+    $user->loadMissing('restaurant', 'staffRestaurants');
+
+    $restaurant = $user->currentRestaurant();
+
+    if (! $restaurant || $restaurant->id !== $restaurantId) {
+        return false;
+    }
+
+    return $user->isAdmin() || $user->isChef();
+});
