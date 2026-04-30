@@ -85,6 +85,11 @@ class User extends Authenticatable
         return $this->hasMany(PushSubscription::class);
     }
 
+    public function mobilePushTokens(): HasMany
+    {
+        return $this->hasMany(MobilePushToken::class);
+    }
+
     public function currentRestaurant(): ?Restaurant
     {
         if ($this->hasRole(self::ROLE_SAAS_OWNER)) {

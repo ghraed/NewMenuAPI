@@ -9,6 +9,7 @@ use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
+use App\Services\MobilePushNotificationService;
 use App\Services\TableSessionAccessService;
 use App\Services\TenantRestaurantResolver;
 use App\Services\WebPushNotificationService;
@@ -279,6 +280,15 @@ class WaveController extends Controller
             app(WebPushNotificationService::class)->notifyWaveCreated($wave, $isReminder);
         } catch (\Throwable $exception) {
             Log::warning('Failed to send web push notifications for a table wave.', [
+                'wave_id' => $wave->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+
+        try {
+            app(MobilePushNotificationService::class)->notifyWaveCreated($wave, $isReminder);
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to send mobile push notifications for a table wave.', [
                 'wave_id' => $wave->id,
                 'message' => $exception->getMessage(),
             ]);

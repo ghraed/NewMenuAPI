@@ -107,6 +107,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 ->middleware('feature:table_ordering');
             Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
             Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
+            Route::post('/push/mobile-token', [PushSubscriptionController::class, 'storeMobileToken']);
 
             Route::middleware('feature:room_plan_editor')->group(function () {
                 Route::get('/room-plans', [RoomPlanController::class, 'index']);

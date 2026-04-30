@@ -15,6 +15,7 @@ use App\Models\TableSession;
 use App\Models\User;
 use App\Services\DishAlternativeSuggestionService;
 use App\Services\GuestMenuSessionService;
+use App\Services\MobilePushNotificationService;
 use App\Services\OrderInventoryDeductionService;
 use App\Services\OrderInvoiceCalculator;
 use App\Services\TenantRestaurantResolver;
@@ -70,6 +71,7 @@ class OrderController extends Controller
             $validated,
             $invoiceCalculator
         );
+        $this->dispatchPendingOrderCreatedAlerts($order);
 
         return response()->json([
             'message' => __('messages.orders.created'),
@@ -98,6 +100,7 @@ class OrderController extends Controller
             $validated,
             $invoiceCalculator
         );
+        $this->dispatchPendingOrderCreatedAlerts($order);
 
         return response()->json([
             'message' => __('messages.orders.created'),
@@ -1194,6 +1197,18 @@ class OrderController extends Controller
                 'dishes' => $dish->name,
             ]),
         ]);
+    }
+
+    private function dispatchPendingOrderCreatedAlerts(Order $order): void
+    {
+        try {
+            app(MobilePushNotificationService::class)->notifyPendingOrderCreated($order);
+        } catch (Throwable $exception) {
+            Log::warning('Failed to send mobile push notifications for a pending order.', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function createOrderForTableContext(
