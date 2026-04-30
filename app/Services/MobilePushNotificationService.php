@@ -152,6 +152,15 @@ class MobilePushNotificationService
             }
 
             $endpoint = sprintf('https://fcm.googleapis.com/v1/projects/%s/messages:send', $projectId);
+            $tokenSuffix = substr($pushToken->token, -8);
+            Log::info('FCM dispatch attempt.', [
+                'token_id' => $pushToken->id,
+                'token_suffix' => $tokenSuffix,
+                'preference' => $preferenceField,
+                'kind' => $data['kind'] ?? null,
+                'channel' => $data['channel'] ?? null,
+                'title' => $title,
+            ]);
             try {
                 $response = Http::withHeaders([
                     'Authorization' => 'Bearer '.$accessToken,
@@ -173,13 +182,22 @@ class MobilePushNotificationService
                 if (! $response->ok()) {
                     Log::warning('FCM v1 push request failed.', [
                         'token_id' => $pushToken->id,
+                        'token_suffix' => $tokenSuffix,
                         'status' => $response->status(),
                         'body' => $response->body(),
+                    ]);
+                } else {
+                    Log::info('FCM dispatch success.', [
+                        'token_id' => $pushToken->id,
+                        'token_suffix' => $tokenSuffix,
+                        'status' => $response->status(),
+                        'body' => $response->json(),
                     ]);
                 }
             } catch (\Throwable $exception) {
                 Log::warning('FCM v1 push request threw an exception.', [
                     'token_id' => $pushToken->id,
+                    'token_suffix' => $tokenSuffix,
                     'message' => $exception->getMessage(),
                 ]);
             }
