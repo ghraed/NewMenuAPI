@@ -6,19 +6,23 @@ use App\Models\MobilePushToken;
 use App\Models\Order;
 use App\Models\TableWave;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class MobilePushNotificationService
 {
-    private const FCM_SEND_URL = 'https://fcm.googleapis.com/fcm/send';
     private const STAFF_ORDERS_URL = '/staff/orders';
-    private const MAX_TOKENS_PER_BATCH = 500;
+    private const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+    private const TOKEN_CACHE_TTL_SECONDS = 3000;
 
     public function isConfigured(): bool
     {
-        return filled(config('services.fcm.server_key'));
+        return filled($this->resolveProjectId())
+            && filled($this->resolveServiceAccountPath())
+            && is_file($this->resolveServiceAccountPath());
     }
 
     public function notifyWaveCreated(TableWave $wave, bool $isReminder = false): void
@@ -132,48 +136,54 @@ class MobilePushNotificationService
             return;
         }
 
-        $serverKey = (string) config('services.fcm.server_key');
+        $credentials = $this->loadServiceAccountCredentials();
+        $projectId = $this->resolveProjectId($credentials);
+        $accessToken = $this->getAccessToken($credentials);
 
-        foreach ($tokens->chunk(self::MAX_TOKENS_PER_BATCH) as $chunk) {
-            $registrationIds = $chunk
-                ->pluck('token')
-                ->filter(fn (mixed $token) => is_string($token) && $token !== '')
-                ->values()
-                ->all();
+        if ($projectId === null || $accessToken === null) {
+            return;
+        }
 
-            if ($registrationIds === []) {
+        foreach ($tokens as $pushToken) {
+            if (! is_string($pushToken->token) || $pushToken->token === '') {
                 continue;
             }
 
+            $endpoint = sprintf('https://fcm.googleapis.com/v1/projects/%s/messages:send', $projectId);
             try {
                 $response = Http::withHeaders([
-                    'Authorization' => 'key='.$serverKey,
+                    'Authorization' => 'Bearer '.$accessToken,
                     'Content-Type' => 'application/json',
-                ])->post(self::FCM_SEND_URL, [
-                    'registration_ids' => $registrationIds,
-                    'priority' => 'high',
-                    'notification' => [
-                        'title' => $title,
-                        'body' => $body,
-                        'sound' => 'default',
-                    ],
-                    'data' => $data + [
-                        'title' => $title,
-                        'body' => $body,
-                    ],
-                    'android' => [
-                        'priority' => 'high',
+                ])->post($endpoint, [
+                    'message' => [
+                        'token' => $pushToken->token,
+                        'notification' => [
+                            'title' => $title,
+                            'body' => $body,
+                        ],
+                        'data' => $data + [
+                            'title' => $title,
+                            'body' => $body,
+                        ],
+                        'android' => [
+                            'priority' => 'HIGH',
+                            'notification' => [
+                                'sound' => 'default',
+                            ],
+                        ],
                     ],
                 ]);
 
                 if (! $response->ok()) {
-                    Log::warning('FCM push request failed.', [
+                    Log::warning('FCM v1 push request failed.', [
+                        'token_id' => $pushToken->id,
                         'status' => $response->status(),
                         'body' => $response->body(),
                     ]);
                 }
             } catch (\Throwable $exception) {
-                Log::warning('FCM push request threw an exception.', [
+                Log::warning('FCM v1 push request threw an exception.', [
+                    'token_id' => $pushToken->id,
                     'message' => $exception->getMessage(),
                 ]);
             }
@@ -184,5 +194,140 @@ class MobilePushNotificationService
                 'last_used_at' => now(),
             ])->save();
         });
+    }
+
+    private function resolveServiceAccountPath(): ?string
+    {
+        $path = (string) config('services.fcm.service_account_json');
+        if ($path === '') {
+            return null;
+        }
+
+        if (str_starts_with($path, '/')) {
+            return $path;
+        }
+
+        return base_path($path);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function loadServiceAccountCredentials(): ?array
+    {
+        $path = $this->resolveServiceAccountPath();
+        if ($path === null || ! is_file($path)) {
+            Log::warning('FCM service account file is missing.', ['path' => $path]);
+            return null;
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+        if (! is_array($decoded)) {
+            Log::warning('FCM service account JSON is invalid.', ['path' => $path]);
+            return null;
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * @param array<string, mixed>|null $credentials
+     */
+    private function resolveProjectId(?array $credentials = null): ?string
+    {
+        $configured = trim((string) config('services.fcm.project_id'));
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        $projectId = $credentials ? Arr::get($credentials, 'project_id') : null;
+        return is_string($projectId) && $projectId !== '' ? $projectId : null;
+    }
+
+    /**
+     * @param array<string, mixed>|null $credentials
+     */
+    private function getAccessToken(?array $credentials): ?string
+    {
+        if (! is_array($credentials)) {
+            return null;
+        }
+
+        $clientEmail = Arr::get($credentials, 'client_email');
+        $privateKey = Arr::get($credentials, 'private_key');
+
+        if (! is_string($clientEmail) || $clientEmail === '' || ! is_string($privateKey) || $privateKey === '') {
+            Log::warning('FCM credentials are missing client_email/private_key.');
+            return null;
+        }
+
+        $cacheKey = 'fcm:v1:oauth-token:'.sha1($clientEmail);
+        $cached = Cache::get($cacheKey);
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
+
+        $issuedAt = time();
+        $expiresAt = $issuedAt + 3600;
+
+        $header = $this->base64UrlEncode(json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
+        $claims = $this->base64UrlEncode(json_encode([
+            'iss' => $clientEmail,
+            'scope' => self::FCM_SCOPE,
+            'aud' => 'https://oauth2.googleapis.com/token',
+            'iat' => $issuedAt,
+            'exp' => $expiresAt,
+        ]));
+
+        if ($header === null || $claims === null) {
+            return null;
+        }
+
+        $unsignedJwt = $header.'.'.$claims;
+        $signature = '';
+        $signed = openssl_sign($unsignedJwt, $signature, $privateKey, OPENSSL_ALGO_SHA256);
+        if (! $signed) {
+            Log::warning('Failed to sign FCM OAuth JWT.');
+            return null;
+        }
+
+        $jwt = $unsignedJwt.'.'.$this->base64UrlEncode($signature);
+
+        try {
+            $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+                'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                'assertion' => $jwt,
+            ]);
+        } catch (\Throwable $exception) {
+            Log::warning('Failed requesting FCM OAuth token.', ['message' => $exception->getMessage()]);
+            return null;
+        }
+
+        if (! $response->ok()) {
+            Log::warning('FCM OAuth token request failed.', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return null;
+        }
+
+        $token = data_get($response->json(), 'access_token');
+        if (! is_string($token) || $token === '') {
+            Log::warning('FCM OAuth token response missing access_token.');
+            return null;
+        }
+
+        Cache::put($cacheKey, $token, now()->addSeconds(self::TOKEN_CACHE_TTL_SECONDS));
+
+        return $token;
+    }
+
+    private function base64UrlEncode(string|false $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
     }
 }

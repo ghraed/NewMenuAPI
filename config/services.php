@@ -43,6 +43,8 @@ return [
 
     'fcm' => [
         'server_key' => env('FCM_SERVER_KEY'),
+        'project_id' => env('FCM_PROJECT_ID'),
+        'service_account_json' => env('FCM_SERVICE_ACCOUNT_JSON', storage_path('app/firebase/firebase-adminsdk.json')),
     ],
 
     'deepseek' => [
