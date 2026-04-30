@@ -20,7 +20,9 @@ class MobilePushNotificationService
 
     public function isConfigured(): bool
     {
-        return filled($this->resolveProjectId())
+        $credentials = $this->loadServiceAccountCredentials();
+
+        return filled($this->resolveProjectId($credentials))
             && filled($this->resolveServiceAccountPath())
             && is_file($this->resolveServiceAccountPath());
     }
