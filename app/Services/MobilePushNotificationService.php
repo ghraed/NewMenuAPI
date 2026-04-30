@@ -151,9 +151,6 @@ class MobilePushNotificationService
                 continue;
             }
 
-            $channelId = is_string(data_get($data, 'channel')) && data_get($data, 'channel') !== ''
-                ? (string) data_get($data, 'channel')
-                : 'staff_waves';
             $endpoint = sprintf('https://fcm.googleapis.com/v1/projects/%s/messages:send', $projectId);
             try {
                 $response = Http::withHeaders([
@@ -162,10 +159,6 @@ class MobilePushNotificationService
                 ])->post($endpoint, [
                     'message' => [
                         'token' => $pushToken->token,
-                        'notification' => [
-                            'title' => $title,
-                            'body' => $body,
-                        ],
                         'data' => $data + [
                             'title' => $title,
                             'body' => $body,
@@ -173,12 +166,6 @@ class MobilePushNotificationService
                         'android' => [
                             'priority' => 'HIGH',
                             'ttl' => '120s',
-                            'notification' => [
-                                'channel_id' => $channelId,
-                                'sound' => 'default',
-                                'default_sound' => true,
-                                'visibility' => 'PUBLIC',
-                            ],
                         ],
                     ],
                 ]);
