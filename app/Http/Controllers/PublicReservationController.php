@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Reservation;
 use App\Models\RoomPlan;
+use App\Models\RoomPlanItem;
 use App\Services\ReservationAvailabilityService;
 use App\Services\ReservationService;
 use App\Services\TenantRestaurantResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class PublicReservationController extends Controller
 {
@@ -89,7 +91,14 @@ class PublicReservationController extends Controller
 
         $validated = $request->validate([
             'room_plan_id' => 'required|integer',
-            'room_plan_item_id' => 'required|integer',
+            'room_plan_item_id' => [
+                'required',
+                'integer',
+                Rule::exists('room_plan_items', 'id')->where(function ($query): void {
+                    $query->where('type', RoomPlanItem::TYPE_TABLE)
+                        ->where('is_active', true);
+                }),
+            ],
             'customer_name' => 'required|string|max:120',
             'customer_phone' => 'required|string|max:40',
             'customer_email' => 'nullable|email|max:255',
