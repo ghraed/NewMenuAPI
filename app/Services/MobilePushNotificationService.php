@@ -172,9 +172,9 @@ class MobilePushNotificationService
                             'priority' => 'HIGH',
                             'ttl' => '120s',
                             'notification' => [
-                                'channelId' => $channelId,
+                                'channel_id' => $channelId,
                                 'sound' => 'default',
-                                'defaultSound' => true,
+                                'default_sound' => true,
                                 'visibility' => 'PUBLIC',
                             ],
                         ],
