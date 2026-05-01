@@ -122,7 +122,7 @@ class RoomPlanController extends Controller
         $this->assertPlanBelongsToRestaurant($roomPlan, $restaurant);
 
         $validated = $request->validate([
-            'items' => 'required|array',
+            'items' => 'present|array',
             'items.*.id' => 'nullable|integer',
             'items.*.type' => 'required|string|max:40',
             'items.*.label' => 'required|string|max:120',
