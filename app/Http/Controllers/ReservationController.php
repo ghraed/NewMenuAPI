@@ -115,7 +115,7 @@ class ReservationController extends Controller
                 $prefix,
                 'integer',
                 Rule::exists('room_plan_items', 'id')->where(function ($query): void {
-                    $query->where('type', RoomPlanItem::TYPE_TABLE)
+                    $query->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
                         ->where('is_active', true);
                 }),
             ],

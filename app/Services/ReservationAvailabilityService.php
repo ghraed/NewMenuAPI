@@ -67,7 +67,7 @@ class ReservationAvailabilityService
         $endAt = $range['end_at'];
 
         $tableItems = $roomPlan->items()
-            ->where('type', RoomPlanItem::TYPE_TABLE)
+            ->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
             ->where('is_active', true)
             ->get();
 
@@ -88,19 +88,41 @@ class ReservationAvailabilityService
             ->get()
             ->groupBy('room_plan_item_id');
 
-        return $tableItems->map(function (RoomPlanItem $item) use ($reservations): array {
+        $duplicateLabelSet = $this->duplicateLabelSetForRestaurant((int) $roomPlan->restaurant_id);
+
+        return $tableItems->map(function (RoomPlanItem $item) use ($reservations, $duplicateLabelSet, $roomPlan): array {
             $itemReservations = $reservations->get($item->id, collect());
             $status = $this->resolveVisualStatus($itemReservations);
+            $roomName = $item->roomPlan?->name ?? $roomPlan->name;
+            $label = trim((string) $item->label);
+            $displayLabel = $duplicateLabelSet->has(mb_strtolower($label))
+                ? trim($roomName.' - '.$label)
+                : $label;
 
             return [
                 'room_plan_item_id' => $item->id,
                 'restaurant_table_id' => $item->restaurant_table_id,
-                'label' => $item->label,
+                'label' => $displayLabel,
                 'status' => $status,
                 'color' => $this->statusColor($status),
                 'is_selectable' => ! in_array($status, [Reservation::STATUS_RESERVED, Reservation::STATUS_BUSY], true),
             ];
         })->values()->all();
+    }
+
+    private function duplicateLabelSetForRestaurant(int $restaurantId): Collection
+    {
+        return RoomPlanItem::query()
+            ->whereHas('roomPlan', fn ($query) => $query->where('restaurant_id', $restaurantId))
+            ->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->get(['label'])
+            ->map(fn (RoomPlanItem $item) => mb_strtolower(trim((string) $item->label)))
+            ->filter()
+            ->countBy()
+            ->filter(fn (int $count) => $count > 1)
+            ->keys();
     }
 
     private function resolveVisualStatus(Collection $reservations): string

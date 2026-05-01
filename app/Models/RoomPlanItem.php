@@ -12,6 +12,7 @@ class RoomPlanItem extends Model
     use SoftDeletes;
 
     public const TYPE_TABLE = 'table';
+    public const TYPE_TABLE_CIRCLE = 'table_circle';
     public const TYPE_WINDOW = 'window';
     public const TYPE_COUNTER = 'counter';
     public const TYPE_BAR = 'bar';
@@ -32,6 +33,7 @@ class RoomPlanItem extends Model
     {
         return [
             self::TYPE_TABLE,
+            self::TYPE_TABLE_CIRCLE,
             self::TYPE_WINDOW,
             self::TYPE_COUNTER,
             self::TYPE_BAR,
@@ -99,6 +101,6 @@ class RoomPlanItem extends Model
 
     public function isTable(): bool
     {
-        return $this->type === self::TYPE_TABLE;
+        return in_array($this->type, [self::TYPE_TABLE, self::TYPE_TABLE_CIRCLE], true);
     }
 }

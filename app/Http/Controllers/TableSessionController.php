@@ -255,7 +255,7 @@ class TableSessionController extends Controller
     {
         return RoomPlanItem::query()
             ->where('restaurant_table_id', $restaurantTableId)
-            ->where('type', RoomPlanItem::TYPE_TABLE)
+            ->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
             ->pluck('id')
             ->map(fn ($itemId) => (int) $itemId)
             ->all();

@@ -53,8 +53,12 @@ class RoomPlanItemService
     public function createItem(RoomPlan $roomPlan, array $payload): RoomPlanItem
     {
         $normalized = $this->normalizePayload($roomPlan, $payload, null);
-        if ($normalized['type'] === RoomPlanItem::TYPE_TABLE) {
-            $normalized['label'] = $this->resolveNextTableLabel($roomPlan);
+        if (in_array($normalized['type'], [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE], true)) {
+            $normalized['label'] = $this->resolveUniqueTableLabel(
+                $roomPlan,
+                $normalized['label'] !== '' ? $normalized['label'] : $this->resolveNextTableLabel($roomPlan),
+                null
+            );
         }
 
         $item = RoomPlanItem::query()->create([
@@ -76,9 +80,13 @@ class RoomPlanItemService
         $this->assertItemBelongsToPlan($roomPlan, $item);
 
         $normalized = $this->normalizePayload($roomPlan, $payload, $item);
+        if ($item->isTable()) {
+            $normalized['label'] = $this->resolveUniqueTableLabel($roomPlan, (string) $normalized['label'], $item->id);
+        }
+
         $item->update($normalized);
 
-        if ($item->type === RoomPlanItem::TYPE_TABLE) {
+        if ($item->isTable()) {
             $this->tableSyncService->syncFromItem($item->fresh());
         }
 
@@ -168,7 +176,7 @@ class RoomPlanItemService
             ]);
         }
 
-        if ($type === RoomPlanItem::TYPE_TABLE) {
+        if (in_array($type, [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE], true)) {
             if ($seats === null || $seats < 1) {
                 throw ValidationException::withMessages([
                     'seats' => 'Seats are required for table items.',
@@ -231,7 +239,7 @@ class RoomPlanItemService
     {
         $max = RoomPlanItem::query()
             ->whereHas('roomPlan', fn ($query) => $query->where('restaurant_id', $roomPlan->restaurant_id))
-            ->where('type', RoomPlanItem::TYPE_TABLE)
+            ->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
             ->whereNull('deleted_at')
             ->pluck('label')
             ->map(fn (string $label): int => $this->extractTrailingNumber($label) ?? 0)
@@ -249,5 +257,40 @@ class RoomPlanItemService
         }
 
         return (int) $matches[1];
+    }
+
+    private function resolveUniqueTableLabel(RoomPlan $roomPlan, string $baseLabel, ?int $ignoreItemId): string
+    {
+        $normalizedBase = mb_substr(trim($baseLabel), 0, 120);
+        if ($normalizedBase === '') {
+            $normalizedBase = $this->resolveNextTableLabel($roomPlan);
+        }
+
+        $candidate = $normalizedBase;
+        $suffix = 2;
+
+        while ($this->tableLabelExists($roomPlan, $candidate, $ignoreItemId)) {
+            $suffixText = ' '.$suffix;
+            $maxBaseLength = max(1, 120 - mb_strlen($suffixText));
+            $candidate = mb_substr($normalizedBase, 0, $maxBaseLength).$suffixText;
+            $suffix++;
+        }
+
+        return $candidate;
+    }
+
+    private function tableLabelExists(RoomPlan $roomPlan, string $label, ?int $ignoreItemId): bool
+    {
+        $query = RoomPlanItem::query()
+            ->whereHas('roomPlan', fn ($inner) => $inner->where('restaurant_id', $roomPlan->restaurant_id))
+            ->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
+            ->where('label', $label)
+            ->whereNull('deleted_at');
+
+        if ($ignoreItemId) {
+            $query->where('id', '!=', $ignoreItemId);
+        }
+
+        return $query->exists();
     }
 }

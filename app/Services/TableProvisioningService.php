@@ -20,7 +20,7 @@ class TableProvisioningService
         DB::transaction(function () use ($restaurant): void {
             $activeItemTableIds = RoomPlanItem::query()
                 ->whereHas('roomPlan', fn ($query) => $query->where('restaurant_id', $restaurant->id))
-                ->where('type', RoomPlanItem::TYPE_TABLE)
+                ->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
                 ->where('is_active', true)
                 ->whereNull('deleted_at')
                 ->get()
@@ -99,4 +99,3 @@ class TableProvisioningService
             ->update(['is_active' => false]);
     }
 }
-

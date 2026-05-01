@@ -16,7 +16,7 @@ class RoomPlanTableSyncService
     {
         $item->loadMissing('roomPlan');
 
-        if ($item->type !== RoomPlanItem::TYPE_TABLE || ! $item->roomPlan) {
+        if (! $item->isTable() || ! $item->roomPlan) {
             return null;
         }
 
@@ -66,7 +66,7 @@ class RoomPlanTableSyncService
 
     public function deactivateForItem(RoomPlanItem $item): void
     {
-        if ($item->type !== RoomPlanItem::TYPE_TABLE || ! $item->restaurant_table_id) {
+        if (! $item->isTable() || ! $item->restaurant_table_id) {
             return;
         }
 
@@ -77,7 +77,7 @@ class RoomPlanTableSyncService
 
         $hasOtherActiveLinks = RoomPlanItem::query()
             ->where('restaurant_table_id', $item->restaurant_table_id)
-            ->where('type', RoomPlanItem::TYPE_TABLE)
+            ->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
             ->where('is_active', true)
             ->whereNull('deleted_at')
             ->where('id', '!=', $item->id)
