@@ -28,13 +28,17 @@ class GuestMenuSessionService
     {
         return $this->tenantRestaurantResolver
             ->resolveFromSlugOrHost(null, $request)
-            ->load(['tables' => fn ($builder) => $builder->orderBy('name')]);
+            ->load(['tables' => fn ($builder) => $builder
+                ->where('is_active', true)
+                ->orderBy('name'),
+            ]);
     }
 
-    public function resolveTableContext(int $tableNumber, ?Request $request = null): array
+    public function resolveTableContext(int $tableReference, ?Request $request = null): array
     {
         $restaurant = $this->resolveGuestRestaurant($request);
-        $table = $this->resolveTableByNumber($restaurant, $tableNumber);
+        $table = $this->resolveTableByReference($restaurant, $tableReference);
+        $tableNumber = $this->resolveTableNumberForTable($restaurant, $table);
         $session = $this->findActiveSessionForTable($restaurant, $table);
 
         return [
@@ -64,23 +68,31 @@ class GuestMenuSessionService
             ->first();
     }
 
-    public function resolveTableByNumber(Restaurant $restaurant, int $tableNumber): RestaurantTable
+    public function resolveTableByReference(Restaurant $restaurant, int $tableReference): RestaurantTable
     {
-        if ($tableNumber <= 0) {
+        if ($tableReference <= 0) {
             throw new ModelNotFoundException();
         }
 
         $tables = $restaurant->relationLoaded('tables')
             ? $restaurant->tables
-            : $restaurant->tables()->orderBy('name')->get();
+            : $restaurant->tables()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get();
+
+        $tableById = $tables->first(fn (RestaurantTable $table) => (int) $table->id === $tableReference);
+        if ($tableById) {
+            return $tableById;
+        }
 
         $maxTables = $tables->count();
 
-        if ($tableNumber > $maxTables) {
+        if ($tableReference > $maxTables) {
             throw new ModelNotFoundException();
         }
 
-        $table = $this->matchTableByNumber($tables, $tableNumber);
+        $table = $this->matchTableByNumber($tables, $tableReference);
 
         if (! $table) {
             throw new ModelNotFoundException();
@@ -163,7 +175,10 @@ class GuestMenuSessionService
     {
         $tables = $restaurant->relationLoaded('tables')
             ? $restaurant->tables
-            : $restaurant->tables()->orderBy('name')->get();
+            : $restaurant->tables()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get();
 
         $index = $tables->values()->search(fn (RestaurantTable $candidate) => $candidate->id === $table->id);
 
@@ -191,7 +206,10 @@ class GuestMenuSessionService
     {
         $tables = $restaurant->relationLoaded('tables')
             ? $restaurant->tables
-            : $restaurant->tables()->orderBy('name')->get();
+            : $restaurant->tables()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get();
 
         return [
             'id' => $restaurant->id,
