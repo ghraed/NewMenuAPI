@@ -104,6 +104,6 @@ class EnsureRestaurantFeatureEnabled
     {
         return response()->json([
             'message' => $message,
-        ], 403);
+        ], 404);
     }
 }
