@@ -14,6 +14,8 @@ class FeatureFlagService
 {
     public function __construct(
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
+        private readonly TableManagementModeService $tableManagementModeService,
+        private readonly TableProvisioningService $tableProvisioningService,
     ) {
     }
 
@@ -160,7 +162,31 @@ class FeatureFlagService
             );
 
             $this->recordAuditLog($restaurant, $feature, $oldValue, $enabled);
+            $this->handleTableManagementFeatureChange($restaurant, $feature->key, $oldValue, $enabled);
         });
+    }
+
+    private function handleTableManagementFeatureChange(Restaurant $restaurant, string $featureKey, bool $oldValue, bool $newValue): void
+    {
+        if (! in_array($featureKey, ['room_plan_editor', 'table_reservations'], true)) {
+            return;
+        }
+
+        if ($oldValue === $newValue) {
+            return;
+        }
+
+        $mode = $this->tableManagementModeService->resolveMode($restaurant);
+        $this->tableProvisioningService->resetAssignments($restaurant);
+        $this->tableProvisioningService->removeChefAssignments($restaurant);
+
+        if ($mode === TableManagementModeService::MODE_ROOM_PLAN) {
+            $this->tableProvisioningService->provisionFromRoomPlan($restaurant);
+            return;
+        }
+
+        $restaurant->update(['manual_table_count' => null]);
+        $this->tableProvisioningService->deactivateAllTables($restaurant);
     }
 
     private function recordAuditLog(Restaurant $restaurant, Feature $feature, bool $oldValue, bool $newValue): void

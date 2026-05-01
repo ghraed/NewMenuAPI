@@ -7,11 +7,20 @@ use App\Models\RoomPlanItem;
 
 class RoomPlanTableSyncService
 {
+    public function __construct(
+        private readonly TableManagementModeService $tableManagementModeService,
+    ) {
+    }
+
     public function syncFromItem(RoomPlanItem $item): ?RestaurantTable
     {
         $item->loadMissing('roomPlan');
 
         if ($item->type !== RoomPlanItem::TYPE_TABLE || ! $item->roomPlan) {
+            return null;
+        }
+
+        if ($this->tableManagementModeService->resolveMode($item->roomPlan->restaurant) !== TableManagementModeService::MODE_ROOM_PLAN) {
             return null;
         }
 
@@ -58,6 +67,11 @@ class RoomPlanTableSyncService
     public function deactivateForItem(RoomPlanItem $item): void
     {
         if ($item->type !== RoomPlanItem::TYPE_TABLE || ! $item->restaurant_table_id) {
+            return;
+        }
+
+        $item->loadMissing('roomPlan');
+        if (! $item->roomPlan || $this->tableManagementModeService->resolveMode($item->roomPlan->restaurant) !== TableManagementModeService::MODE_ROOM_PLAN) {
             return;
         }
 

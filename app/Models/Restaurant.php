@@ -19,6 +19,7 @@ class Restaurant extends Model
         'address',
         'currency',
         'dollar_rate',
+        'manual_table_count',
     ];
 
     protected $casts = [
@@ -26,15 +27,9 @@ class Restaurant extends Model
         'status' => 'string',
         'created_at' => 'datetime',
         'dollar_rate' => 'decimal:2',
+        'manual_table_count' => 'integer',
         'updated_at' => 'datetime',
     ];
-
-    protected static function booted(): void
-    {
-        static::created(function (Restaurant $restaurant) {
-            $restaurant->ensureDefaultTables();
-        });
-    }
 
     public function user(): BelongsTo
     {
@@ -114,29 +109,4 @@ class Restaurant extends Model
         return $this->hasMany(FeatureFlagAuditLog::class);
     }
 
-    public function ensureDefaultTables(): void
-    {
-        $existingTableNames = $this->tables()
-            ->pluck('name')
-            ->all();
-
-        $missingTableNames = array_values(array_diff(self::defaultTableNames(), $existingTableNames));
-
-        if ($missingTableNames === []) {
-            return;
-        }
-
-        $this->tables()->createMany(array_map(
-            fn (string $tableName) => ['name' => $tableName],
-            $missingTableNames
-        ));
-    }
-
-    public static function defaultTableNames(): array
-    {
-        return array_map(
-            fn (int $number) => sprintf('T%02d', $number),
-            range(1, 10)
-        );
-    }
 }

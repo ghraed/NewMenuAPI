@@ -182,6 +182,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/restaurant/staff', [RestaurantController::class, 'indexStaff']);
         Route::post('/restaurant/staff', [RestaurantController::class, 'storeStaff']);
         Route::patch('/restaurant/staff/{staff}/tables', [RestaurantController::class, 'updateStaffTables']);
+        Route::get('/restaurant/table-management', [RestaurantController::class, 'tableManagement']);
+        Route::put('/restaurant/table-management/manual-count', [RestaurantController::class, 'updateManualTableCount']);
 
         // Global ingredients (catalog reference used by ingredient library only)
         Route::get('/global-ingredients', [GlobalIngredientController::class, 'index']);

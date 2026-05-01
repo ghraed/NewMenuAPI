@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Restaurant;
 use App\Models\RestaurantTable;
 use App\Models\User;
+use App\Services\TableManagementModeService;
+use App\Services\TableProvisioningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,14 +15,21 @@ use Illuminate\Validation\ValidationException;
 
 class RestaurantController extends Controller
 {
+    public function __construct(
+        private readonly TableManagementModeService $tableManagementModeService,
+        private readonly TableProvisioningService $tableProvisioningService,
+    ) {
+    }
+
     public function indexStaff(Request $request): JsonResponse
     {
         $restaurant = $this->getOwnedRestaurant($request);
 
         $staffMembers = $restaurant->staffUsers()
-            ->whereIn('role', [User::ROLE_STAFF, User::ROLE_CHEF])
+            ->where('role', User::ROLE_STAFF)
             ->with(['assignedTables' => function ($query) use ($restaurant) {
                 $query->where('restaurant_id', $restaurant->id)
+                    ->where('is_active', true)
                     ->orderBy('name');
             }])
             ->orderBy('name')
@@ -71,6 +80,19 @@ class RestaurantController extends Controller
         ]);
 
         $restaurant = $this->getOwnedRestaurant($request);
+        $mode = $this->tableManagementModeService->resolveMode($restaurant);
+        if ($mode === TableManagementModeService::MODE_MANUAL && ! $restaurant->manual_table_count) {
+            throw ValidationException::withMessages([
+                'manual_table_count' => 'Set a manual table count before assigning tables.',
+            ]);
+        }
+
+        if (($validated['role'] ?? User::ROLE_STAFF) === User::ROLE_CHEF && ! empty($validated['table_ids'])) {
+            throw ValidationException::withMessages([
+                'table_ids' => 'Tables can be assigned to waiters only.',
+            ]);
+        }
+
         $tableIds = $this->resolveAssignedTableIds($restaurant, $validated['table_ids'] ?? []);
 
         $temporaryPassword = Str::random(12);
@@ -100,9 +122,16 @@ class RestaurantController extends Controller
     public function updateStaffTables(Request $request, User $staff): JsonResponse
     {
         $restaurant = $this->getOwnedRestaurant($request);
+        $mode = $this->tableManagementModeService->resolveMode($restaurant);
 
         if (! $staff->hasRole(User::ROLE_STAFF, User::ROLE_CHEF)) {
             abort(404);
+        }
+
+        if (! $staff->hasRole(User::ROLE_STAFF)) {
+            throw ValidationException::withMessages([
+                'staff' => 'Tables can be assigned to waiters only.',
+            ]);
         }
 
         $isLinkedToRestaurant = $restaurant->staffUsers()
@@ -118,6 +147,12 @@ class RestaurantController extends Controller
             'table_ids.*' => 'integer|distinct',
         ]);
 
+        if ($mode === TableManagementModeService::MODE_MANUAL && ! $restaurant->manual_table_count) {
+            throw ValidationException::withMessages([
+                'manual_table_count' => 'Set a manual table count before assigning tables.',
+            ]);
+        }
+
         $tableIds = $this->resolveAssignedTableIds($restaurant, $validated['table_ids'] ?? []);
         $staff->assignedTables()->sync($tableIds);
         $staff->load(['assignedTables' => function ($query) use ($restaurant) {
@@ -128,6 +163,67 @@ class RestaurantController extends Controller
         return response()->json([
             'message' => 'Staff table assignments updated successfully.',
             'staff' => $this->formatStaffMember($staff),
+        ]);
+    }
+
+    public function tableManagement(Request $request): JsonResponse
+    {
+        $restaurant = $this->getOwnedRestaurant($request);
+        $mode = $this->tableManagementModeService->resolveMode($restaurant);
+        $this->tableProvisioningService->removeChefAssignments($restaurant);
+
+        if ($mode === TableManagementModeService::MODE_ROOM_PLAN) {
+            $this->tableProvisioningService->provisionFromRoomPlan($restaurant);
+        }
+
+        $tables = RestaurantTable::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return response()->json([
+            'mode' => $mode,
+            'manual_table_count' => $restaurant->manual_table_count ? (int) $restaurant->manual_table_count : null,
+            'active_tables' => $tables->map(fn (RestaurantTable $table) => [
+                'id' => $table->id,
+                'name' => $table->name,
+            ])->values(),
+        ]);
+    }
+
+    public function updateManualTableCount(Request $request): JsonResponse
+    {
+        $restaurant = $this->getOwnedRestaurant($request);
+        $mode = $this->tableManagementModeService->resolveMode($restaurant);
+
+        if ($mode !== TableManagementModeService::MODE_MANUAL) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'count' => 'required|integer|min:1|max:500',
+        ]);
+
+        $count = (int) $validated['count'];
+        $this->tableProvisioningService->resetAssignments($restaurant);
+        $this->tableProvisioningService->removeChefAssignments($restaurant);
+        $this->tableProvisioningService->provisionManualCount($restaurant, $count);
+
+        $tables = RestaurantTable::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return response()->json([
+            'message' => 'Manual tables updated successfully.',
+            'mode' => $mode,
+            'manual_table_count' => $count,
+            'active_tables' => $tables->map(fn (RestaurantTable $table) => [
+                'id' => $table->id,
+                'name' => $table->name,
+            ])->values(),
         ]);
     }
 
@@ -151,6 +247,7 @@ class RestaurantController extends Controller
 
         $resolvedTableIds = RestaurantTable::query()
             ->where('restaurant_id', $restaurant->id)
+            ->where('is_active', true)
             ->whereIn('id', $tableIds)
             ->pluck('id')
             ->map(fn ($tableId) => (int) $tableId)
