@@ -53,6 +53,9 @@ class RoomPlanItemService
     public function createItem(RoomPlan $roomPlan, array $payload): RoomPlanItem
     {
         $normalized = $this->normalizePayload($roomPlan, $payload, null);
+        if ($normalized['type'] === RoomPlanItem::TYPE_TABLE) {
+            $normalized['label'] = $this->resolveNextTableLabel($roomPlan);
+        }
 
         $item = RoomPlanItem::query()->create([
             ...$normalized,
@@ -222,5 +225,29 @@ class RoomPlanItemService
         }
 
         return (int) $value;
+    }
+
+    private function resolveNextTableLabel(RoomPlan $roomPlan): string
+    {
+        $max = RoomPlanItem::query()
+            ->whereHas('roomPlan', fn ($query) => $query->where('restaurant_id', $roomPlan->restaurant_id))
+            ->where('type', RoomPlanItem::TYPE_TABLE)
+            ->whereNull('deleted_at')
+            ->pluck('label')
+            ->map(fn (string $label): int => $this->extractTrailingNumber($label) ?? 0)
+            ->max();
+
+        $nextNumber = ((int) $max) + 1;
+
+        return 'Table '.$nextNumber;
+    }
+
+    private function extractTrailingNumber(string $label): ?int
+    {
+        if (! preg_match('/(\d+)\s*$/', trim($label), $matches)) {
+            return null;
+        }
+
+        return (int) $matches[1];
     }
 }
