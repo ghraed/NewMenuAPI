@@ -3,12 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\FeatureFlagService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private readonly FeatureFlagService $featureFlagService,
+    ) {
+    }
+
     public function login(Request $request): JsonResponse
     {
         $request->merge([
@@ -103,6 +109,7 @@ class AuthController extends Controller
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
+                'feature_flags' => $this->featureFlagService->flagsForRestaurant($restaurant),
             ] : null,
             'assigned_tables' => $user->assignedTables->map(fn ($table) => [
                 'id' => $table->id,

@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Reservation;
 use App\Models\Restaurant;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\RestaurantTable;
+use App\Models\RoomPlanItem;
 use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
@@ -105,6 +107,8 @@ class TableSessionController extends Controller
             $user->id
         );
 
+        $this->markCurrentReservedReservationAsBusy($restaurant, $table->id);
+
         return response()->json([
             'message' => __('messages.table_sessions.activated'),
             'table_session' => $this->guestMenuSessionService->formatSession($session),
@@ -138,6 +142,7 @@ class TableSessionController extends Controller
         $this->assertStaffCanAccessSession($request->user(), $tableSession, $restaurant);
 
         $session = $this->tableSessionAccessService->finalize($tableSession, $request->user()->id);
+        $this->markBusyReservationsAsCompletedForSession($restaurant, $session);
 
         return response()->json([
             'message' => __('messages.table_sessions.finalized'),
@@ -192,6 +197,68 @@ class TableSessionController extends Controller
         ) {
             abort(403, 'This staff account is not assigned to that table.');
         }
+    }
+
+    private function markCurrentReservedReservationAsBusy(Restaurant $restaurant, int $restaurantTableId): void
+    {
+        $roomPlanItemIds = $this->tableRoomPlanItemIds($restaurantTableId);
+
+        if ($roomPlanItemIds === []) {
+            return;
+        }
+
+        $now = now();
+
+        Reservation::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('room_plan_item_id', $roomPlanItemIds)
+            ->where('status', Reservation::STATUS_RESERVED)
+            ->where('start_at', '<=', $now)
+            ->where('end_at', '>', $now)
+            ->update([
+                'status' => Reservation::STATUS_BUSY,
+                'updated_at' => $now,
+            ]);
+    }
+
+    private function markBusyReservationsAsCompletedForSession(Restaurant $restaurant, TableSession $session): void
+    {
+        if (! $session->restaurant_table_id) {
+            return;
+        }
+
+        $roomPlanItemIds = $this->tableRoomPlanItemIds((int) $session->restaurant_table_id);
+
+        if ($roomPlanItemIds === []) {
+            return;
+        }
+
+        $windowStart = $session->opened_at ?? now();
+        $windowEnd = $session->closed_at ?? now();
+
+        Reservation::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('room_plan_item_id', $roomPlanItemIds)
+            ->where('status', Reservation::STATUS_BUSY)
+            ->where('start_at', '<', $windowEnd)
+            ->where('end_at', '>', $windowStart)
+            ->update([
+                'status' => Reservation::STATUS_COMPLETED,
+                'updated_at' => now(),
+            ]);
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function tableRoomPlanItemIds(int $restaurantTableId): array
+    {
+        return RoomPlanItem::query()
+            ->where('restaurant_table_id', $restaurantTableId)
+            ->where('type', RoomPlanItem::TYPE_TABLE)
+            ->pluck('id')
+            ->map(fn ($itemId) => (int) $itemId)
+            ->all();
     }
 
     private function buildInvoicePreviewPayload(TableSession $session): array
