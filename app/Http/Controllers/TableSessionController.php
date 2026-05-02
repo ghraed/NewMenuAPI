@@ -16,7 +16,6 @@ use App\Services\InvoiceSplitService;
 use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 
 class TableSessionController extends Controller
 {
@@ -59,28 +58,22 @@ class TableSessionController extends Controller
     public function updateGuestInvoiceSplit(Request $request, TableSession $tableSession): JsonResponse
     {
         $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+        $orders = $this->loadInvoiceOrdersForSession($session);
 
         $validated = $request->validate([
-            'mode' => 'required|in:by_each_order,equal',
-            'split_count' => 'nullable|integer|min:2|max:99',
+            'mode' => 'required|in:none,equal,by_person_order',
+            'split_count' => 'nullable|integer|min:1|max:99',
+            'people' => 'nullable|array',
         ]);
 
         $mode = $this->invoiceSplitService->normalizeMode((string) $validated['mode']);
         $splitCount = isset($validated['split_count']) ? (int) $validated['split_count'] : null;
+        $people = isset($validated['people']) && is_array($validated['people'])
+            ? $validated['people']
+            : null;
 
-        if ($mode === InvoiceSplitService::MODE_EQUAL && $splitCount === null) {
-            throw ValidationException::withMessages([
-                'split_count' => 'split_count is required when mode is equal.',
-            ]);
-        }
-
-        $session->update([
-            'invoice_split_mode' => $mode,
-            'invoice_split_count' => $mode === InvoiceSplitService::MODE_EQUAL ? $splitCount : null,
-        ]);
-
+        $this->invoiceSplitService->applySplitSettings($session, $orders, $mode, $splitCount, $people);
         $session->refresh();
-        $orders = $this->loadInvoiceOrdersForSession($session);
 
         return response()->json([
             'message' => 'Invoice split settings updated successfully.',
@@ -326,6 +319,7 @@ class TableSessionController extends Controller
         $lineItems = $orders
             ->flatMap(fn (Order $order) => $order->items->map(fn ($item) => [
                 'key' => 'order-'.$order->id.'-item-'.$item->id,
+                'order_item_id' => $item->id,
                 'dish_name' => $item->dish_name,
                 'dish_name_ar' => $this->resolveArabicDishName($item),
                 'quantity' => $item->quantity,

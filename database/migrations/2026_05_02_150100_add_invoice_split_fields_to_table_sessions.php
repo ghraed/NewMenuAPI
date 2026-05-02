@@ -10,11 +10,14 @@ return new class extends Migration
     {
         Schema::table('table_sessions', function (Blueprint $table): void {
             $table->string('invoice_split_mode', 20)
-                ->default('by_each_order')
+                ->default('none')
                 ->after('close_reason');
             $table->unsignedSmallInteger('invoice_split_count')
                 ->nullable()
                 ->after('invoice_split_mode');
+            $table->json('invoice_split_allocations')
+                ->nullable()
+                ->after('invoice_split_count');
         });
     }
 
@@ -24,6 +27,7 @@ return new class extends Migration
             $table->dropColumn([
                 'invoice_split_mode',
                 'invoice_split_count',
+                'invoice_split_allocations',
             ]);
         });
     }

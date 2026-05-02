@@ -29,6 +29,7 @@ class TableSession extends Model
         'close_reason',
         'invoice_split_mode',
         'invoice_split_count',
+        'invoice_split_allocations',
         'created_by_staff_id',
         'finalized_by_staff_id',
     ];
@@ -42,6 +43,7 @@ class TableSession extends Model
         'expires_at' => 'datetime',
         'closed_at' => 'datetime',
         'invoice_split_count' => 'integer',
+        'invoice_split_allocations' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

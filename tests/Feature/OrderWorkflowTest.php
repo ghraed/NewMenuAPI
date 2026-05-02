@@ -296,7 +296,7 @@ class OrderWorkflowTest extends TestCase
         $this->assertSame('10.00', number_format($sum, 2, '.', ''));
     }
 
-    public function test_invoice_split_by_each_order_matches_each_order_total(): void
+    public function test_invoice_split_by_person_order_matches_selected_item_totals(): void
     {
         $restaurant = $this->createRestaurant();
         $this->enableFeature($restaurant, 'invoice_splitting');
@@ -330,13 +330,34 @@ class OrderWorkflowTest extends TestCase
             $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
         }
 
+        $orderItems = OrderItem::query()
+            ->whereIn('order_id', $orders->pluck('id'))
+            ->orderBy('id')
+            ->get();
+
         $response = $this->patchJson("/api/table-session/{$session->id}/invoice-split", [
-            'mode' => 'by_each_order',
+            'mode' => 'by_person_order',
+            'split_count' => 2,
+            'people' => [
+                [
+                    'person_index' => 1,
+                    'items' => [
+                        ['order_item_id' => $orderItems[0]->id, 'quantity' => 2],
+                    ],
+                ],
+                [
+                    'person_index' => 2,
+                    'items' => [
+                        ['order_item_id' => $orderItems[1]->id, 'quantity' => 3],
+                    ],
+                ],
+            ],
         ], $this->guestHeaders($token));
 
         $response->assertOk()
-            ->assertJsonPath('invoice_split.mode', 'by_each_order')
-            ->assertJsonPath('invoice_split.split_count', null)
+            ->assertJsonPath('invoice_split.mode', 'by_person_order')
+            ->assertJsonPath('invoice_split.split_count', 2)
+            ->assertJsonPath('invoice_split.is_complete', true)
             ->assertJsonCount(2, 'invoice_split.breakdown')
             ->assertJsonPath('invoice_split.breakdown.0.amount', '15.00')
             ->assertJsonPath('invoice_split.breakdown.1.amount', '15.00');
