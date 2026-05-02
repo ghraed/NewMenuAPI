@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\TableSession;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -124,52 +126,68 @@ class InvoiceSplitService
         ?int $splitCount,
         ?array $people
     ): void {
+        if (! $this->splitColumnsExist()) {
+            throw ValidationException::withMessages([
+                'invoice_split' => 'Invoice split storage is not ready yet. Please run the latest database migrations.',
+            ]);
+        }
+
         $normalizedMode = $this->normalizeMode($mode);
         $editableItems = $this->buildEditableItems($orders);
 
-        if ($normalizedMode === self::MODE_NONE) {
-            $session->update([
-                'invoice_split_mode' => self::MODE_NONE,
-                'invoice_split_count' => null,
-                'invoice_split_allocations' => null,
-            ]);
-            return;
-        }
+        try {
+            if ($normalizedMode === self::MODE_NONE) {
+                $session->update([
+                    'invoice_split_mode' => self::MODE_NONE,
+                    'invoice_split_count' => null,
+                    'invoice_split_allocations' => null,
+                ]);
+                return;
+            }
 
-        if ($normalizedMode === self::MODE_EQUAL) {
-            if ($splitCount === null || $splitCount < 2) {
+            if ($normalizedMode === self::MODE_EQUAL) {
+                if ($splitCount === null || $splitCount < 2) {
+                    throw ValidationException::withMessages([
+                        'split_count' => 'split_count is required and must be at least 2 when mode is equal.',
+                    ]);
+                }
+
+                $session->update([
+                    'invoice_split_mode' => self::MODE_EQUAL,
+                    'invoice_split_count' => $splitCount,
+                    'invoice_split_allocations' => null,
+                ]);
+                return;
+            }
+
+            $effectiveSplitCount = $splitCount ?? 0;
+            if ($effectiveSplitCount < 1) {
                 throw ValidationException::withMessages([
-                    'split_count' => 'split_count is required and must be at least 2 when mode is equal.',
+                    'split_count' => 'split_count is required and must be at least 1 when mode is by_person_order.',
                 ]);
             }
 
+            $normalizedPeople = $this->normalizePeopleAllocations(
+                $editableItems,
+                is_array($people) ? $people : [],
+                $effectiveSplitCount,
+                true
+            );
+
             $session->update([
-                'invoice_split_mode' => self::MODE_EQUAL,
-                'invoice_split_count' => $splitCount,
-                'invoice_split_allocations' => null,
+                'invoice_split_mode' => self::MODE_BY_PERSON_ORDER,
+                'invoice_split_count' => $effectiveSplitCount,
+                'invoice_split_allocations' => $normalizedPeople,
             ]);
-            return;
+        } catch (QueryException $exception) {
+            if ($this->isMissingSplitColumnException($exception)) {
+                throw ValidationException::withMessages([
+                    'invoice_split' => 'Invoice split storage is not ready yet. Please run the latest database migrations.',
+                ]);
+            }
+
+            throw $exception;
         }
-
-        $effectiveSplitCount = $splitCount ?? 0;
-        if ($effectiveSplitCount < 1) {
-            throw ValidationException::withMessages([
-                'split_count' => 'split_count is required and must be at least 1 when mode is by_person_order.',
-            ]);
-        }
-
-        $normalizedPeople = $this->normalizePeopleAllocations(
-            $editableItems,
-            is_array($people) ? $people : [],
-            $effectiveSplitCount,
-            true
-        );
-
-        $session->update([
-            'invoice_split_mode' => self::MODE_BY_PERSON_ORDER,
-            'invoice_split_count' => $effectiveSplitCount,
-            'invoice_split_allocations' => $normalizedPeople,
-        ]);
     }
 
     /**
@@ -211,6 +229,15 @@ class InvoiceSplitService
         $peopleMap = [];
 
         foreach ($people as $personInput) {
+            if (! is_array($personInput)) {
+                if ($strict) {
+                    throw ValidationException::withMessages([
+                        'people' => 'Each person entry must be an object.',
+                    ]);
+                }
+                continue;
+            }
+
             $personIndex = isset($personInput['person_index']) ? (int) $personInput['person_index'] : 0;
             if ($personIndex < 1 || $personIndex > $splitCount) {
                 if ($strict) {
@@ -380,5 +407,26 @@ class InvoiceSplitService
         }
 
         return $shares;
+    }
+
+    private function splitColumnsExist(): bool
+    {
+        return Schema::hasColumns('table_sessions', [
+            'invoice_split_mode',
+            'invoice_split_count',
+            'invoice_split_allocations',
+        ]);
+    }
+
+    private function isMissingSplitColumnException(QueryException $exception): bool
+    {
+        $message = strtolower($exception->getMessage());
+
+        return str_contains($message, 'unknown column')
+            && (
+                str_contains($message, 'invoice_split_mode')
+                || str_contains($message, 'invoice_split_count')
+                || str_contains($message, 'invoice_split_allocations')
+            );
     }
 }
