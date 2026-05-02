@@ -365,7 +365,11 @@ class TableSessionController extends Controller
     {
         return Order::query()
             ->where('table_session_id', $session->id)
-            ->whereIn('status', [Order::STATUS_STAFF_CONFIRMED, Order::STATUS_ACCOUNTED])
+            ->whereIn('status', [
+                Order::STATUS_PENDING_STAFF_CONFIRMATION,
+                Order::STATUS_STAFF_CONFIRMED,
+                Order::STATUS_ACCOUNTED,
+            ])
             ->with(['items.dish', 'restaurant', 'restaurantTable'])
             ->orderBy('created_at')
             ->orderBy('id')
