@@ -12,15 +12,18 @@ use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
+use App\Services\InvoiceSplitService;
 use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class TableSessionController extends Controller
 {
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService,
-        private readonly TableSessionAccessService $tableSessionAccessService
+        private readonly TableSessionAccessService $tableSessionAccessService,
+        private readonly InvoiceSplitService $invoiceSplitService,
     ) {
     }
 
@@ -41,6 +44,61 @@ class TableSessionController extends Controller
             'wave' => $waveController->formatGuestWave($wave),
             'invoice_preview' => $this->buildInvoicePreviewPayload($session),
         ], 201);
+    }
+
+    public function guestInvoiceSplit(TableSession $tableSession): JsonResponse
+    {
+        $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+        $orders = $this->loadInvoiceOrdersForSession($session);
+
+        return response()->json([
+            'invoice_split' => $this->invoiceSplitService->buildPayload($session, $orders, true),
+        ]);
+    }
+
+    public function updateGuestInvoiceSplit(Request $request, TableSession $tableSession): JsonResponse
+    {
+        $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+
+        $validated = $request->validate([
+            'mode' => 'required|in:by_each_order,equal',
+            'split_count' => 'nullable|integer|min:2|max:99',
+        ]);
+
+        $mode = $this->invoiceSplitService->normalizeMode((string) $validated['mode']);
+        $splitCount = isset($validated['split_count']) ? (int) $validated['split_count'] : null;
+
+        if ($mode === InvoiceSplitService::MODE_EQUAL && $splitCount === null) {
+            throw ValidationException::withMessages([
+                'split_count' => 'split_count is required when mode is equal.',
+            ]);
+        }
+
+        $session->update([
+            'invoice_split_mode' => $mode,
+            'invoice_split_count' => $mode === InvoiceSplitService::MODE_EQUAL ? $splitCount : null,
+        ]);
+
+        $session->refresh();
+        $orders = $this->loadInvoiceOrdersForSession($session);
+
+        return response()->json([
+            'message' => 'Invoice split settings updated successfully.',
+            'invoice_split' => $this->invoiceSplitService->buildPayload($session, $orders, true),
+        ]);
+    }
+
+    public function invoiceSplit(Request $request, TableSession $tableSession): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertSessionBelongsToRestaurant($tableSession, $restaurant);
+        $this->assertStaffCanAccessSession($request->user(), $tableSession, $restaurant);
+
+        $orders = $this->loadInvoiceOrdersForSession($tableSession);
+
+        return response()->json([
+            'invoice_split' => $this->invoiceSplitService->buildPayload($tableSession, $orders, true),
+        ]);
     }
 
     public function index(Request $request): JsonResponse
@@ -263,12 +321,7 @@ class TableSessionController extends Controller
 
     private function buildInvoicePreviewPayload(TableSession $session): array
     {
-        $orders = Order::query()
-            ->where('table_session_id', $session->id)
-            ->whereIn('status', [Order::STATUS_STAFF_CONFIRMED, Order::STATUS_ACCOUNTED])
-            ->with(['items.dish', 'restaurant', 'restaurantTable'])
-            ->orderBy('created_at')
-            ->get();
+        $orders = $this->loadInvoiceOrdersForSession($session);
 
         $lineItems = $orders
             ->flatMap(fn (Order $order) => $order->items->map(fn ($item) => [
@@ -306,7 +359,23 @@ class TableSessionController extends Controller
                 'vat_amount' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->vat_amount), 2, '.', ''),
                 'total' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->total), 2, '.', ''),
             ],
+            'invoice_split' => $this->invoiceSplitService->buildPayload(
+                $session,
+                $orders,
+                feature_enabled('invoice_splitting', $session->restaurant)
+            ),
         ];
+    }
+
+    private function loadInvoiceOrdersForSession(TableSession $session)
+    {
+        return Order::query()
+            ->where('table_session_id', $session->id)
+            ->whereIn('status', [Order::STATUS_STAFF_CONFIRMED, Order::STATUS_ACCOUNTED])
+            ->with(['items.dish', 'restaurant', 'restaurantTable'])
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
     }
 
     private function resolveArabicDishName(OrderItem $item): ?string

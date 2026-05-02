@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Dish;
+use App\Models\Feature;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
+use App\Models\RestaurantFeature;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
@@ -217,6 +219,142 @@ class OrderWorkflowTest extends TestCase
             'table_reference' => 'T03',
             'total' => '9.00',
         ]);
+    }
+
+    public function test_guest_can_update_shared_invoice_split_when_feature_enabled(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'invoice_splitting');
+
+        $dish = $this->createDish($restaurant, 'Split Pizza', 10.00, 'published');
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+
+        $this->postJson("/api/table-session/{$session->id}/order", [
+            'items' => [
+                ['dish_id' => $dish->id, 'quantity' => 2],
+            ],
+        ], $this->guestHeaders($token))->assertCreated();
+
+        $admin = $restaurant->user;
+        $this->assertInstanceOf(User::class, $admin);
+        Sanctum::actingAs($admin);
+        $order = Order::query()->where('table_session_id', $session->id)->latest('id')->firstOrFail();
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $response = $this->patchJson("/api/table-session/{$session->id}/invoice-split", [
+            'mode' => 'equal',
+            'split_count' => 3,
+        ], $this->guestHeaders($token));
+
+        $response->assertOk()
+            ->assertJsonPath('invoice_split.enabled', true)
+            ->assertJsonPath('invoice_split.mode', 'equal')
+            ->assertJsonPath('invoice_split.split_count', 3)
+            ->assertJsonCount(3, 'invoice_split.breakdown');
+
+        $this->assertDatabaseHas('table_sessions', [
+            'id' => $session->id,
+            'invoice_split_mode' => 'equal',
+            'invoice_split_count' => 3,
+        ]);
+    }
+
+    public function test_invoice_split_equal_mode_distributes_remainder_to_earliest_shares(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'invoice_splitting');
+
+        $dish = $this->createDish($restaurant, 'Remainder Bowl', 10.00, 'published');
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+
+        $this->postJson("/api/table-session/{$session->id}/order", [
+            'items' => [
+                ['dish_id' => $dish->id, 'quantity' => 1],
+            ],
+        ], $this->guestHeaders($token))->assertCreated();
+
+        $admin = $restaurant->user;
+        $this->assertInstanceOf(User::class, $admin);
+        Sanctum::actingAs($admin);
+        $order = Order::query()->where('table_session_id', $session->id)->latest('id')->firstOrFail();
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $response = $this->patchJson("/api/table-session/{$session->id}/invoice-split", [
+            'mode' => 'equal',
+            'split_count' => 3,
+        ], $this->guestHeaders($token));
+
+        $response->assertOk()
+            ->assertJsonPath('invoice_split.breakdown.0.amount', '3.34')
+            ->assertJsonPath('invoice_split.breakdown.1.amount', '3.33')
+            ->assertJsonPath('invoice_split.breakdown.2.amount', '3.33');
+
+        $sum = collect($response->json('invoice_split.breakdown'))
+            ->sum(fn (array $row) => (float) $row['amount']);
+        $this->assertSame('10.00', number_format($sum, 2, '.', ''));
+    }
+
+    public function test_invoice_split_by_each_order_matches_each_order_total(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'invoice_splitting');
+
+        $dishA = $this->createDish($restaurant, 'Split A', 7.50, 'published');
+        $dishB = $this->createDish($restaurant, 'Split B', 5.00, 'published');
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+
+        $this->postJson("/api/table-session/{$session->id}/order", [
+            'items' => [
+                ['dish_id' => $dishA->id, 'quantity' => 2],
+            ],
+        ], $this->guestHeaders($token))->assertCreated();
+
+        $this->postJson("/api/table-session/{$session->id}/order", [
+            'items' => [
+                ['dish_id' => $dishB->id, 'quantity' => 3],
+            ],
+        ], $this->guestHeaders($token))->assertCreated();
+
+        $admin = $restaurant->user;
+        $this->assertInstanceOf(User::class, $admin);
+        Sanctum::actingAs($admin);
+        $orders = Order::query()
+            ->where('table_session_id', $session->id)
+            ->orderBy('id')
+            ->get();
+
+        foreach ($orders as $order) {
+            $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+        }
+
+        $response = $this->patchJson("/api/table-session/{$session->id}/invoice-split", [
+            'mode' => 'by_each_order',
+        ], $this->guestHeaders($token));
+
+        $response->assertOk()
+            ->assertJsonPath('invoice_split.mode', 'by_each_order')
+            ->assertJsonPath('invoice_split.split_count', null)
+            ->assertJsonCount(2, 'invoice_split.breakdown')
+            ->assertJsonPath('invoice_split.breakdown.0.amount', '15.00')
+            ->assertJsonPath('invoice_split.breakdown.1.amount', '15.00');
+    }
+
+    public function test_invoice_split_endpoints_are_blocked_when_feature_disabled(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+
+        $this->patchJson("/api/table-session/{$session->id}/invoice-split", [
+            'mode' => 'equal',
+            'split_count' => 2,
+        ], $this->guestHeaders($token))->assertStatus(404);
+
+        Sanctum::actingAs($restaurant->user);
+        $this->getJson("/api/table-sessions/{$session->id}/invoice-split")->assertStatus(404);
     }
 
     public function test_staff_can_update_pending_orders_by_editing_quantities_removing_items_and_adding_new_dishes(): void
@@ -685,5 +823,28 @@ class OrderWorkflowTest extends TestCase
             'X-Guest-Device-Id' => 'order-workflow-device',
             'X-Guest-Access-Token' => $token,
         ]);
+    }
+
+    private function enableFeature(Restaurant $restaurant, string $featureKey): void
+    {
+        $feature = Feature::query()->updateOrCreate(
+            ['key' => $featureKey],
+            [
+                'name' => Str::title(str_replace('_', ' ', $featureKey)),
+                'description' => 'Enabled in tests',
+                'category' => 'Testing',
+                'is_active_by_default' => false,
+            ]
+        );
+
+        RestaurantFeature::query()->updateOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'feature_id' => $feature->id,
+            ],
+            [
+                'enabled' => true,
+            ]
+        );
     }
 }

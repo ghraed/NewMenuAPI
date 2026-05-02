@@ -21,6 +21,7 @@ class FeatureSeeder extends Seeder
         ['key' => 'vat_invoices', 'name' => 'VAT Invoices', 'description' => 'Issue tax-ready VAT invoices.', 'category' => 'Finance'],
         ['key' => 'expense_management', 'name' => 'Expense Management', 'description' => 'Track and classify operating expenses.', 'category' => 'Finance'],
         ['key' => 'dish_profitability', 'name' => 'Dish Profitability', 'description' => 'Show cost and margin analytics per dish.', 'category' => 'Finance'],
+        ['key' => 'invoice_splitting', 'name' => 'Invoice Splitting', 'description' => 'Allow guests and staff to split table invoice totals by order or equally.', 'category' => 'Finance'],
         ['key' => 'ai_recommendations', 'name' => 'AI Recommendations', 'description' => 'AI dish recommendations and alternatives.', 'category' => 'AI'],
         ['key' => 'ai_chatbot', 'name' => 'AI Chatbot', 'description' => 'Conversational guest assistant for menu flows.', 'category' => 'AI'],
         ['key' => 'ar_3d_dishes', 'name' => 'AR 3D Dishes', 'description' => 'Augmented reality and 3D dish previews.', 'category' => 'AR/3D'],

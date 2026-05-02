@@ -62,6 +62,10 @@ Route::post('/reservations', [PublicReservationController::class, 'store'])->mid
 Route::middleware('guest.table.access')->group(function () {
     Route::get('/table-session/{tableSession}/orders', [OrderController::class, 'indexForSession'])
         ->middleware('feature:table_ordering');
+    Route::get('/table-session/{tableSession}/invoice-split', [TableSessionController::class, 'guestInvoiceSplit'])
+        ->middleware('feature:invoice_splitting');
+    Route::patch('/table-session/{tableSession}/invoice-split', [TableSessionController::class, 'updateGuestInvoiceSplit'])
+        ->middleware('feature:invoice_splitting');
     Route::post('/table-session/{tableSession}/order', [OrderController::class, 'storeForSession'])
         ->middleware('feature:table_ordering');
     Route::post('/table-session/{tableSession}/call-waiter', [WaveController::class, 'storeForSession'])
@@ -103,6 +107,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/waves/pending', [WaveController::class, 'pending']);
                 Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
             });
+            Route::get('/table-sessions/{tableSession}/invoice-split', [TableSessionController::class, 'invoiceSplit'])
+                ->middleware('feature:invoice_splitting');
             Route::post('/pos/checkout', [OrderController::class, 'quickCheckout'])
                 ->middleware('feature:table_ordering');
             Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
