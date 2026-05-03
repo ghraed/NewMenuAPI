@@ -44,6 +44,7 @@ class InventoryIngredientController extends Controller
             'unit' => ['required', 'string', 'in:'.implode(',', Ingredient::stockUnits())],
             'current_quantity' => ['required', 'numeric', 'min:0'],
             'low_stock_threshold' => ['required', 'numeric', 'min:0'],
+            'target_quantity' => ['sometimes', 'numeric', 'min:0'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
 
@@ -58,6 +59,7 @@ class InventoryIngredientController extends Controller
                 'stock_unit' => $validated['unit'],
                 'current_stock_quantity' => $initialQuantity,
                 'low_stock_threshold' => round((float) $validated['low_stock_threshold'], 3),
+                'target_quantity' => round((float) ($validated['target_quantity'] ?? $validated['low_stock_threshold']), 3),
                 'is_active' => (bool) ($validated['is_active'] ?? true),
                 'storage_disk' => 'public',
                 'file_path' => null,
@@ -103,6 +105,7 @@ class InventoryIngredientController extends Controller
             ],
             'unit' => ['required', 'string', 'in:'.implode(',', Ingredient::stockUnits())],
             'low_stock_threshold' => ['required', 'numeric', 'min:0'],
+            'target_quantity' => ['sometimes', 'numeric', 'min:0'],
             'is_active' => ['required', 'boolean'],
         ]);
 
@@ -119,6 +122,7 @@ class InventoryIngredientController extends Controller
             'name' => trim($validated['name']),
             'stock_unit' => $validated['unit'],
             'low_stock_threshold' => round((float) $validated['low_stock_threshold'], 3),
+            'target_quantity' => round((float) ($validated['target_quantity'] ?? $validated['low_stock_threshold']), 3),
             'is_active' => (bool) $validated['is_active'],
         ]);
 
@@ -366,6 +370,7 @@ class InventoryIngredientController extends Controller
                     'stock_unit' => Ingredient::UNIT_PIECE,
                     'current_stock_quantity' => 0,
                     'low_stock_threshold' => 0,
+                    'target_quantity' => 0,
                     'is_active' => true,
                     'storage_disk' => 'public',
                     'file_path' => null,
@@ -444,6 +449,7 @@ class InventoryIngredientController extends Controller
     {
         $currentQuantity = (float) $ingredient->current_stock_quantity;
         $lowStockThreshold = (float) $ingredient->low_stock_threshold;
+        $targetQuantity = (float) ($ingredient->target_quantity ?? $ingredient->low_stock_threshold);
 
         return [
             'id' => $ingredient->id,
@@ -454,6 +460,7 @@ class InventoryIngredientController extends Controller
             'unit' => $ingredient->stock_unit,
             'current_quantity' => $this->formatQuantity($currentQuantity),
             'low_stock_threshold' => $this->formatQuantity($lowStockThreshold),
+            'target_quantity' => $this->formatQuantity($targetQuantity),
             'is_active' => (bool) $ingredient->is_active,
             'is_low_stock' => $ingredient->is_active && $currentQuantity <= $lowStockThreshold,
             'created_at' => $ingredient->created_at?->toIso8601String(),
