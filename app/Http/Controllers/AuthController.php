@@ -109,7 +109,11 @@ class AuthController extends Controller
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
+                'logo_url' => $restaurant->logo_url,
+                'currency' => $restaurant->currency,
+                'dollar_rate' => $restaurant->dollar_rate,
                 'feature_flags' => $this->featureFlagService->flagsForRestaurant($restaurant),
+                'profile' => $restaurant->profile,
             ] : null,
             'assigned_tables' => $user->assignedTables->map(fn ($table) => [
                 'id' => $table->id,

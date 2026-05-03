@@ -156,6 +156,8 @@ class GuestController extends Controller
             'id' => $restaurant->id,
             'name' => $restaurant->name,
             'slug' => $restaurant->slug,
+            'logo_url' => $restaurant->logo_url,
+            'profile' => $restaurant->profile,
             'currency' => $restaurant->currency,
             'dollar_rate' => $restaurant->dollar_rate,
             'feature_flags' => $this->featureFlagService->flagsForRestaurant($restaurant),

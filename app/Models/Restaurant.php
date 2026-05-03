@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 
 class Restaurant extends Model
 {
@@ -19,12 +20,17 @@ class Restaurant extends Model
         'address',
         'currency',
         'dollar_rate',
+        'logo_path',
+        'profile',
         'manual_table_count',
     ];
+
+    protected $appends = ['logo_url'];
 
     protected $casts = [
         'uuid' => 'string',
         'status' => 'string',
+        'profile' => 'array',
         'created_at' => 'datetime',
         'dollar_rate' => 'decimal:2',
         'manual_table_count' => 'integer',
@@ -107,6 +113,21 @@ class Restaurant extends Model
     public function featureFlagAuditLogs(): HasMany
     {
         return $this->hasMany(FeatureFlagAuditLog::class);
+    }
+
+    public function getLogoUrlAttribute(): ?string
+    {
+        $path = $this->logo_path;
+
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        if (filter_var($path, FILTER_VALIDATE_URL)) {
+            return $path;
+        }
+
+        return Storage::disk('public')->url($path);
     }
 
 }

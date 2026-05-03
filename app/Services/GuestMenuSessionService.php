@@ -215,6 +215,8 @@ class GuestMenuSessionService
             'id' => $restaurant->id,
             'name' => $restaurant->name,
             'slug' => $restaurant->slug,
+            'logo_url' => $restaurant->logo_url,
+            'profile' => $restaurant->profile,
             'currency' => $restaurant->currency,
             'dollar_rate' => $restaurant->dollar_rate,
             'max_tables' => $tables->count(),

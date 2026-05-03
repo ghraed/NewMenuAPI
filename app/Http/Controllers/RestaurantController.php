@@ -9,8 +9,11 @@ use App\Services\TableManagementModeService;
 use App\Services\TableProvisioningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class RestaurantController extends Controller
@@ -40,6 +43,73 @@ class RestaurantController extends Controller
         ]);
     }
 
+    public function showProfile(Request $request): JsonResponse
+    {
+        $restaurant = $this->getOwnedRestaurant($request);
+
+        return response()->json([
+            'restaurant' => $this->formatRestaurant($restaurant),
+            'profile' => $restaurant->profile,
+        ]);
+    }
+
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'legal_business_name' => 'nullable|string|max:255',
+            'cuisine_specialty' => 'nullable|string|max:120',
+            'primary_phone' => 'nullable|string|max:40',
+            'whatsapp_phone' => 'nullable|string|max:40',
+            'contact_email' => 'nullable|email|max:255',
+            'website_url' => 'nullable|string|max:255',
+            'address_line_1' => 'nullable|string|max:255',
+            'address_line_2' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:120',
+            'state_province' => 'nullable|string|max:120',
+            'postal_code' => 'nullable|string|max:40',
+            'country' => 'nullable|string|max:120',
+            'tax_registration_number' => 'nullable|string|max:120',
+            'vat_registration_number' => 'nullable|string|max:120',
+            'service_hours' => 'nullable|string|max:255',
+            'short_description' => 'nullable|string|max:1200',
+        ]);
+
+        $restaurant = $this->getOwnedRestaurant($request);
+
+        $profile = [
+            'legal_business_name' => $this->normalizeOptionalString($validated['legal_business_name'] ?? null),
+            'cuisine_specialty' => $this->normalizeOptionalString($validated['cuisine_specialty'] ?? null),
+            'primary_phone' => $this->normalizeOptionalString($validated['primary_phone'] ?? null),
+            'whatsapp_phone' => $this->normalizeOptionalString($validated['whatsapp_phone'] ?? null),
+            'contact_email' => $this->normalizeOptionalString($validated['contact_email'] ?? null),
+            'website_url' => $this->normalizeOptionalString($validated['website_url'] ?? null),
+            'address_line_1' => $this->normalizeOptionalString($validated['address_line_1'] ?? null),
+            'address_line_2' => $this->normalizeOptionalString($validated['address_line_2'] ?? null),
+            'city' => $this->normalizeOptionalString($validated['city'] ?? null),
+            'state_province' => $this->normalizeOptionalString($validated['state_province'] ?? null),
+            'postal_code' => $this->normalizeOptionalString($validated['postal_code'] ?? null),
+            'country' => $this->normalizeOptionalString($validated['country'] ?? null),
+            'tax_registration_number' => $this->normalizeOptionalString($validated['tax_registration_number'] ?? null),
+            'vat_registration_number' => $this->normalizeOptionalString($validated['vat_registration_number'] ?? null),
+            'service_hours' => $this->normalizeOptionalString($validated['service_hours'] ?? null),
+            'short_description' => $this->normalizeOptionalString($validated['short_description'] ?? null),
+        ];
+
+        $restaurant->update([
+            'name' => trim($validated['name']),
+            'profile' => $profile,
+        ]);
+
+        $restaurant->refresh();
+
+        return response()->json([
+            'message' => 'Restaurant profile updated successfully.',
+            'restaurant' => $this->formatRestaurant($restaurant),
+            'profile' => $restaurant->profile,
+        ]);
+    }
+
     public function updateName(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -54,11 +124,48 @@ class RestaurantController extends Controller
 
         return response()->json([
             'message' => 'Restaurant name updated successfully.',
-            'restaurant' => [
-                'id' => $restaurant->id,
-                'name' => $restaurant->name,
-                'slug' => $restaurant->slug,
-            ],
+            'restaurant' => $this->formatRestaurant($restaurant),
+            'profile' => $restaurant->profile,
+        ]);
+    }
+
+    public function uploadLogo(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'logo' => 'required|file|max:3072|mimes:png,jpg,jpeg,webp',
+        ]);
+
+        $restaurant = $this->getOwnedRestaurant($request);
+        /** @var UploadedFile $logoFile */
+        $logoFile = $validated['logo'];
+
+        $oldPath = $restaurant->logo_path;
+        $extension = strtolower($logoFile->getClientOriginalExtension() ?: $logoFile->extension() ?: 'png');
+        if (! in_array($extension, ['png', 'jpg', 'jpeg', 'webp'], true)) {
+            $extension = 'png';
+        }
+
+        $fileName = 'logo-'.Str::uuid().'.'.$extension;
+        $path = $logoFile->storeAs("restaurants/{$restaurant->id}/branding", $fileName, 'public');
+
+        $restaurant->update([
+            'logo_path' => $path,
+        ]);
+
+        if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $path) {
+            try {
+                Storage::disk('public')->delete($oldPath);
+            } catch (\Throwable) {
+                // Keep API success even if old file cleanup fails.
+            }
+        }
+
+        $restaurant->refresh();
+
+        return response()->json([
+            'message' => 'Restaurant logo uploaded successfully.',
+            'restaurant' => $this->formatRestaurant($restaurant),
+            'profile' => $restaurant->profile,
         ]);
     }
 
@@ -283,6 +390,20 @@ class RestaurantController extends Controller
                 ])
                 ->values(),
             'created_at' => $staff->created_at?->toIso8601String(),
+        ];
+    }
+
+    private function formatRestaurant(Restaurant $restaurant): array
+    {
+        return [
+            'id' => $restaurant->id,
+            'name' => $restaurant->name,
+            'slug' => $restaurant->slug,
+            'logo_url' => $restaurant->logo_url,
+            'currency' => $restaurant->currency,
+            'dollar_rate' => $restaurant->dollar_rate,
+            'manual_table_count' => $restaurant->manual_table_count,
+            'profile' => $restaurant->profile,
         ];
     }
 
