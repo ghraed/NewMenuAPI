@@ -58,18 +58,159 @@ class GuestController extends Controller
         $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurantSlug, $request);
         $ar3dEnabled = $this->featureFlagService->isEnabled($restaurant, 'ar_3d_dishes');
         $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
+        $includeDishes = $this->resolveIncludeDishesMode($request);
+        $includeIndex = $request->boolean('include_index', false);
+        $limit = $this->resolvePageLimit($request);
+        $offset = max(0, (int) $request->query('offset', 0));
 
+        $response = [
+            'restaurant' => $this->formatGuestRestaurant($restaurant),
+        ];
+
+        if ($includeIndex) {
+            $response['dish_index'] = $this->buildDishIndex($restaurant->id);
+        }
+
+        if ($includeDishes === 'page') {
+            $total = Dish::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('status', 'published')
+                ->count();
+            $pageDishes = Dish::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('status', 'published')
+                ->with(['assets', 'dishIngredients.ingredient'])
+                ->orderBy('name')
+                ->skip($offset)
+                ->take($limit)
+                ->get();
+            $loadedCount = $pageDishes->count();
+            $hasMore = ($offset + $loadedCount) < $total;
+
+            $response['dishes_page'] = $this->localizeDishes($pageDishes, $ar3dEnabled, $animatedIngredientsEnabled);
+            $response['dishes_meta'] = [
+                'total' => $total,
+                'limit' => $limit,
+                'offset' => $offset,
+                'has_more' => $hasMore,
+                'next_offset' => $hasMore ? ($offset + $loadedCount) : null,
+            ];
+        } elseif ($includeDishes === 'all') {
+            $dishes = Dish::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('status', 'published')
+                ->with(['assets', 'dishIngredients.ingredient'])
+                ->orderBy('name')
+                ->get();
+            $response['dishes'] = $this->localizeDishes($dishes, $ar3dEnabled, $animatedIngredientsEnabled);
+        }
+
+        return response()->json($response);
+    }
+
+    private function resolveIncludeDishesMode(Request $request): string
+    {
+        $mode = strtolower((string) $request->query('include_dishes', 'all'));
+
+        if (! in_array($mode, ['all', 'page', 'none'], true)) {
+            return 'all';
+        }
+
+        return $mode;
+    }
+
+    private function resolvePageLimit(Request $request): int
+    {
+        $limit = (int) $request->query('limit', 20);
+
+        if ($limit <= 0) {
+            return 20;
+        }
+
+        return min($limit, 100);
+    }
+
+    private function buildDishIndex(int $restaurantId): array
+    {
         $dishes = Dish::query()
-            ->where('restaurant_id', $restaurant->id)
+            ->where('restaurant_id', $restaurantId)
             ->where('status', 'published')
-            ->with(['assets', 'dishIngredients.ingredient'])
+            ->select([
+                'id',
+                'uuid',
+                'name',
+                'name_ar',
+                'description',
+                'description_ar',
+                'category',
+                'category_ar',
+                'is_anchor',
+                'is_profitable',
+                'image_url',
+            ])
+            ->with([
+                'dishIngredients' => fn ($query) => $query
+                    ->select([
+                        'id',
+                        'dish_id',
+                        'ingredient_id',
+                        'quantity',
+                        'unit',
+                        'order_index',
+                    ])
+                    ->orderBy('order_index'),
+                'dishIngredients.ingredient' => fn ($query) => $query->select([
+                    'id',
+                    'name',
+                    'name_ar',
+                    'is_active',
+                    'current_stock_quantity',
+                    'stock_unit',
+                ]),
+            ])
             ->orderBy('name')
             ->get();
 
-        return response()->json([
-            'restaurant' => $this->formatGuestRestaurant($restaurant),
-            'dishes' => $this->localizeDishes($dishes, $ar3dEnabled, $animatedIngredientsEnabled),
-        ]);
+        return $dishes->map(function (Dish $dish): array {
+            $isOrderable = $dish->isOrderable();
+            $ingredients = [];
+            $seenIngredients = [];
+
+            foreach ($dish->dishIngredients as $row) {
+                $ingredient = $row->ingredient;
+                if (! $ingredient) {
+                    continue;
+                }
+
+                $normalized = trim(mb_strtolower((string) $ingredient->name));
+                if ($normalized === '' || isset($seenIngredients[$normalized])) {
+                    continue;
+                }
+
+                $seenIngredients[$normalized] = true;
+                $ingredients[] = [
+                    'name' => $ingredient->name,
+                    'name_ar' => $ingredient->name_ar,
+                ];
+            }
+
+            return [
+                'id' => $dish->id,
+                'uuid' => $dish->uuid,
+                'name' => $dish->name,
+                'name_ar' => $dish->name_ar,
+                'description' => $dish->description,
+                'description_ar' => $dish->description_ar,
+                'category' => $dish->category,
+                'category_ar' => $dish->category_ar,
+                'is_anchor' => (bool) $dish->is_anchor,
+                'is_profitable' => (bool) $dish->is_profitable,
+                'is_orderable' => $isOrderable,
+                'is_out_of_stock' => ! $isOrderable,
+                'image_url' => $dish->image_url,
+                'ingredients' => $ingredients,
+            ];
+        })->values()->all();
     }
 
     private function showDishForRestaurant(Request $request, ?string $restaurantSlug, int $dishId): JsonResponse
