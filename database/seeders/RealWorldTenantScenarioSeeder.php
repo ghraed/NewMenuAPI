@@ -141,7 +141,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
     {
         $user = User::query()->firstOrNew(['email' => strtolower($email)]);
 
-        if (! $user->exists) {
+        if (! Hash::check($password, (string) $user->password)) {
             $user->password = Hash::make($password);
         }
 
