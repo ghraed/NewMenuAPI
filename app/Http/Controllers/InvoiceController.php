@@ -247,13 +247,17 @@ class InvoiceController extends Controller
         $validated = $request->validate([
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
-            'expense_status' => ['nullable', 'in:approved_paid,all_non_void'],
+                        'group_by' => ['nullable', 'in:daily,monthly,yearly'],
         ]);
 
         [$from, $to] = $this->resolveProfitLossDateRange(
             $validated['date_from'] ?? null,
             $validated['date_to'] ?? null
         );
+
+        $groupBy = in_array($validated['group_by'] ?? null, ['daily', 'monthly', 'yearly'], true)
+            ? (string) $validated['group_by']
+            : 'monthly';
 
         $revenue = (float) Invoice::query()
             ->where('restaurant_id', $restaurant->id)
@@ -303,6 +307,12 @@ class InvoiceController extends Controller
         return response()->json([
             'date_from' => $from->toDateString(),
             'date_to' => $to->toDateString(),
+            'group_by' => $groupBy,
+            'revenue' => round($revenue, 2),
+            'cogs' => $cogs,
+            'gross_profit' => round($revenue - $cogs, 2),
+            'operating_expenses' => $expenseTotal,
+            'net_profit' => $profit,
             'mode' => [
                 'expense_status' => $validated['expense_status'] ?? 'approved_paid',
             ],
@@ -379,6 +389,12 @@ class InvoiceController extends Controller
             ? ['draft', 'approved', 'paid']
             : ['approved', 'paid'];
 
+        $taxableSales = round((float) Invoice::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
+            ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
+            ->sum('subtotal'), 2);
+
         $outputVat = round((float) Invoice::query()
             ->where('restaurant_id', $restaurant->id)
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
@@ -431,6 +447,10 @@ class InvoiceController extends Controller
         return response()->json([
             'date_from' => $from->toDateString(),
             'date_to' => $to->toDateString(),
+            'taxable_sales' => $taxableSales,
+            'output_vat' => $outputVat,
+            'input_vat' => $inputVat,
+            'net_vat_payable' => $netVat,
             'mode' => [
                 'expense_status' => $validated['expense_status'] ?? 'approved_paid',
             ],

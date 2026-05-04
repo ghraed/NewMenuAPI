@@ -60,6 +60,10 @@ final class FinanceTaxReportApiTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('date_from', '2026-05-01')
             ->assertJsonPath('date_to', '2026-05-31')
+            ->assertJsonPath('taxable_sales', 150)
+            ->assertJsonPath('output_vat', 16)
+            ->assertJsonPath('input_vat', 5)
+            ->assertJsonPath('net_vat_payable', 11)
             ->assertJsonPath('mode.expense_status', 'approved_paid')
             ->assertJsonPath('totals.output_vat', 16)
             ->assertJsonPath('totals.input_vat', 5)
@@ -71,6 +75,11 @@ final class FinanceTaxReportApiTest extends TestCase
             ->assertJsonPath('breakdown.0.output_vat', 16)
             ->assertJsonPath('breakdown.0.input_vat', 5)
             ->assertJsonPath('breakdown.0.net_vat', 11);
+
+        $aliasResponse = $this->getJson('/api/admin/finance/tax/summary?date_from=2026-05-01&date_to=2026-05-31');
+        $aliasResponse->assertOk()
+            ->assertJsonPath('taxable_sales', 150)
+            ->assertJsonPath('net_vat_payable', 11);
     }
 
     public function test_tax_report_can_include_draft_expense_tax_when_requested(): void

@@ -69,6 +69,12 @@ final class FinanceProfitLossApiTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('date_from', '2026-05-01')
             ->assertJsonPath('date_to', '2026-05-05')
+            ->assertJsonPath('group_by', 'monthly')
+            ->assertJsonPath('revenue', 200)
+            ->assertJsonPath('cogs', 25)
+            ->assertJsonPath('gross_profit', 175)
+            ->assertJsonPath('operating_expenses', 137.50)
+            ->assertJsonPath('net_profit', 37.50)
             ->assertJsonPath('mode.expense_status', 'approved_paid')
             ->assertJsonPath('totals.revenue', 200)
             ->assertJsonPath('totals.expenses', 137.50)
@@ -80,6 +86,11 @@ final class FinanceProfitLossApiTest extends TestCase
             ->assertJsonPath('expense_breakdown.0.total', 110)
             ->assertJsonPath('expense_breakdown.1.expense_category_name', 'Marketing')
             ->assertJsonPath('expense_breakdown.1.total', 27.50);
+
+        $aliasResponse = $this->getJson('/api/admin/finance/pnl?date_from=2026-05-01&date_to=2026-05-05');
+        $aliasResponse->assertOk()
+            ->assertJsonPath('revenue', 200)
+            ->assertJsonPath('net_profit', 37.50);
     }
 
     public function test_profit_and_loss_can_include_draft_expenses_when_requested(): void
