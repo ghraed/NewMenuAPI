@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Invoice;
 use App\Models\Restaurant;
+use App\Models\StockMovement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -293,7 +294,8 @@ class InvoiceController extends Controller
             ->values();
 
         $expenseTotal = round((float) $expenseByCategory->sum('total'), 2);
-        $profit = round($revenue - $expenseTotal, 2);
+        $cogs = $this->resolveCogsTotal($restaurant->id, $from, $to);
+        $profit = round($revenue - $expenseTotal - $cogs, 2);
         $profitMarginPercent = $revenue > 0
             ? round(($profit / $revenue) * 100, 2)
             : 0.0;
@@ -307,6 +309,7 @@ class InvoiceController extends Controller
             'totals' => [
                 'revenue' => round($revenue, 2),
                 'expenses' => $expenseTotal,
+                'cogs' => $cogs,
                 'profit' => $profit,
                 'profit_margin_percent' => $profitMarginPercent,
             ],
@@ -348,6 +351,7 @@ class InvoiceController extends Controller
             'kpis' => [
                 'revenue' => $this->metricPayload($current['revenue'], $previous['revenue']),
                 'expenses' => $this->metricPayload($current['expenses'], $previous['expenses']),
+                'cogs' => $this->metricPayload($current['cogs'], $previous['cogs']),
                 'profit' => $this->metricPayload($current['profit'], $previous['profit']),
                 'profit_margin_percent' => $this->metricPayload($current['profit_margin_percent'], $previous['profit_margin_percent']),
                 'invoice_count' => $this->metricPayload($current['invoice_count'], $previous['invoice_count']),
@@ -513,6 +517,7 @@ class InvoiceController extends Controller
      * @return array{
      *   revenue:float,
      *   expenses:float,
+     *   cogs:float,
      *   profit:float,
      *   profit_margin_percent:float,
      *   invoice_count:int,
@@ -547,17 +552,47 @@ class InvoiceController extends Controller
             ->sum(DB::raw('amount_cents + tax_amount_cents'));
 
         $expenses = round($expenseCents / 100, 2);
-        $profit = round($revenue - $expenses, 2);
+        $cogs = $this->resolveCogsTotal($restaurantId, $from, $to);
+        $profit = round($revenue - $expenses - $cogs, 2);
         $margin = $revenue > 0 ? round(($profit / $revenue) * 100, 2) : 0.0;
 
         return [
             'revenue' => $revenue,
             'expenses' => $expenses,
+            'cogs' => $cogs,
             'profit' => $profit,
             'profit_margin_percent' => $margin,
             'invoice_count' => $invoiceCount,
             'average_invoice_value' => $averageInvoiceValue,
         ];
+    }
+
+    private function resolveCogsTotal(int $restaurantId, Carbon $from, Carbon $to): float
+    {
+        $row = StockMovement::query()
+            ->where('restaurant_id', $restaurantId)
+            ->whereIn('movement_type', [
+                StockMovement::TYPE_ORDER_CONSUMPTION,
+                StockMovement::TYPE_ORDER_RESTORATION,
+            ])
+            ->whereBetween('occurred_at', [$from->toDateTimeString(), $to->toDateTimeString()])
+            ->selectRaw("
+                SUM(
+                    CASE
+                        WHEN movement_type = ? THEN COALESCE(total_cost_cents, 0)
+                        WHEN movement_type = ? THEN -ABS(COALESCE(total_cost_cents, 0))
+                        ELSE 0
+                    END
+                ) AS cogs_cents
+            ", [
+                StockMovement::TYPE_ORDER_CONSUMPTION,
+                StockMovement::TYPE_ORDER_RESTORATION,
+            ])
+            ->first();
+
+        $cogsCents = (int) ($row?->cogs_cents ?? 0);
+
+        return round(max(0, $cogsCents) / 100, 2);
     }
 
     /**

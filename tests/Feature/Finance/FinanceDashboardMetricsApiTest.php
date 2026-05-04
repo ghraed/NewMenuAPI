@@ -10,6 +10,7 @@ use App\Models\Feature;
 use App\Models\Invoice;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
+use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -45,14 +46,18 @@ final class FinanceDashboardMetricsApiTest extends TestCase
         $this->createExpense($restaurantA->id, $categoryA->id, '2026-05-02', Expense::STATUS_APPROVED, 3000, 0);
         $this->createExpense($restaurantA->id, $categoryA->id, '2026-05-04', Expense::STATUS_PAID, 2000, 0);
         $this->createExpense($restaurantA->id, $categoryA->id, '2026-05-04', Expense::STATUS_DRAFT, 1000, 0);
+        $this->createStockMovement($restaurantA->id, '2026-05-02 12:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 2500);
+        $this->createStockMovement($restaurantA->id, '2026-05-04 12:00:00', StockMovement::TYPE_ORDER_RESTORATION, 500);
 
         // Previous period auto-resolved: 2026-04-26..2026-04-30
         $this->createInvoice($restaurantA->id, '2026-04-28', Invoice::STATUS_ISSUED, 100.00);
         $this->createExpense($restaurantA->id, $categoryA->id, '2026-04-28', Expense::STATUS_APPROVED, 2500, 0);
+        $this->createStockMovement($restaurantA->id, '2026-04-28 12:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 1000);
 
         // Other tenant noise should be ignored
         $this->createInvoice($restaurantB->id, '2026-05-03', Invoice::STATUS_ISSUED, 999.00);
         $this->createExpense($restaurantB->id, $categoryB->id, '2026-05-03', Expense::STATUS_APPROVED, 90000, 0);
+        $this->createStockMovement($restaurantB->id, '2026-05-03 12:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 7777);
 
         Sanctum::actingAs($adminA);
 
@@ -71,12 +76,16 @@ final class FinanceDashboardMetricsApiTest extends TestCase
             ->assertJsonPath('kpis.expenses.previous', 25)
             ->assertJsonPath('kpis.expenses.delta', 25)
             ->assertJsonPath('kpis.expenses.delta_percent', 100)
-            ->assertJsonPath('kpis.profit.value', 150)
-            ->assertJsonPath('kpis.profit.previous', 75)
-            ->assertJsonPath('kpis.profit.delta', 75)
+            ->assertJsonPath('kpis.cogs.value', 20)
+            ->assertJsonPath('kpis.cogs.previous', 10)
+            ->assertJsonPath('kpis.cogs.delta', 10)
+            ->assertJsonPath('kpis.cogs.delta_percent', 100)
+            ->assertJsonPath('kpis.profit.value', 130)
+            ->assertJsonPath('kpis.profit.previous', 65)
+            ->assertJsonPath('kpis.profit.delta', 65)
             ->assertJsonPath('kpis.profit.delta_percent', 100)
-            ->assertJsonPath('kpis.profit_margin_percent.value', 75)
-            ->assertJsonPath('kpis.profit_margin_percent.previous', 75)
+            ->assertJsonPath('kpis.profit_margin_percent.value', 65)
+            ->assertJsonPath('kpis.profit_margin_percent.previous', 65)
             ->assertJsonPath('kpis.profit_margin_percent.delta', 0)
             ->assertJsonPath('kpis.invoice_count.value', 2)
             ->assertJsonPath('kpis.invoice_count.previous', 1)
@@ -101,6 +110,7 @@ final class FinanceDashboardMetricsApiTest extends TestCase
         $this->createInvoice($restaurant->id, '2026-05-02', Invoice::STATUS_PAID, 200.00);
         $this->createExpense($restaurant->id, $category->id, '2026-05-02', Expense::STATUS_APPROVED, 10000, 0);
         $this->createExpense($restaurant->id, $category->id, '2026-05-02', Expense::STATUS_DRAFT, 5000, 0);
+        $this->createStockMovement($restaurant->id, '2026-05-02 12:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 3000);
 
         Sanctum::actingAs($admin);
 
@@ -108,13 +118,15 @@ final class FinanceDashboardMetricsApiTest extends TestCase
         $defaultMode->assertOk()
             ->assertJsonPath('mode.expense_status', 'approved_paid')
             ->assertJsonPath('kpis.expenses.value', 100)
-            ->assertJsonPath('kpis.profit.value', 100);
+            ->assertJsonPath('kpis.cogs.value', 30)
+            ->assertJsonPath('kpis.profit.value', 70);
 
         $allNonVoidMode = $this->getJson('/api/admin/finance/dashboard-metrics?date_from=2026-05-01&date_to=2026-05-05&expense_status=all_non_void');
         $allNonVoidMode->assertOk()
             ->assertJsonPath('mode.expense_status', 'all_non_void')
             ->assertJsonPath('kpis.expenses.value', 150)
-            ->assertJsonPath('kpis.profit.value', 50);
+            ->assertJsonPath('kpis.cogs.value', 30)
+            ->assertJsonPath('kpis.profit.value', 20);
     }
 
     public function test_non_admin_user_cannot_access_dashboard_metrics_endpoint(): void
@@ -204,6 +216,32 @@ final class FinanceDashboardMetricsApiTest extends TestCase
             'tax_amount_cents' => $taxAmountCents,
             'currency' => 'USD',
             'status' => $status,
+        ]);
+    }
+
+    private function createStockMovement(
+        int $restaurantId,
+        string $occurredAt,
+        string $movementType,
+        int $totalCostCents
+    ): void {
+        StockMovement::query()->create([
+            'restaurant_id' => $restaurantId,
+            'ingredient_id' => null,
+            'order_id' => null,
+            'order_item_id' => null,
+            'performed_by' => null,
+            'movement_type' => $movementType,
+            'unit' => 'g',
+            'quantity_delta' => $movementType === StockMovement::TYPE_ORDER_CONSUMPTION ? -1 : 1,
+            'quantity_before' => null,
+            'quantity_after' => null,
+            'unit_cost_cents' => null,
+            'total_cost_cents' => $totalCostCents,
+            'ingredient_name_snapshot' => 'COGS Snapshot',
+            'reference' => null,
+            'notes' => null,
+            'occurred_at' => $occurredAt,
         ]);
     }
 }

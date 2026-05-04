@@ -10,6 +10,7 @@ use App\Models\Feature;
 use App\Models\Invoice;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
+use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -56,6 +57,10 @@ final class FinanceProfitLossApiTest extends TestCase
         $this->createExpense($restaurantA->id, $categoryUtilities->id, '2026-05-04', Expense::STATUS_VOID, 9900, 100);
         $this->createExpense($restaurantA->id, $categoryUtilities->id, '2026-04-29', Expense::STATUS_PAID, 1000, 100);
         $this->createExpense($restaurantB->id, $categoryOtherTenant->id, '2026-05-04', Expense::STATUS_APPROVED, 50000, 0);
+        $this->createStockMovement($restaurantA->id, '2026-05-03 12:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 3000);
+        $this->createStockMovement($restaurantA->id, '2026-05-04 12:00:00', StockMovement::TYPE_ORDER_RESTORATION, 500);
+        $this->createStockMovement($restaurantA->id, '2026-04-29 12:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 9999);
+        $this->createStockMovement($restaurantB->id, '2026-05-03 12:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 4500);
 
         Sanctum::actingAs($adminA);
 
@@ -67,8 +72,9 @@ final class FinanceProfitLossApiTest extends TestCase
             ->assertJsonPath('mode.expense_status', 'approved_paid')
             ->assertJsonPath('totals.revenue', 200)
             ->assertJsonPath('totals.expenses', 137.50)
-            ->assertJsonPath('totals.profit', 62.50)
-            ->assertJsonPath('totals.profit_margin_percent', 31.25)
+            ->assertJsonPath('totals.cogs', 25)
+            ->assertJsonPath('totals.profit', 37.50)
+            ->assertJsonPath('totals.profit_margin_percent', 18.75)
             ->assertJsonCount(2, 'expense_breakdown')
             ->assertJsonPath('expense_breakdown.0.expense_category_name', 'Utilities')
             ->assertJsonPath('expense_breakdown.0.total', 110)
@@ -89,19 +95,22 @@ final class FinanceProfitLossApiTest extends TestCase
         $this->createInvoice($restaurant->id, '2026-05-05', Invoice::STATUS_ISSUED, 200.00);
         $this->createExpense($restaurant->id, $category->id, '2026-05-05', Expense::STATUS_APPROVED, 10000, 0);
         $this->createExpense($restaurant->id, $category->id, '2026-05-05', Expense::STATUS_DRAFT, 5000, 0);
+        $this->createStockMovement($restaurant->id, '2026-05-05 15:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 4000);
 
         Sanctum::actingAs($admin);
 
         $defaultMode = $this->getJson('/api/admin/finance/profit-loss?date_from=2026-05-01&date_to=2026-05-10');
         $defaultMode->assertOk()
             ->assertJsonPath('totals.expenses', 100)
-            ->assertJsonPath('totals.profit', 100);
+            ->assertJsonPath('totals.cogs', 40)
+            ->assertJsonPath('totals.profit', 60);
 
         $allNonVoidMode = $this->getJson('/api/admin/finance/profit-loss?date_from=2026-05-01&date_to=2026-05-10&expense_status=all_non_void');
         $allNonVoidMode->assertOk()
             ->assertJsonPath('mode.expense_status', 'all_non_void')
             ->assertJsonPath('totals.expenses', 150)
-            ->assertJsonPath('totals.profit', 50);
+            ->assertJsonPath('totals.cogs', 40)
+            ->assertJsonPath('totals.profit', 10);
     }
 
     public function test_non_admin_user_cannot_access_profit_and_loss_endpoint(): void
@@ -191,6 +200,32 @@ final class FinanceProfitLossApiTest extends TestCase
             'tax_amount_cents' => $taxAmountCents,
             'currency' => 'USD',
             'status' => $status,
+        ]);
+    }
+
+    private function createStockMovement(
+        int $restaurantId,
+        string $occurredAt,
+        string $movementType,
+        int $totalCostCents
+    ): void {
+        StockMovement::query()->create([
+            'restaurant_id' => $restaurantId,
+            'ingredient_id' => null,
+            'order_id' => null,
+            'order_item_id' => null,
+            'performed_by' => null,
+            'movement_type' => $movementType,
+            'unit' => 'g',
+            'quantity_delta' => $movementType === StockMovement::TYPE_ORDER_CONSUMPTION ? -1 : 1,
+            'quantity_before' => null,
+            'quantity_after' => null,
+            'unit_cost_cents' => null,
+            'total_cost_cents' => $totalCostCents,
+            'ingredient_name_snapshot' => 'COGS Snapshot',
+            'reference' => null,
+            'notes' => null,
+            'occurred_at' => $occurredAt,
         ]);
     }
 }
