@@ -15,7 +15,7 @@ return new class extends Migration
         Schema::create('mobile_push_tokens', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('token', 1024)->unique();
+            $table->string('token', 1024)->charset('ascii')->collation('ascii_general_ci')->unique();
             $table->string('platform', 32)->default('android');
             $table->string('device_name', 255)->nullable();
             $table->string('app_version', 64)->nullable();

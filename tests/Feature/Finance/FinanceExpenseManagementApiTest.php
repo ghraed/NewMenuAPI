@@ -6,7 +6,9 @@ namespace Tests\Feature\Finance;
 
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
+use App\Models\Feature;
 use App\Models\Restaurant;
+use App\Models\RestaurantFeature;
 use App\Models\User;
 use App\Models\Vendor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -291,6 +293,30 @@ final class FinanceExpenseManagementApiTest extends TestCase
             'address' => 'Beirut',
         ]);
 
+        $this->enableFeatureForRestaurant($restaurant, 'finance_dashboard');
+        $this->enableFeatureForRestaurant($restaurant, 'expense_management');
+
         return [$admin, $restaurant];
+    }
+
+    private function enableFeatureForRestaurant(Restaurant $restaurant, string $featureKey): void
+    {
+        $feature = Feature::query()->firstOrCreate(
+            ['key' => $featureKey],
+            [
+                'name' => ucwords(str_replace('_', ' ', $featureKey)),
+                'description' => 'Test feature flag',
+                'category' => 'finance',
+                'is_active_by_default' => false,
+            ]
+        );
+
+        RestaurantFeature::query()->updateOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'feature_id' => $feature->id,
+            ],
+            ['enabled' => true]
+        );
     }
 }
