@@ -83,6 +83,21 @@ class Restaurant extends Model
         return $this->hasMany(Expense::class);
     }
 
+    public function staffShifts(): HasMany
+    {
+        return $this->hasMany(StaffShift::class);
+    }
+
+    public function payrollPeriods(): HasMany
+    {
+        return $this->hasMany(PayrollPeriod::class);
+    }
+
+    public function payrollEntries(): HasMany
+    {
+        return $this->hasMany(PayrollEntry::class);
+    }
+
     public function tables(): HasMany
     {
         return $this->hasMany(RestaurantTable::class);

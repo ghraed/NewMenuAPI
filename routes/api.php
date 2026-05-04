@@ -16,6 +16,7 @@ use App\Http\Controllers\InventoryStockHistoryController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\FinanceExpenseCategoryController;
 use App\Http\Controllers\FinanceExpenseController;
+use App\Http\Controllers\FinancePayrollController;
 use App\Http\Controllers\FinanceVendorController;
 use App\Http\Controllers\MenuController;
 use App\Http\Controllers\Owner\OwnerAuthController;
@@ -26,6 +27,7 @@ use App\Http\Controllers\PublicReservationController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\RoomPlanController;
 use App\Http\Controllers\RoomPlanItemController;
+use App\Http\Controllers\StaffScheduleController;
 use App\Http\Controllers\QRCodeController;
 use App\Http\Controllers\RestaurantController;
 use App\Http\Controllers\TableSessionController;
@@ -192,6 +194,22 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
         Route::patch('/admin/finance/expenses/{expense}', [FinanceExpenseController::class, 'update'])
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::get('/admin/finance/payroll/periods', [FinancePayrollController::class, 'periodsIndex'])
+            ->middleware('feature:payroll_management');
+        Route::post('/admin/finance/payroll/periods', [FinancePayrollController::class, 'periodsStore'])
+            ->middleware('feature:payroll_management');
+        Route::patch('/admin/finance/payroll/periods/{payrollPeriod}', [FinancePayrollController::class, 'periodsUpdate'])
+            ->middleware('feature:payroll_management');
+        Route::put('/admin/finance/payroll/periods/{payrollPeriod}/entries', [FinancePayrollController::class, 'entriesUpsert'])
+            ->middleware('feature:payroll_management');
+        Route::get('/admin/finance/payroll/summary', [FinancePayrollController::class, 'summary'])
+            ->middleware('feature:payroll_management');
+        Route::get('/admin/staff/schedules', [StaffScheduleController::class, 'index'])
+            ->middleware('feature:staff_scheduling');
+        Route::post('/admin/staff/schedules', [StaffScheduleController::class, 'store'])
+            ->middleware('feature:staff_scheduling');
+        Route::patch('/admin/staff/schedules/{staffShift}', [StaffScheduleController::class, 'update'])
+            ->middleware('feature:staff_scheduling');
 
         // Assets
         Route::post('/dishes/{dish}/assets', [AssetController::class, 'upload']);
