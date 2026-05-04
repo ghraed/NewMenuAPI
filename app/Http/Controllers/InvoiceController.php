@@ -360,6 +360,91 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function taxReport(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $validated = $request->validate([
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'expense_status' => ['nullable', 'in:approved_paid,all_non_void'],
+        ]);
+
+        [$from, $to] = $this->resolveTaxDateRange(
+            $validated['date_from'] ?? null,
+            $validated['date_to'] ?? null
+        );
+
+        $expenseStatuses = ($validated['expense_status'] ?? 'approved_paid') === 'all_non_void'
+            ? ['draft', 'approved', 'paid']
+            : ['approved', 'paid'];
+
+        $outputVat = round((float) Invoice::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
+            ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
+            ->selectRaw('SUM(GREATEST(total - subtotal, 0)) AS output_vat')
+            ->value('output_vat'), 2);
+
+        $inputVat = round(((int) DB::table('expenses')
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('status', $expenseStatuses)
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
+            ->sum('tax_amount_cents')) / 100, 2);
+
+        $netVat = round($outputVat - $inputVat, 2);
+
+        $invoiceRows = Invoice::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
+            ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
+            ->selectRaw("DATE_FORMAT(invoice_date, '%Y-%m') AS bucket, SUM(GREATEST(total - subtotal, 0)) AS output_vat")
+            ->groupBy('bucket')
+            ->orderBy('bucket')
+            ->get()
+            ->keyBy('bucket');
+
+        $expenseRows = DB::table('expenses')
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('status', $expenseStatuses)
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
+            ->selectRaw("DATE_FORMAT(expense_date, '%Y-%m') AS bucket, SUM(tax_amount_cents) AS input_vat_cents")
+            ->groupBy('bucket')
+            ->orderBy('bucket')
+            ->get()
+            ->keyBy('bucket');
+
+        $breakdown = collect($this->generateBuckets('monthly', $from->copy()->startOfMonth(), $to->copy()->endOfMonth()))
+            ->map(function (string $bucket) use ($invoiceRows, $expenseRows): array {
+                $output = round((float) ($invoiceRows->get($bucket)->output_vat ?? 0), 2);
+                $input = round(((int) ($expenseRows->get($bucket)->input_vat_cents ?? 0)) / 100, 2);
+
+                return [
+                    'bucket' => $bucket,
+                    'output_vat' => $output,
+                    'input_vat' => $input,
+                    'net_vat' => round($output - $input, 2),
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'date_from' => $from->toDateString(),
+            'date_to' => $to->toDateString(),
+            'mode' => [
+                'expense_status' => $validated['expense_status'] ?? 'approved_paid',
+            ],
+            'totals' => [
+                'output_vat' => $outputVat,
+                'input_vat' => $inputVat,
+                'net_vat' => $netVat,
+                'payable_vat' => $netVat > 0 ? $netVat : 0.0,
+                'refundable_vat' => $netVat < 0 ? abs($netVat) : 0.0,
+            ],
+            'breakdown' => $breakdown,
+        ]);
+    }
+
     /**
      * @param array<int,array<string,mixed>> $rows
      * @return array<int,array{
@@ -502,6 +587,21 @@ class InvoiceController extends Controller
      * @return array{0:Carbon,1:Carbon}
      */
     private function resolveDashboardDateRange(?string $dateFrom, ?string $dateTo): array
+    {
+        if ($dateFrom !== null && $dateTo !== null) {
+            return [
+                Carbon::parse($dateFrom)->startOfDay(),
+                Carbon::parse($dateTo)->endOfDay(),
+            ];
+        }
+
+        return [now()->startOfMonth(), now()->endOfMonth()];
+    }
+
+    /**
+     * @return array{0:Carbon,1:Carbon}
+     */
+    private function resolveTaxDateRange(?string $dateFrom, ?string $dateTo): array
     {
         if ($dateFrom !== null && $dateTo !== null) {
             return [
