@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "source_snapshot": "tests/unit/__snapshots__/financeMath.regression.test.ts.snap",
+  "description": "Backend parity fixtures derived from locked frontend snapshot outputs.",
+  "fixtures": [
+    {
+      "id": "walkin-cash-no-discount-11-vat",
+      "input": {
+        "subtotal": 100,
+        "discountType": "",
+        "discountValue": 0,
+        "vatRate": 11,
+        "paymentMethod": "cash",
+        "amountReceived": 120
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 0,
+          "discountType": "",
+          "discountValue": 0,
+          "subtotalCents": 10000,
+          "taxableSubtotalCents": 10000,
+          "totalCents": 11100,
+          "vatAmountCents": 1100,
+          "vatRate": 11
+        },
+        "settlement": {
+          "changeDue": 9,
+          "receivedAmount": 120,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "fixed-discount-cash-complete",
+      "input": {
+        "subtotal": 89.99,
+        "discountType": "fixed",
+        "discountValue": 10,
+        "vatRate": 11,
+        "paymentMethod": "cash",
+        "amountReceived": 100
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 1000,
+          "discountType": "fixed",
+          "discountValue": 10,
+          "subtotalCents": 8999,
+          "taxableSubtotalCents": 7999,
+          "totalCents": 8879,
+          "vatAmountCents": 880,
+          "vatRate": 11
+        },
+        "settlement": {
+          "changeDue": 11.209999999999994,
+          "receivedAmount": 100,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "fixed-discount-over-subtotal",
+      "input": {
+        "subtotal": 13.5,
+        "discountType": "fixed",
+        "discountValue": 20,
+        "vatRate": 11,
+        "paymentMethod": "cash",
+        "amountReceived": 0
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 1350,
+          "discountType": "fixed",
+          "discountValue": 20,
+          "subtotalCents": 1350,
+          "taxableSubtotalCents": 0,
+          "totalCents": 0,
+          "vatAmountCents": 0,
+          "vatRate": 11
+        },
+        "settlement": {
+          "changeDue": 0,
+          "receivedAmount": 0,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "percentage-discount-with-rounding",
+      "input": {
+        "subtotal": 42.38,
+        "discountType": "percentage",
+        "discountValue": 12.5,
+        "vatRate": 11,
+        "paymentMethod": "cash",
+        "amountReceived": 45
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 530,
+          "discountType": "percentage",
+          "discountValue": 12.5,
+          "subtotalCents": 4238,
+          "taxableSubtotalCents": 3708,
+          "totalCents": 4116,
+          "vatAmountCents": 408,
+          "vatRate": 11
+        },
+        "settlement": {
+          "changeDue": 3.8400000000000034,
+          "receivedAmount": 45,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "percentage-discount-clamped",
+      "input": {
+        "subtotal": 42.38,
+        "discountType": "percentage",
+        "discountValue": 150,
+        "vatRate": 11,
+        "paymentMethod": "cash",
+        "amountReceived": 10
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 4238,
+          "discountType": "percentage",
+          "discountValue": 100,
+          "subtotalCents": 4238,
+          "taxableSubtotalCents": 0,
+          "totalCents": 0,
+          "vatAmountCents": 0,
+          "vatRate": 11
+        },
+        "settlement": {
+          "changeDue": 10,
+          "receivedAmount": 10,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "zero-vat-card-payment",
+      "input": {
+        "subtotal": 200,
+        "discountType": "fixed",
+        "discountValue": 50,
+        "vatRate": 0,
+        "paymentMethod": "card",
+        "amountReceived": 999
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 5000,
+          "discountType": "fixed",
+          "discountValue": 50,
+          "subtotalCents": 20000,
+          "taxableSubtotalCents": 15000,
+          "totalCents": 15000,
+          "vatAmountCents": 0,
+          "vatRate": 0
+        },
+        "settlement": {
+          "changeDue": 0,
+          "receivedAmount": 999,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "invalid-numeric-strings",
+      "input": {
+        "subtotal": "bad-subtotal",
+        "discountType": "fixed",
+        "discountValue": "bad-discount",
+        "vatRate": "bad-vat",
+        "paymentMethod": "cash",
+        "amountReceived": "bad-received"
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 0,
+          "discountType": "fixed",
+          "discountValue": 0,
+          "subtotalCents": 0,
+          "taxableSubtotalCents": 0,
+          "totalCents": 0,
+          "vatAmountCents": 0,
+          "vatRate": 0
+        },
+        "settlement": {
+          "changeDue": 0,
+          "receivedAmount": 0,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "high-vat-small-ticket",
+      "input": {
+        "subtotal": 1.99,
+        "discountType": "",
+        "discountValue": 0,
+        "vatRate": 23,
+        "paymentMethod": "wallet",
+        "amountReceived": 0
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 0,
+          "discountType": "",
+          "discountValue": 0,
+          "subtotalCents": 199,
+          "taxableSubtotalCents": 199,
+          "totalCents": 245,
+          "vatAmountCents": 46,
+          "vatRate": 23
+        },
+        "settlement": {
+          "changeDue": 0,
+          "receivedAmount": 0,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "three-decimal-subtotal-input",
+      "input": {
+        "subtotal": "10.005",
+        "discountType": "",
+        "discountValue": 0,
+        "vatRate": 11,
+        "paymentMethod": "cash",
+        "amountReceived": 11.12
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 0,
+          "discountType": "",
+          "discountValue": 0,
+          "subtotalCents": 1001,
+          "taxableSubtotalCents": 1001,
+          "totalCents": 1111,
+          "vatAmountCents": 110,
+          "vatRate": 11
+        },
+        "settlement": {
+          "changeDue": 0.009999999999999787,
+          "receivedAmount": 11.12,
+          "remainingDue": 0
+        }
+      }
+    },
+    {
+      "id": "negative-values-clamped",
+      "input": {
+        "subtotal": -999,
+        "discountType": "percentage",
+        "discountValue": -50,
+        "vatRate": -11,
+        "paymentMethod": "cash",
+        "amountReceived": -5
+      },
+      "expected": {
+        "invoice": {
+          "discountAmountCents": 0,
+          "discountType": "percentage",
+          "discountValue": 0,
+          "subtotalCents": 0,
+          "taxableSubtotalCents": 0,
+          "totalCents": 0,
+          "vatAmountCents": 0,
+          "vatRate": 0
+        },
+        "settlement": {
+          "changeDue": 0,
+          "receivedAmount": 0,
+          "remainingDue": 0
+        }
+      }
+    }
+  ]
+}

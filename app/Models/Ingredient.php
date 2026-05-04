@@ -29,6 +29,10 @@ class Ingredient extends Model
         'current_stock_quantity',
         'low_stock_threshold',
         'target_quantity',
+        'unit_cost_cents',
+        'average_cost_cents',
+        'last_cost_cents',
+        'cost_currency',
         'is_active',
     ];
 
@@ -42,6 +46,9 @@ class Ingredient extends Model
         'current_stock_quantity' => 'decimal:3',
         'low_stock_threshold' => 'decimal:3',
         'target_quantity' => 'decimal:3',
+        'unit_cost_cents' => 'integer',
+        'average_cost_cents' => 'integer',
+        'last_cost_cents' => 'integer',
         'is_active' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

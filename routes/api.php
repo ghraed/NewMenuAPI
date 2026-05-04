@@ -14,6 +14,9 @@ use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\InventoryIngredientController;
 use App\Http\Controllers\InventoryStockHistoryController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\FinanceExpenseCategoryController;
+use App\Http\Controllers\FinanceExpenseController;
+use App\Http\Controllers\FinanceVendorController;
 use App\Http\Controllers\MenuController;
 use App\Http\Controllers\Owner\OwnerAuthController;
 use App\Http\Controllers\Owner\OwnerFeatureFlagController;
@@ -165,6 +168,24 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
         Route::patch('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'update'])
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
+        Route::get('/admin/finance/expense-categories', [FinanceExpenseCategoryController::class, 'index'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::post('/admin/finance/expense-categories', [FinanceExpenseCategoryController::class, 'store'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::patch('/admin/finance/expense-categories/{expenseCategory}', [FinanceExpenseCategoryController::class, 'update'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::get('/admin/finance/vendors', [FinanceVendorController::class, 'index'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::post('/admin/finance/vendors', [FinanceVendorController::class, 'store'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::patch('/admin/finance/vendors/{vendor}', [FinanceVendorController::class, 'update'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::get('/admin/finance/expenses', [FinanceExpenseController::class, 'index'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::post('/admin/finance/expenses', [FinanceExpenseController::class, 'store'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::patch('/admin/finance/expenses/{expense}', [FinanceExpenseController::class, 'update'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
 
         // Assets
         Route::post('/dishes/{dish}/assets', [AssetController::class, 'upload']);
