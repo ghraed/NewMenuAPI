@@ -239,6 +239,81 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function profitLoss(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $validated = $request->validate([
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'expense_status' => ['nullable', 'in:approved_paid,all_non_void'],
+        ]);
+
+        [$from, $to] = $this->resolveProfitLossDateRange(
+            $validated['date_from'] ?? null,
+            $validated['date_to'] ?? null
+        );
+
+        $revenue = (float) Invoice::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
+            ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
+            ->sum('total');
+
+        $expenseStatuses = ($validated['expense_status'] ?? 'approved_paid') === 'all_non_void'
+            ? ['draft', 'approved', 'paid']
+            : ['approved', 'paid'];
+
+        $expenseRows = DB::table('expenses')
+            ->where('restaurant_id', $restaurant->id)
+            ->whereIn('status', $expenseStatuses)
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
+            ->selectRaw('expense_category_id, SUM(amount_cents + tax_amount_cents) AS total_cents')
+            ->groupBy('expense_category_id')
+            ->get();
+
+        $categoryNames = DB::table('expense_categories')
+            ->whereIn('id', $expenseRows->pluck('expense_category_id')->filter()->values()->all())
+            ->pluck('name', 'id');
+
+        $expenseByCategory = $expenseRows
+            ->map(function (object $row) use ($categoryNames): array {
+                $categoryId = $row->expense_category_id !== null ? (int) $row->expense_category_id : null;
+                $total = round(((float) $row->total_cents) / 100, 2);
+
+                return [
+                    'expense_category_id' => $categoryId,
+                    'expense_category_name' => $categoryId !== null
+                        ? (string) ($categoryNames[$categoryId] ?? 'Uncategorized')
+                        : 'Uncategorized',
+                    'total' => $total,
+                ];
+            })
+            ->sortByDesc('total')
+            ->values();
+
+        $expenseTotal = round((float) $expenseByCategory->sum('total'), 2);
+        $profit = round($revenue - $expenseTotal, 2);
+        $profitMarginPercent = $revenue > 0
+            ? round(($profit / $revenue) * 100, 2)
+            : 0.0;
+
+        return response()->json([
+            'date_from' => $from->toDateString(),
+            'date_to' => $to->toDateString(),
+            'mode' => [
+                'expense_status' => $validated['expense_status'] ?? 'approved_paid',
+            ],
+            'totals' => [
+                'revenue' => round($revenue, 2),
+                'expenses' => $expenseTotal,
+                'profit' => $profit,
+                'profit_margin_percent' => $profitMarginPercent,
+            ],
+            'expense_breakdown' => $expenseByCategory,
+        ]);
+    }
+
     /**
      * @param array<int,array<string,mixed>> $rows
      * @return array<int,array{
@@ -360,6 +435,21 @@ class InvoiceController extends Controller
             'yearly' => [now()->subYears(4)->startOfYear(), now()->endOfYear()],
             default => [now()->subMonths(11)->startOfMonth(), now()->endOfMonth()],
         };
+    }
+
+    /**
+     * @return array{0:Carbon,1:Carbon}
+     */
+    private function resolveProfitLossDateRange(?string $dateFrom, ?string $dateTo): array
+    {
+        if ($dateFrom !== null && $dateTo !== null) {
+            return [
+                Carbon::parse($dateFrom)->startOfDay(),
+                Carbon::parse($dateTo)->endOfDay(),
+            ];
+        }
+
+        return [now()->startOfMonth(), now()->endOfMonth()];
     }
 
     /**
