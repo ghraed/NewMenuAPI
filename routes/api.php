@@ -162,6 +162,8 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
         Route::get('/admin/finance/profit-loss', [InvoiceController::class, 'profitLoss'])
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::get('/admin/finance/dashboard-metrics', [InvoiceController::class, 'dashboardMetrics'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
         Route::get('/admin/finance/invoices', [InvoiceController::class, 'index'])
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
         Route::post('/admin/finance/invoices', [InvoiceController::class, 'store'])

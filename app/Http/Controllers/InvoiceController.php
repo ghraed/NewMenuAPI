@@ -314,6 +314,48 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function dashboardMetrics(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $validated = $request->validate([
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'expense_status' => ['nullable', 'in:approved_paid,all_non_void'],
+        ]);
+
+        [$currentFrom, $currentTo] = $this->resolveDashboardDateRange(
+            $validated['date_from'] ?? null,
+            $validated['date_to'] ?? null
+        );
+
+        $days = $currentFrom->copy()->startOfDay()->diffInDays($currentTo->copy()->startOfDay()) + 1;
+        $previousTo = $currentFrom->copy()->subDay()->endOfDay();
+        $previousFrom = $previousTo->copy()->subDays($days - 1)->startOfDay();
+
+        $mode = $validated['expense_status'] ?? 'approved_paid';
+        $current = $this->aggregateDashboardSnapshot($restaurant->id, $currentFrom, $currentTo, $mode);
+        $previous = $this->aggregateDashboardSnapshot($restaurant->id, $previousFrom, $previousTo, $mode);
+
+        return response()->json([
+            'date_from' => $currentFrom->toDateString(),
+            'date_to' => $currentTo->toDateString(),
+            'previous_date_from' => $previousFrom->toDateString(),
+            'previous_date_to' => $previousTo->toDateString(),
+            'mode' => [
+                'expense_status' => $mode,
+            ],
+            'kpis' => [
+                'revenue' => $this->metricPayload($current['revenue'], $previous['revenue']),
+                'expenses' => $this->metricPayload($current['expenses'], $previous['expenses']),
+                'profit' => $this->metricPayload($current['profit'], $previous['profit']),
+                'profit_margin_percent' => $this->metricPayload($current['profit_margin_percent'], $previous['profit_margin_percent']),
+                'invoice_count' => $this->metricPayload($current['invoice_count'], $previous['invoice_count']),
+                'average_invoice_value' => $this->metricPayload($current['average_invoice_value'], $previous['average_invoice_value']),
+            ],
+        ]);
+    }
+
     /**
      * @param array<int,array<string,mixed>> $rows
      * @return array<int,array{
@@ -450,6 +492,94 @@ class InvoiceController extends Controller
         }
 
         return [now()->startOfMonth(), now()->endOfMonth()];
+    }
+
+    /**
+     * @return array{0:Carbon,1:Carbon}
+     */
+    private function resolveDashboardDateRange(?string $dateFrom, ?string $dateTo): array
+    {
+        if ($dateFrom !== null && $dateTo !== null) {
+            return [
+                Carbon::parse($dateFrom)->startOfDay(),
+                Carbon::parse($dateTo)->endOfDay(),
+            ];
+        }
+
+        return [now()->startOfMonth(), now()->endOfMonth()];
+    }
+
+    /**
+     * @return array{
+     *   revenue:float,
+     *   expenses:float,
+     *   profit:float,
+     *   profit_margin_percent:float,
+     *   invoice_count:int,
+     *   average_invoice_value:float
+     * }
+     */
+    private function aggregateDashboardSnapshot(
+        int $restaurantId,
+        Carbon $from,
+        Carbon $to,
+        string $expenseStatusMode
+    ): array {
+        $invoicesQuery = Invoice::query()
+            ->where('restaurant_id', $restaurantId)
+            ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
+            ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()]);
+
+        $revenue = round((float) (clone $invoicesQuery)->sum('total'), 2);
+        $invoiceCount = (int) (clone $invoicesQuery)->count();
+        $averageInvoiceValue = $invoiceCount > 0
+            ? round($revenue / $invoiceCount, 2)
+            : 0.0;
+
+        $expenseStatuses = $expenseStatusMode === 'all_non_void'
+            ? ['draft', 'approved', 'paid']
+            : ['approved', 'paid'];
+
+        $expenseCents = (int) DB::table('expenses')
+            ->where('restaurant_id', $restaurantId)
+            ->whereIn('status', $expenseStatuses)
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
+            ->sum(DB::raw('amount_cents + tax_amount_cents'));
+
+        $expenses = round($expenseCents / 100, 2);
+        $profit = round($revenue - $expenses, 2);
+        $margin = $revenue > 0 ? round(($profit / $revenue) * 100, 2) : 0.0;
+
+        return [
+            'revenue' => $revenue,
+            'expenses' => $expenses,
+            'profit' => $profit,
+            'profit_margin_percent' => $margin,
+            'invoice_count' => $invoiceCount,
+            'average_invoice_value' => $averageInvoiceValue,
+        ];
+    }
+
+    /**
+     * @return array{value:float|int,previous:float|int,delta:float|int,delta_percent:float|null}
+     */
+    private function metricPayload(float|int $value, float|int $previous): array
+    {
+        $delta = round((float) $value - (float) $previous, 2);
+
+        $deltaPercent = null;
+        if ((float) $previous !== 0.0) {
+            $deltaPercent = round(($delta / abs((float) $previous)) * 100, 2);
+        } elseif ((float) $value === 0.0) {
+            $deltaPercent = 0.0;
+        }
+
+        return [
+            'value' => $value,
+            'previous' => $previous,
+            'delta' => is_int($value) && is_int($previous) ? (int) $delta : $delta,
+            'delta_percent' => $deltaPercent,
+        ];
     }
 
     /**
