@@ -65,13 +65,13 @@ final class FinanceProfitLossApiTest extends TestCase
             ->assertJsonPath('date_from', '2026-05-01')
             ->assertJsonPath('date_to', '2026-05-05')
             ->assertJsonPath('mode.expense_status', 'approved_paid')
-            ->assertJsonPath('totals.revenue', 200.00)
+            ->assertJsonPath('totals.revenue', 200)
             ->assertJsonPath('totals.expenses', 137.50)
             ->assertJsonPath('totals.profit', 62.50)
             ->assertJsonPath('totals.profit_margin_percent', 31.25)
             ->assertJsonCount(2, 'expense_breakdown')
             ->assertJsonPath('expense_breakdown.0.expense_category_name', 'Utilities')
-            ->assertJsonPath('expense_breakdown.0.total', 110.00)
+            ->assertJsonPath('expense_breakdown.0.total', 110)
             ->assertJsonPath('expense_breakdown.1.expense_category_name', 'Marketing')
             ->assertJsonPath('expense_breakdown.1.total', 27.50);
     }
@@ -94,14 +94,14 @@ final class FinanceProfitLossApiTest extends TestCase
 
         $defaultMode = $this->getJson('/api/admin/finance/profit-loss?date_from=2026-05-01&date_to=2026-05-10');
         $defaultMode->assertOk()
-            ->assertJsonPath('totals.expenses', 100.00)
-            ->assertJsonPath('totals.profit', 100.00);
+            ->assertJsonPath('totals.expenses', 100)
+            ->assertJsonPath('totals.profit', 100);
 
         $allNonVoidMode = $this->getJson('/api/admin/finance/profit-loss?date_from=2026-05-01&date_to=2026-05-10&expense_status=all_non_void');
         $allNonVoidMode->assertOk()
             ->assertJsonPath('mode.expense_status', 'all_non_void')
-            ->assertJsonPath('totals.expenses', 150.00)
-            ->assertJsonPath('totals.profit', 50.00);
+            ->assertJsonPath('totals.expenses', 150)
+            ->assertJsonPath('totals.profit', 50);
     }
 
     public function test_non_admin_user_cannot_access_profit_and_loss_endpoint(): void
