@@ -457,6 +457,8 @@ class InventoryIngredientController extends Controller
             'name' => $ingredient->name,
             'name_ar' => $ingredient->name_ar,
             'global_ingredient_id' => $ingredient->global_ingredient_id,
+            'file_url' => $ingredient->file_url,
+            'image_url' => $ingredient->file_url,
             'unit' => $ingredient->stock_unit,
             'current_quantity' => $this->formatQuantity($currentQuantity),
             'low_stock_threshold' => $this->formatQuantity($lowStockThreshold),

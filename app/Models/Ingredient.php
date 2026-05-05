@@ -97,6 +97,12 @@ class Ingredient extends Model
 
     public function getFileUrlAttribute(): ?string
     {
+        if ($this->file_path) {
+            $disk = $this->storage_disk ?: 'public';
+
+            return Storage::disk($disk)->url($this->file_path);
+        }
+
         $global = $this->relationLoaded('globalIngredient')
             ? $this->globalIngredient
             : $this->globalIngredient()->first();
@@ -105,12 +111,6 @@ class Ingredient extends Model
             return $global->file_url;
         }
 
-        if (! $this->file_path) {
-            return null;
-        }
-
-        $disk = $this->storage_disk ?: 'public';
-
-        return Storage::disk($disk)->url($this->file_path);
+        return null;
     }
 }
