@@ -53,6 +53,9 @@ class DatabaseSeeder extends Seeder
         // Optional full reset + complete tenant/finance/history dataset:
         // php artisan db:seed --class=Database\\Seeders\\FullResetTenantFinanceScenarioSeeder
 
+        // Optional Alpha-only finance demo (last 4 months, realistic invoices + expenses):
+        // php artisan db:seed --class=Database\\Seeders\\AlphaFinanceDemoSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
