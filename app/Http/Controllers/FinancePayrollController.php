@@ -13,7 +13,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class FinancePayrollController extends Controller
 {
@@ -368,6 +370,7 @@ class FinancePayrollController extends Controller
                 'payroll_period_id' => $period->id,
             ],
             [
+                'uuid' => (string) Str::uuid(),
                 'expense_category_id' => $payrollCategory->id,
                 'vendor_id' => null,
                 'expense_date' => $paidDate,
@@ -398,10 +401,19 @@ class FinancePayrollController extends Controller
     private function formatPeriod(PayrollPeriod $period): array
     {
         $relations = ['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role'];
+        $mirroredExpenseId = null;
         if ($this->isPayrollMirrorSchemaReady()) {
-            $relations[] = 'mirroredExpense:id,payroll_period_id';
+            try {
+                $relations[] = 'mirroredExpense:id,payroll_period_id';
+                $period->loadMissing($relations);
+                $mirroredExpenseId = $period->mirroredExpense?->id;
+            } catch (Throwable) {
+                self::$payrollMirrorSchemaReady = false;
+                $period->loadMissing(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role']);
+            }
+        } else {
+            $period->loadMissing($relations);
         }
-        $period->loadMissing($relations);
 
         $base = (int) $period->entries->sum('base_amount_cents');
         $overtime = (int) $period->entries->sum('overtime_amount_cents');
@@ -427,7 +439,7 @@ class FinancePayrollController extends Controller
                 'email' => $period->processedBy->email,
                 'role' => $period->processedBy->role,
             ] : null,
-            'mirrored_expense_id' => $this->isPayrollMirrorSchemaReady() ? $period->mirroredExpense?->id : null,
+            'mirrored_expense_id' => $mirroredExpenseId,
             'entries' => $period->entries
                 ->map(fn (PayrollEntry $entry): array => [
                     'id' => $entry->id,
