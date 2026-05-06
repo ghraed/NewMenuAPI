@@ -192,12 +192,25 @@ class TableSessionController extends Controller
         $this->assertSessionBelongsToRestaurant($tableSession, $restaurant);
         $this->assertStaffCanAccessSession($request->user(), $tableSession, $restaurant);
 
-        $session = $this->tableSessionAccessService->finalize($tableSession, $request->user()->id);
-        $this->markBusyReservationsAsCompletedForSession($restaurant, $session);
+        $validated = $request->validate([
+            'payment_method' => ['nullable', 'in:cash,card,transfer,other'],
+            'payment_reference' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $finalizeResult = $this->tableSessionAccessService->finalize(
+            $tableSession,
+            $request->user()->id,
+            'finalized',
+            $validated
+        );
+        $this->markBusyReservationsAsCompletedForSession($restaurant, $finalizeResult['table_session']);
 
         return response()->json([
             'message' => __('messages.table_sessions.finalized'),
-            'table_session' => $this->guestMenuSessionService->formatSession($session),
+            'table_session' => $this->guestMenuSessionService->formatSession($finalizeResult['table_session']),
+            'invoice_id' => $finalizeResult['invoice_id'],
+            'invoice_number' => $finalizeResult['invoice_number'],
+            'invoice_status' => $finalizeResult['invoice_status'],
         ]);
     }
 

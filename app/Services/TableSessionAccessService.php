@@ -2,10 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Invoice;
+use App\Models\Order;
 use App\Models\Restaurant;
 use App\Models\TableGuestAccess;
 use App\Models\TableSession;
 use App\Models\TableWave;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -191,22 +194,40 @@ class TableSessionAccessService
         });
     }
 
-    public function finalize(TableSession $tableSession, ?int $staffUserId = null, string $reason = 'finalized'): TableSession
+    public function finalize(
+        TableSession $tableSession,
+        ?int $staffUserId = null,
+        string $reason = 'finalized',
+        array $payment = []
+    ): array
     {
-        return DB::transaction(function () use ($tableSession, $staffUserId, $reason) {
+        return DB::transaction(function () use ($tableSession, $staffUserId, $reason, $payment) {
             /** @var TableSession $session */
             $session = TableSession::query()
-                ->with('restaurantTable')
+                ->with(['restaurantTable', 'restaurant'])
                 ->whereKey($tableSession->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             if ($this->guestMenuSessionService->expireSessionIfNeeded($session)) {
-                return $session->fresh(['restaurantTable']);
+                return [
+                    'table_session' => $session->fresh(['restaurantTable']),
+                    'invoice_id' => null,
+                    'invoice_number' => null,
+                    'invoice_status' => null,
+                ];
             }
 
             if ($session->status !== TableSession::STATUS_ACTIVE && $session->status !== TableSession::STATUS_SUSPENDED) {
-                return $session;
+                $sessionOrders = $this->loadAccountedSessionOrders($session);
+                $financeInvoice = $this->createOrReuseFinanceInvoiceForSession($session, $sessionOrders, $payment);
+
+                return [
+                    'table_session' => $session,
+                    'invoice_id' => $financeInvoice?->id,
+                    'invoice_number' => $financeInvoice?->invoice_number,
+                    'invoice_status' => $financeInvoice?->status,
+                ];
             }
 
             $now = now();
@@ -235,8 +256,145 @@ class TableSessionAccessService
 
             $this->guestMenuSessionService->forgetPlainPin($session);
 
-            return $session->fresh(['restaurantTable']);
+            $sessionOrders = $this->loadAccountedSessionOrders($session);
+            $financeInvoice = $this->createOrReuseFinanceInvoiceForSession($session, $sessionOrders, $payment);
+
+            return [
+                'table_session' => $session->fresh(['restaurantTable']),
+                'invoice_id' => $financeInvoice?->id,
+                'invoice_number' => $financeInvoice?->invoice_number,
+                'invoice_status' => $financeInvoice?->status,
+            ];
         });
+    }
+
+    private function loadAccountedSessionOrders(TableSession $session): EloquentCollection
+    {
+        return Order::query()
+            ->with(['items', 'accountedBy'])
+            ->where('table_session_id', $session->id)
+            ->where('status', Order::STATUS_ACCOUNTED)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
+    }
+
+    private function createOrReuseFinanceInvoiceForSession(
+        TableSession $session,
+        EloquentCollection $orders,
+        array $payment = []
+    ): ?Invoice {
+        if ($orders->isEmpty()) {
+            return null;
+        }
+
+        $existingInvoiceNumber = $orders
+            ->pluck('invoice_number')
+            ->first(fn ($invoiceNumber) => is_string($invoiceNumber) && trim($invoiceNumber) !== '');
+
+        if (is_string($existingInvoiceNumber) && trim($existingInvoiceNumber) !== '') {
+            $existingInvoice = Invoice::query()
+                ->where('restaurant_id', $session->restaurant_id)
+                ->where('invoice_number', trim($existingInvoiceNumber))
+                ->with('items')
+                ->first();
+
+            if ($existingInvoice) {
+                return $existingInvoice;
+            }
+        }
+
+        $status = $this->resolveFinalizedInvoiceStatus($payment);
+        $subtotal = (float) $orders->sum(fn (Order $order) => (float) $order->subtotal);
+        $total = (float) $orders->sum(fn (Order $order) => (float) $order->total);
+        $invoiceDate = $orders
+            ->pluck('accounted_at')
+            ->filter()
+            ->map(fn ($value) => $value instanceof \DateTimeInterface ? $value : null)
+            ->filter()
+            ->max();
+
+        $invoiceNumber = $this->generateFinanceInvoiceNumber($session->restaurant);
+        $tableLabel = $session->restaurantTable?->name
+            ? 'Table '.$session->restaurantTable->name
+            : 'Table #'.$session->table_number;
+        $notes = sprintf(
+            'Auto-created from session #%d (%s) with %d accounted order(s).',
+            $session->id,
+            $tableLabel,
+            $orders->count()
+        );
+
+        $invoice = $session->restaurant->invoices()->create([
+            'uuid' => (string) Str::uuid(),
+            'invoice_number' => $invoiceNumber,
+            'invoice_date' => ($invoiceDate instanceof \DateTimeInterface ? $invoiceDate : now())->format('Y-m-d'),
+            'status' => $status,
+            'subtotal' => number_format($subtotal, 2, '.', ''),
+            'total' => number_format($total, 2, '.', ''),
+            'notes' => $notes,
+            'paid_at' => $status === Invoice::STATUS_PAID ? now() : null,
+        ]);
+
+        $invoiceItems = [];
+        $itemOrder = 0;
+        foreach ($orders as $order) {
+            foreach ($order->items as $item) {
+                $itemOrder += 1;
+                $invoiceItems[] = [
+                    'name' => $item->dish_name,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $item->unit_price,
+                    'line_total' => $item->line_subtotal,
+                    'order_index' => $itemOrder,
+                ];
+            }
+        }
+
+        if ($invoiceItems !== []) {
+            $invoice->items()->createMany($invoiceItems);
+        }
+
+        $orders->each(function (Order $order) use ($invoice): void {
+            $order->update([
+                'invoice_number' => $invoice->invoice_number,
+            ]);
+        });
+
+        return $invoice->fresh('items');
+    }
+
+    private function resolveFinalizedInvoiceStatus(array $payment): string
+    {
+        $paymentReference = isset($payment['payment_reference']) && is_string($payment['payment_reference'])
+            ? trim($payment['payment_reference'])
+            : '';
+
+        return $paymentReference !== ''
+            ? Invoice::STATUS_PAID
+            : Invoice::STATUS_ISSUED;
+    }
+
+    private function generateFinanceInvoiceNumber(Restaurant $restaurant): string
+    {
+        $datePart = now()->format('Ymd');
+        $prefix = "FIN-{$datePart}-";
+
+        $lastInvoiceNumber = Invoice::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('invoice_number', 'like', $prefix.'%')
+            ->orderByDesc('id')
+            ->value('invoice_number');
+
+        $nextSequence = 1;
+        if (is_string($lastInvoiceNumber) && str_starts_with($lastInvoiceNumber, $prefix)) {
+            $tail = substr($lastInvoiceNumber, strlen($prefix));
+            if (is_numeric($tail)) {
+                $nextSequence = ((int) $tail) + 1;
+            }
+        }
+
+        return $prefix.str_pad((string) $nextSequence, 4, '0', STR_PAD_LEFT);
     }
 
     public function buildGuestAccessPayload(TableGuestAccess $access, string $token): array
