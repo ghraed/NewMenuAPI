@@ -12,10 +12,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class FinancePayrollController extends Controller
 {
+    private static ?bool $payrollMirrorSchemaReady = null;
+
     public function periodsIndex(Request $request): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -126,7 +129,12 @@ class FinancePayrollController extends Controller
                 $this->syncPayrollMirrorExpense($period, $restaurant, $request->user()?->id);
             }
 
-            return $period->fresh(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role', 'mirroredExpense:id,payroll_period_id']);
+            $relations = ['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role'];
+            if ($this->isPayrollMirrorSchemaReady()) {
+                $relations[] = 'mirroredExpense:id,payroll_period_id';
+            }
+
+            return $period->fresh($relations);
         });
 
         return response()->json([
@@ -329,6 +337,12 @@ class FinancePayrollController extends Controller
 
     private function syncPayrollMirrorExpense(PayrollPeriod $period, Restaurant $restaurant, ?int $performedByUserId): void
     {
+        if (! $this->isPayrollMirrorSchemaReady()) {
+            throw ValidationException::withMessages([
+                'status' => 'Payroll mirror schema is not ready yet. Please run the latest database migrations.',
+            ]);
+        }
+
         $period->loadMissing('entries');
 
         $netCents = (int) $period->entries->sum('net_amount_cents');
@@ -383,7 +397,11 @@ class FinancePayrollController extends Controller
      */
     private function formatPeriod(PayrollPeriod $period): array
     {
-        $period->loadMissing(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role', 'mirroredExpense:id,payroll_period_id']);
+        $relations = ['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role'];
+        if ($this->isPayrollMirrorSchemaReady()) {
+            $relations[] = 'mirroredExpense:id,payroll_period_id';
+        }
+        $period->loadMissing($relations);
 
         $base = (int) $period->entries->sum('base_amount_cents');
         $overtime = (int) $period->entries->sum('overtime_amount_cents');
@@ -409,7 +427,7 @@ class FinancePayrollController extends Controller
                 'email' => $period->processedBy->email,
                 'role' => $period->processedBy->role,
             ] : null,
-            'mirrored_expense_id' => $period->mirroredExpense?->id,
+            'mirrored_expense_id' => $this->isPayrollMirrorSchemaReady() ? $period->mirroredExpense?->id : null,
             'entries' => $period->entries
                 ->map(fn (PayrollEntry $entry): array => [
                     'id' => $entry->id,
@@ -439,5 +457,16 @@ class FinancePayrollController extends Controller
                 'employee_count' => $period->entries->pluck('user_id')->unique()->count(),
             ],
         ];
+    }
+
+    private function isPayrollMirrorSchemaReady(): bool
+    {
+        if (self::$payrollMirrorSchemaReady !== null) {
+            return self::$payrollMirrorSchemaReady;
+        }
+
+        self::$payrollMirrorSchemaReady = Schema::hasColumn('expenses', 'payroll_period_id');
+
+        return self::$payrollMirrorSchemaReady;
     }
 }
