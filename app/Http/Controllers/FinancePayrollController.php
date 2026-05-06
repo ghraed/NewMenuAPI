@@ -162,6 +162,8 @@ class FinancePayrollController extends Controller
             'entries.*.base_amount_cents' => ['required', 'integer', 'min:0'],
             'entries.*.overtime_amount_cents' => ['sometimes', 'integer', 'min:0'],
             'entries.*.bonus_amount_cents' => ['sometimes', 'integer', 'min:0'],
+            'entries.*.allowance_amount_cents' => ['sometimes', 'integer', 'min:0'],
+            'entries.*.reimbursement_amount_cents' => ['sometimes', 'integer', 'min:0'],
             'entries.*.deduction_amount_cents' => ['sometimes', 'integer', 'min:0'],
             'entries.*.tax_amount_cents' => ['sometimes', 'integer', 'min:0'],
             'entries.*.currency' => ['sometimes', 'string', 'size:3'],
@@ -182,9 +184,11 @@ class FinancePayrollController extends Controller
                 $base = (int) $entryPayload['base_amount_cents'];
                 $overtime = (int) ($entryPayload['overtime_amount_cents'] ?? 0);
                 $bonus = (int) ($entryPayload['bonus_amount_cents'] ?? 0);
+                $allowance = (int) ($entryPayload['allowance_amount_cents'] ?? 0);
+                $reimbursement = (int) ($entryPayload['reimbursement_amount_cents'] ?? 0);
                 $deduction = (int) ($entryPayload['deduction_amount_cents'] ?? 0);
                 $tax = (int) ($entryPayload['tax_amount_cents'] ?? 0);
-                $net = $base + $overtime + $bonus - $deduction - $tax;
+                $net = $base + $overtime + $bonus + $allowance + $reimbursement - $deduction - $tax;
                 if ($net < 0) {
                     throw ValidationException::withMessages([
                         "entries.{$index}.deduction_amount_cents" => 'Payroll entry net pay cannot be negative.',
@@ -201,6 +205,8 @@ class FinancePayrollController extends Controller
                         'base_amount_cents' => $base,
                         'overtime_amount_cents' => $overtime,
                         'bonus_amount_cents' => $bonus,
+                        'allowance_amount_cents' => $allowance,
+                        'reimbursement_amount_cents' => $reimbursement,
                         'deduction_amount_cents' => $deduction,
                         'tax_amount_cents' => $tax,
                         'net_amount_cents' => $net,
@@ -249,6 +255,8 @@ class FinancePayrollController extends Controller
                 SUM(base_amount_cents) as base_cents,
                 SUM(overtime_amount_cents) as overtime_cents,
                 SUM(bonus_amount_cents) as bonus_cents,
+                SUM(allowance_amount_cents) as allowance_cents,
+                SUM(reimbursement_amount_cents) as reimbursement_cents,
                 SUM(deduction_amount_cents) as deduction_cents,
                 SUM(tax_amount_cents) as tax_cents,
                 SUM(net_amount_cents) as net_cents,
@@ -259,10 +267,12 @@ class FinancePayrollController extends Controller
         $base = (int) ($aggregateRow?->base_cents ?? 0);
         $overtime = (int) ($aggregateRow?->overtime_cents ?? 0);
         $bonus = (int) ($aggregateRow?->bonus_cents ?? 0);
+        $allowance = (int) ($aggregateRow?->allowance_cents ?? 0);
+        $reimbursement = (int) ($aggregateRow?->reimbursement_cents ?? 0);
         $deduction = (int) ($aggregateRow?->deduction_cents ?? 0);
         $tax = (int) ($aggregateRow?->tax_cents ?? 0);
         $net = (int) ($aggregateRow?->net_cents ?? 0);
-        $gross = $base + $overtime + $bonus;
+        $gross = $base + $overtime + $bonus + $allowance + $reimbursement;
 
         return response()->json([
             'date_from' => $from->toDateString(),
@@ -418,6 +428,8 @@ class FinancePayrollController extends Controller
         $base = (int) $period->entries->sum('base_amount_cents');
         $overtime = (int) $period->entries->sum('overtime_amount_cents');
         $bonus = (int) $period->entries->sum('bonus_amount_cents');
+        $allowance = (int) $period->entries->sum('allowance_amount_cents');
+        $reimbursement = (int) $period->entries->sum('reimbursement_amount_cents');
         $deduction = (int) $period->entries->sum('deduction_amount_cents');
         $tax = (int) $period->entries->sum('tax_amount_cents');
         $net = (int) $period->entries->sum('net_amount_cents');
@@ -454,6 +466,8 @@ class FinancePayrollController extends Controller
                     'base_amount_cents' => $entry->base_amount_cents,
                     'overtime_amount_cents' => $entry->overtime_amount_cents,
                     'bonus_amount_cents' => $entry->bonus_amount_cents,
+                    'allowance_amount_cents' => $entry->allowance_amount_cents,
+                    'reimbursement_amount_cents' => $entry->reimbursement_amount_cents,
                     'deduction_amount_cents' => $entry->deduction_amount_cents,
                     'tax_amount_cents' => $entry->tax_amount_cents,
                     'net_amount_cents' => $entry->net_amount_cents,
@@ -462,7 +476,7 @@ class FinancePayrollController extends Controller
                 ])
                 ->values(),
             'totals' => [
-                'gross_pay' => round(($base + $overtime + $bonus) / 100, 2),
+                'gross_pay' => round(($base + $overtime + $bonus + $allowance + $reimbursement) / 100, 2),
                 'deductions' => round($deduction / 100, 2),
                 'tax' => round($tax / 100, 2),
                 'net_pay' => round($net / 100, 2),
