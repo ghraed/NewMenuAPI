@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Restaurant;
+use App\Models\StockMovement;
 use App\Models\Vendor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class FinanceExpenseController extends Controller
 
         $query = Expense::query()
             ->where('restaurant_id', $restaurant->id)
-            ->with(['category', 'vendor'])
+            ->with(['category', 'vendor', 'linkedStockMovement.ingredient'])
             ->orderByDesc('expense_date')
             ->orderByDesc('id');
 
@@ -93,7 +94,7 @@ class FinanceExpenseController extends Controller
                 : null,
         ]);
 
-        $expense->load(['category', 'vendor']);
+        $expense->load(['category', 'vendor', 'linkedStockMovement.ingredient']);
 
         return response()->json([
             'message' => 'Expense created successfully.',
@@ -166,11 +167,70 @@ class FinanceExpenseController extends Controller
             $expense->update($payload);
         }
 
-        $expense->load(['category', 'vendor']);
+        $expense->load(['category', 'vendor', 'linkedStockMovement.ingredient']);
 
         return response()->json([
             'message' => 'Expense updated successfully.',
-            'expense' => $this->formatExpense($expense->fresh(['category', 'vendor'])),
+            'expense' => $this->formatExpense($expense->fresh(['category', 'vendor', 'linkedStockMovement.ingredient'])),
+        ]);
+    }
+
+    public function unlinkedRestocks(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $validated = $request->validate([
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'ingredient_id' => ['nullable', 'integer'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
+
+        $query = StockMovement::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('movement_type', StockMovement::TYPE_RESTOCK)
+            ->whereNull('linked_expense_id')
+            ->with('ingredient:id,name')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+
+        if (! empty($validated['date_from'])) {
+            $query->whereDate('created_at', '>=', $validated['date_from']);
+        }
+        if (! empty($validated['date_to'])) {
+            $query->whereDate('created_at', '<=', $validated['date_to']);
+        }
+        if (! empty($validated['ingredient_id'])) {
+            $query->where('ingredient_id', (int) $validated['ingredient_id']);
+        }
+
+        $perPage = (int) ($validated['per_page'] ?? 80);
+        $paginator = $query->paginate($perPage);
+
+        return response()->json([
+            'restocks' => collect($paginator->items())->map(function (StockMovement $movement): array {
+                $createdDate = $movement->created_at?->copy()->startOfDay();
+                $today = now()->startOfDay();
+                $ageDays = $createdDate ? (int) $createdDate->diffInDays($today) : 0;
+
+                return [
+                    'id' => $movement->id,
+                    'ingredient_id' => $movement->ingredient_id,
+                    'ingredient_name' => $movement->ingredient?->name ?: $movement->ingredient_name_snapshot,
+                    'quantity_delta' => number_format((float) $movement->quantity_delta, 3, '.', ''),
+                    'unit' => $movement->unit,
+                    'reference' => $movement->reference,
+                    'notes' => $movement->notes,
+                    'created_at' => $movement->created_at?->toISOString(),
+                    'age_days' => $ageDays,
+                    'is_flagged' => $ageDays >= 1,
+                ];
+            })->values(),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
         ]);
     }
 
@@ -289,7 +349,15 @@ class FinanceExpenseController extends Controller
                 'id' => $expense->vendor->id,
                 'name' => $expense->vendor->name,
             ] : null,
+            'linked_stock_movement' => $expense->linkedStockMovement ? [
+                'id' => $expense->linkedStockMovement->id,
+                'ingredient_id' => $expense->linkedStockMovement->ingredient_id,
+                'ingredient_name' => $expense->linkedStockMovement->ingredient?->name
+                    ?: $expense->linkedStockMovement->ingredient_name_snapshot,
+                'quantity_delta' => number_format((float) $expense->linkedStockMovement->quantity_delta, 3, '.', ''),
+                'unit' => $expense->linkedStockMovement->unit,
+                'created_at' => $expense->linkedStockMovement->created_at?->toISOString(),
+            ] : null,
         ];
     }
 }
-

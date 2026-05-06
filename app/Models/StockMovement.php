@@ -19,6 +19,7 @@ class StockMovement extends Model
         'ingredient_id',
         'order_id',
         'order_item_id',
+        'linked_expense_id',
         'performed_by',
         'movement_type',
         'unit',
@@ -67,5 +68,10 @@ class StockMovement extends Model
     public function performedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'performed_by');
+    }
+
+    public function linkedExpense(): BelongsTo
+    {
+        return $this->belongsTo(Expense::class, 'linked_expense_id');
     }
 }

@@ -29,6 +29,7 @@ class InventoryStockHistoryController extends Controller
             ],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
+            'linked_expense' => ['nullable', 'in:all,linked,unlinked'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
@@ -37,6 +38,7 @@ class InventoryStockHistoryController extends Controller
             ->where('restaurant_id', $restaurant->id)
             ->with([
                 'ingredient:id,name',
+                'linkedExpense:id,status,expense_date',
             ])
             ->orderByDesc('created_at')
             ->orderByDesc('id');
@@ -55,6 +57,13 @@ class InventoryStockHistoryController extends Controller
 
         if (! empty($validated['date_to'])) {
             $query->whereDate('created_at', '<=', $validated['date_to']);
+        }
+
+        $linkedExpenseMode = $validated['linked_expense'] ?? 'all';
+        if ($linkedExpenseMode === 'linked') {
+            $query->whereNotNull('linked_expense_id');
+        } elseif ($linkedExpenseMode === 'unlinked') {
+            $query->whereNull('linked_expense_id');
         }
 
         $perPage = (int) ($validated['per_page'] ?? 20);
@@ -116,6 +125,9 @@ class InventoryStockHistoryController extends Controller
             'reference_type' => $referenceType,
             'reference_id' => $referenceId,
             'notes' => $movement->notes,
+            'linked_expense_id' => $movement->linked_expense_id,
+            'linked_expense_status' => $movement->linkedExpense?->status,
+            'linked_expense_date' => $movement->linkedExpense?->expense_date?->toDateString(),
             'created_at' => $movement->created_at?->toIso8601String(),
         ];
     }
@@ -128,6 +140,10 @@ class InventoryStockHistoryController extends Controller
 
         if ($movement->order_id) {
             return ['order', (string) $movement->order_id];
+        }
+
+        if ($movement->linked_expense_id) {
+            return ['expense', (string) $movement->linked_expense_id];
         }
 
         if ($movement->reference) {

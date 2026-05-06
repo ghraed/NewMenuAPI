@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Expense extends Model
@@ -85,5 +86,9 @@ class Expense extends Model
     {
         return $this->hasMany(ExpenseAttachment::class);
     }
-}
 
+    public function linkedStockMovement(): HasOne
+    {
+        return $this->hasOne(StockMovement::class, 'linked_expense_id');
+    }
+}

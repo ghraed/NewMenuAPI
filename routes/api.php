@@ -194,6 +194,8 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
         Route::get('/admin/finance/expenses', [FinanceExpenseController::class, 'index'])
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
+        Route::get('/admin/finance/expenses/unlinked-restocks', [FinanceExpenseController::class, 'unlinkedRestocks'])
+            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
         Route::post('/admin/finance/expenses', [FinanceExpenseController::class, 'store'])
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
         Route::patch('/admin/finance/expenses/{expense}', [FinanceExpenseController::class, 'update'])
