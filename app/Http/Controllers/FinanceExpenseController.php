@@ -324,6 +324,7 @@ class FinanceExpenseController extends Controller
             'restaurant_id' => $expense->restaurant_id,
             'expense_category_id' => $expense->expense_category_id,
             'vendor_id' => $expense->vendor_id,
+            'payroll_period_id' => $expense->payroll_period_id,
             'expense_date' => $expense->expense_date?->toDateString(),
             'amount_cents' => (int) $expense->amount_cents,
             'tax_amount_cents' => (int) $expense->tax_amount_cents,

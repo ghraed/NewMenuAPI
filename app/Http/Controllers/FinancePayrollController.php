@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Expense;
+use App\Models\ExpenseCategory;
 use App\Models\PayrollEntry;
 use App\Models\PayrollPeriod;
 use App\Models\Restaurant;
@@ -85,6 +87,12 @@ class FinancePayrollController extends Controller
             ]);
         }
 
+        if ($period->status === PayrollPeriod::STATUS_PAID && $nextStatus !== PayrollPeriod::STATUS_PAID) {
+            throw ValidationException::withMessages([
+                'status' => 'Paid payroll period cannot be moved back to approved or draft.',
+            ]);
+        }
+
         if (array_key_exists('status', $validated)) {
             $payload['status'] = $nextStatus;
         }
@@ -109,13 +117,21 @@ class FinancePayrollController extends Controller
             $payload['notes'] = $this->normalizeOptionalString($validated['notes']);
         }
 
-        if ($payload !== []) {
-            $period->update($payload);
-        }
+        $period = DB::transaction(function () use ($period, $payload, $nextStatus, $request, $restaurant): PayrollPeriod {
+            if ($payload !== []) {
+                $period->update($payload);
+            }
+
+            if ($nextStatus === PayrollPeriod::STATUS_PAID) {
+                $this->syncPayrollMirrorExpense($period, $restaurant, $request->user()?->id);
+            }
+
+            return $period->fresh(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role', 'mirroredExpense:id,payroll_period_id']);
+        });
 
         return response()->json([
             'message' => 'Payroll period updated successfully.',
-            'period' => $this->formatPeriod($period->fresh(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role'])),
+            'period' => $this->formatPeriod($period),
         ]);
     }
 
@@ -311,12 +327,63 @@ class FinancePayrollController extends Controller
         return $normalized === '' ? null : $normalized;
     }
 
+    private function syncPayrollMirrorExpense(PayrollPeriod $period, Restaurant $restaurant, ?int $performedByUserId): void
+    {
+        $period->loadMissing('entries');
+
+        $netCents = (int) $period->entries->sum('net_amount_cents');
+        $employeeCount = $period->entries->pluck('user_id')->unique()->count();
+        $currency = strtoupper((string) ($restaurant->currency ?? 'USD'));
+
+        $payrollCategory = ExpenseCategory::query()->firstOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'code' => 'payroll',
+            ],
+            [
+                'name' => 'Payroll',
+                'is_active' => true,
+            ]
+        );
+
+        $paidDate = $period->paid_at?->copy()->toDateString() ?? now()->toDateString();
+
+        Expense::query()->updateOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'payroll_period_id' => $period->id,
+            ],
+            [
+                'expense_category_id' => $payrollCategory->id,
+                'vendor_id' => null,
+                'expense_date' => $paidDate,
+                'amount_cents' => max(0, $netCents),
+                'tax_amount_cents' => 0,
+                'currency' => $currency,
+                'status' => Expense::STATUS_PAID,
+                'payment_method' => null,
+                'reference_no' => 'PAYROLL-'.$period->id,
+                'description' => sprintf(
+                    'Payroll period %s to %s (%d employees)',
+                    $period->period_start?->toDateString() ?? '-',
+                    $period->period_end?->toDateString() ?? '-',
+                    $employeeCount
+                ),
+                'notes' => $this->normalizeOptionalString($period->notes),
+                'due_date' => null,
+                'paid_at' => $period->paid_at ?? now(),
+                'created_by' => $performedByUserId,
+                'approved_by' => $performedByUserId,
+            ]
+        );
+    }
+
     /**
      * @return array<string,mixed>
      */
     private function formatPeriod(PayrollPeriod $period): array
     {
-        $period->loadMissing(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role']);
+        $period->loadMissing(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role', 'mirroredExpense:id,payroll_period_id']);
 
         $base = (int) $period->entries->sum('base_amount_cents');
         $overtime = (int) $period->entries->sum('overtime_amount_cents');
@@ -342,6 +409,7 @@ class FinancePayrollController extends Controller
                 'email' => $period->processedBy->email,
                 'role' => $period->processedBy->role,
             ] : null,
+            'mirrored_expense_id' => $period->mirroredExpense?->id,
             'entries' => $period->entries
                 ->map(fn (PayrollEntry $entry): array => [
                     'id' => $entry->id,

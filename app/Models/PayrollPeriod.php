@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PayrollPeriod extends Model
 {
@@ -45,5 +46,10 @@ class PayrollPeriod extends Model
     public function processedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'processed_by');
+    }
+
+    public function mirroredExpense(): HasOne
+    {
+        return $this->hasOne(Expense::class, 'payroll_period_id');
     }
 }

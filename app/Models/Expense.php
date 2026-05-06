@@ -22,6 +22,7 @@ class Expense extends Model
         'restaurant_id',
         'expense_category_id',
         'vendor_id',
+        'payroll_period_id',
         'expense_date',
         'amount_cents',
         'tax_amount_cents',
@@ -85,6 +86,11 @@ class Expense extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(ExpenseAttachment::class);
+    }
+
+    public function payrollPeriod(): BelongsTo
+    {
+        return $this->belongsTo(PayrollPeriod::class, 'payroll_period_id');
     }
 
     public function linkedStockMovement(): HasOne
