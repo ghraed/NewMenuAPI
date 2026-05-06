@@ -204,6 +204,8 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('feature:payroll_management');
         Route::post('/admin/finance/payroll/periods', [FinancePayrollController::class, 'periodsStore'])
             ->middleware('feature:payroll_management');
+        Route::post('/admin/finance/payroll/query', [FinancePayrollController::class, 'queryPeriods'])
+            ->middleware('feature:payroll_management');
         Route::patch('/admin/finance/payroll/periods/{payrollPeriod}', [FinancePayrollController::class, 'periodsUpdate'])
             ->middleware('feature:payroll_management');
         Route::put('/admin/finance/payroll/periods/{payrollPeriod}/entries', [FinancePayrollController::class, 'entriesUpsert'])

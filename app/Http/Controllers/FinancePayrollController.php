@@ -73,6 +73,119 @@ class FinancePayrollController extends Controller
         ], 201);
     }
 
+    public function queryPeriods(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $validated = $request->validate([
+            'mode' => ['required', 'in:monthly,range'],
+            'year' => ['required_if:mode,monthly', 'integer', 'min:2000', 'max:2100'],
+            'month' => ['required_if:mode,monthly', 'integer', 'min:1', 'max:12'],
+            'date_from' => ['required_if:mode,range', 'date'],
+            'date_to' => ['required_if:mode,range', 'date', 'after_or_equal:date_from'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        [$windowStart, $windowEnd] = $this->resolveQueryWindow($validated);
+        $notes = $this->normalizeOptionalString($validated['notes'] ?? null);
+
+        $periods = DB::transaction(function () use ($restaurant, $windowStart, $windowEnd, $notes): array {
+            $overlapping = PayrollPeriod::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->whereDate('period_start', '<=', $windowEnd->toDateString())
+                ->whereDate('period_end', '>=', $windowStart->toDateString())
+                ->orderBy('period_start')
+                ->orderBy('period_end')
+                ->lockForUpdate()
+                ->get();
+
+            if ($overlapping->isEmpty()) {
+                $period = PayrollPeriod::query()->create([
+                    'restaurant_id' => $restaurant->id,
+                    'period_start' => $windowStart->toDateString(),
+                    'period_end' => $windowEnd->toDateString(),
+                    'status' => PayrollPeriod::STATUS_DRAFT,
+                    'notes' => $notes,
+                ]);
+
+                return [$period];
+            }
+
+            $selected = [];
+            $cursor = $windowStart->copy();
+
+            foreach ($overlapping as $period) {
+                $periodStart = Carbon::parse($period->period_start)->startOfDay();
+                $periodEnd = Carbon::parse($period->period_end)->endOfDay();
+
+                if ($periodStart->gt($cursor) && $cursor->lte($windowEnd)) {
+                    $gapEnd = $periodStart->copy()->subDay();
+                    if ($gapEnd->gt($windowEnd)) {
+                        $gapEnd = $windowEnd->copy();
+                    }
+                    if ($cursor->lte($gapEnd)) {
+                        $selected[] = PayrollPeriod::query()->create([
+                            'restaurant_id' => $restaurant->id,
+                            'period_start' => $cursor->toDateString(),
+                            'period_end' => $gapEnd->toDateString(),
+                            'status' => PayrollPeriod::STATUS_DRAFT,
+                            'notes' => $notes,
+                        ]);
+                    }
+                }
+
+                if ($periodEnd->lt($windowStart) || $periodStart->gt($windowEnd)) {
+                    continue;
+                }
+
+                $selected[] = $period;
+
+                $nextCursor = $periodEnd->copy()->addDay()->startOfDay();
+                if ($nextCursor->gt($cursor)) {
+                    $cursor = $nextCursor;
+                }
+            }
+
+            if ($cursor->lte($windowEnd)) {
+                $selected[] = PayrollPeriod::query()->create([
+                    'restaurant_id' => $restaurant->id,
+                    'period_start' => $cursor->toDateString(),
+                    'period_end' => $windowEnd->toDateString(),
+                    'status' => PayrollPeriod::STATUS_DRAFT,
+                    'notes' => $notes,
+                ]);
+            }
+
+            usort($selected, function (PayrollPeriod $a, PayrollPeriod $b): int {
+                $startCompare = strcmp((string) $a->period_start, (string) $b->period_start);
+                if ($startCompare !== 0) {
+                    return $startCompare;
+                }
+
+                return (int) $a->id <=> (int) $b->id;
+            });
+
+            return $selected;
+        });
+
+        $periodIds = collect($periods)->pluck('id')->values()->all();
+        $resolvedPeriods = PayrollPeriod::query()
+            ->whereIn('id', $periodIds)
+            ->with(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role'])
+            ->orderBy('period_start')
+            ->orderBy('id')
+            ->get();
+
+        return response()->json([
+            'mode' => $validated['mode'],
+            'window' => [
+                'date_from' => $windowStart->toDateString(),
+                'date_to' => $windowEnd->toDateString(),
+            ],
+            'periods' => $resolvedPeriods->map(fn (PayrollPeriod $period): array => $this->formatPeriod($period))->values(),
+        ]);
+    }
+
     public function periodsUpdate(Request $request, PayrollPeriod $payrollPeriod): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -335,6 +448,27 @@ class FinancePayrollController extends Controller
         }
 
         return [now()->startOfMonth(), now()->endOfMonth()];
+    }
+
+    /**
+     * @param array<string,mixed> $validated
+     * @return array{0:Carbon,1:Carbon}
+     */
+    private function resolveQueryWindow(array $validated): array
+    {
+        if (($validated['mode'] ?? null) === 'monthly') {
+            $year = (int) $validated['year'];
+            $month = (int) $validated['month'];
+            $from = Carbon::createFromDate($year, $month, 1)->startOfDay();
+            $to = $from->copy()->endOfMonth()->endOfDay();
+
+            return [$from, $to];
+        }
+
+        $from = Carbon::parse((string) $validated['date_from'])->startOfDay();
+        $to = Carbon::parse((string) $validated['date_to'])->endOfDay();
+
+        return [$from, $to];
     }
 
     private function normalizeOptionalString(mixed $value): ?string

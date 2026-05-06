@@ -96,6 +96,8 @@ final class FinancePayrollApiTest extends TestCase
                     'base_amount_cents' => 100000,
                     'overtime_amount_cents' => 20000,
                     'bonus_amount_cents' => 5000,
+                    'allowance_amount_cents' => 30000,
+                    'reimbursement_amount_cents' => 2000,
                     'deduction_amount_cents' => 10000,
                     'tax_amount_cents' => 15000,
                     'currency' => 'usd',
@@ -105,6 +107,8 @@ final class FinancePayrollApiTest extends TestCase
                     'base_amount_cents' => 120000,
                     'overtime_amount_cents' => 0,
                     'bonus_amount_cents' => 10000,
+                    'allowance_amount_cents' => 7000,
+                    'reimbursement_amount_cents' => 3000,
                     'deduction_amount_cents' => 5000,
                     'tax_amount_cents' => 12000,
                 ],
@@ -112,11 +116,13 @@ final class FinancePayrollApiTest extends TestCase
         ]);
 
         $upsertIncluded->assertOk()
-            ->assertJsonPath('period.totals.gross_pay', 2550)
+            ->assertJsonPath('period.totals.gross_pay', 2970)
             ->assertJsonPath('period.totals.deductions', 150)
             ->assertJsonPath('period.totals.tax', 270)
-            ->assertJsonPath('period.totals.net_pay', 2130)
+            ->assertJsonPath('period.totals.net_pay', 2550)
             ->assertJsonPath('period.totals.employee_count', 2)
+            ->assertJsonPath('period.entries.0.allowance_amount_cents', 30000)
+            ->assertJsonPath('period.entries.0.reimbursement_amount_cents', 2000)
             ->assertJsonPath('period.entries.0.currency', 'USD');
 
         $upsertExcluded = $this->putJson("/api/admin/finance/payroll/periods/{$excludedDraftPeriod->id}/entries", [
@@ -145,19 +151,19 @@ final class FinancePayrollApiTest extends TestCase
 
         $defaultSummary->assertOk()
             ->assertJsonPath('mode.period_status', 'approved_paid')
-            ->assertJsonPath('totals.gross_pay', 2550)
+            ->assertJsonPath('totals.gross_pay', 2970)
             ->assertJsonPath('totals.deductions', 150)
             ->assertJsonPath('totals.tax', 270)
-            ->assertJsonPath('totals.net_pay', 2130)
+            ->assertJsonPath('totals.net_pay', 2550)
             ->assertJsonPath('totals.employee_count', 2);
 
         $allSummary = $this->getJson('/api/admin/finance/payroll/summary?date_from=2026-05-01&date_to=2026-05-31&period_status=all');
 
         $allSummary->assertOk()
             ->assertJsonPath('mode.period_status', 'all')
-            ->assertJsonPath('totals.gross_pay', 3050)
+            ->assertJsonPath('totals.gross_pay', 3470)
             ->assertJsonPath('totals.tax', 320)
-            ->assertJsonPath('totals.net_pay', 2580);
+            ->assertJsonPath('totals.net_pay', 3000);
 
         $markPaid = $this->patchJson("/api/admin/finance/payroll/periods/{$includedPeriod->id}", [
             'status' => PayrollPeriod::STATUS_PAID,
@@ -251,6 +257,84 @@ final class FinancePayrollApiTest extends TestCase
         $response = $this->getJson('/api/admin/finance/payroll/periods');
 
         $response->assertForbidden();
+    }
+
+    public function test_query_monthly_mode_creates_and_reuses_period_container(): void
+    {
+        [$admin, $restaurant] = $this->createAdminWithRestaurant('payroll-query-monthly');
+        Sanctum::actingAs($admin);
+
+        $first = $this->postJson('/api/admin/finance/payroll/query', [
+            'mode' => 'monthly',
+            'year' => 2026,
+            'month' => 4,
+        ]);
+
+        $first->assertOk()
+            ->assertJsonPath('mode', 'monthly')
+            ->assertJsonPath('window.date_from', '2026-04-01')
+            ->assertJsonPath('window.date_to', '2026-04-30')
+            ->assertJsonCount(1, 'periods')
+            ->assertJsonPath('periods.0.period_start', '2026-04-01')
+            ->assertJsonPath('periods.0.period_end', '2026-04-30');
+
+        $second = $this->postJson('/api/admin/finance/payroll/query', [
+            'mode' => 'monthly',
+            'year' => 2026,
+            'month' => 4,
+        ]);
+
+        $second->assertOk()
+            ->assertJsonCount(1, 'periods');
+
+        $this->assertDatabaseCount('payroll_periods', 1);
+        $this->assertDatabaseHas('payroll_periods', [
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-04-01',
+            'period_end' => '2026-04-30',
+        ]);
+    }
+
+    public function test_query_range_mode_splits_by_existing_periods_and_creates_gap_periods(): void
+    {
+        [$admin, $restaurant] = $this->createAdminWithRestaurant('payroll-query-range');
+        Sanctum::actingAs($admin);
+
+        PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-05-01',
+            'period_end' => '2026-05-10',
+            'status' => PayrollPeriod::STATUS_DRAFT,
+        ]);
+
+        PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-05-15',
+            'period_end' => '2026-05-20',
+            'status' => PayrollPeriod::STATUS_DRAFT,
+        ]);
+
+        $query = $this->postJson('/api/admin/finance/payroll/query', [
+            'mode' => 'range',
+            'date_from' => '2026-05-01',
+            'date_to' => '2026-05-20',
+        ]);
+
+        $query->assertOk()
+            ->assertJsonPath('mode', 'range')
+            ->assertJsonCount(3, 'periods')
+            ->assertJsonPath('periods.0.period_start', '2026-05-01')
+            ->assertJsonPath('periods.0.period_end', '2026-05-10')
+            ->assertJsonPath('periods.1.period_start', '2026-05-11')
+            ->assertJsonPath('periods.1.period_end', '2026-05-14')
+            ->assertJsonPath('periods.2.period_start', '2026-05-15')
+            ->assertJsonPath('periods.2.period_end', '2026-05-20');
+
+        $this->assertDatabaseHas('payroll_periods', [
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-05-11',
+            'period_end' => '2026-05-14',
+        ]);
     }
 
     /**
