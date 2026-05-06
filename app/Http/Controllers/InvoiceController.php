@@ -539,7 +539,7 @@ class InvoiceController extends Controller
     private function generateInvoiceNumber(Restaurant $restaurant): string
     {
         $datePart = now()->format('Ymd');
-        $prefix = "FIN-{$datePart}-";
+        $prefix = "INV-{$datePart}-";
 
         $lastInvoiceNumber = Invoice::query()
             ->where('restaurant_id', $restaurant->id)
