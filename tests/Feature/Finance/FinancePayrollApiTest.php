@@ -499,6 +499,121 @@ final class FinancePayrollApiTest extends TestCase
             ->assertJsonPath('periods.2.period_end', '2026-05-12');
     }
 
+    public function test_adjustment_period_can_be_created_for_paid_regular_period_and_included_in_summary(): void
+    {
+        [$admin, $restaurant] = $this->createAdminWithRestaurant('payroll-adjustment');
+        $staff = User::factory()->staff()->create();
+        $restaurant->staffUsers()->attach($staff->id);
+        Sanctum::actingAs($admin);
+
+        $regular = PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-05-01',
+            'period_end' => '2026-05-07',
+            'period_type' => 'regular',
+            'status' => PayrollPeriod::STATUS_PAID,
+            'paid_at' => '2026-05-08 12:00:00',
+        ]);
+
+        $adjustmentCreate = $this->postJson('/api/admin/finance/payroll/periods', [
+            'period_start' => '2026-05-09',
+            'period_end' => '2026-05-09',
+            'period_type' => 'adjustment',
+            'adjustment_of_period_id' => $regular->id,
+            'notes' => 'Fix missed overtime',
+        ]);
+
+        $adjustmentCreate->assertCreated()
+            ->assertJsonPath('period.period_type', 'adjustment')
+            ->assertJsonPath('period.adjustment_of_period_id', $regular->id);
+
+        $adjustmentId = (int) $adjustmentCreate->json('period.id');
+
+        $upsert = $this->putJson("/api/admin/finance/payroll/periods/{$adjustmentId}/entries", [
+            'entries' => [
+                [
+                    'user_id' => $staff->id,
+                    'base_amount_cents' => 15000,
+                    'notes' => 'Underpaid overtime on regular period',
+                ],
+            ],
+        ]);
+        $upsert->assertOk()
+            ->assertJsonPath('period.totals.net_pay', 150);
+
+        $approve = $this->patchJson("/api/admin/finance/payroll/periods/{$adjustmentId}", [
+            'status' => PayrollPeriod::STATUS_APPROVED,
+        ]);
+        $approve->assertOk();
+
+        $summary = $this->getJson('/api/admin/finance/payroll/summary?date_from=2026-05-01&date_to=2026-05-31');
+        $summary->assertOk()
+            ->assertJsonPath('totals.net_pay', 150);
+    }
+
+    public function test_adjustment_period_validation_rules_are_enforced(): void
+    {
+        [$admin, $restaurant] = $this->createAdminWithRestaurant('payroll-adjustment-rules');
+        $staff = User::factory()->staff()->create();
+        $restaurant->staffUsers()->attach($staff->id);
+        Sanctum::actingAs($admin);
+
+        $unpaidRegular = PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-06-01',
+            'period_end' => '2026-06-07',
+            'period_type' => 'regular',
+            'status' => PayrollPeriod::STATUS_APPROVED,
+        ]);
+
+        $mustReferencePaid = $this->postJson('/api/admin/finance/payroll/periods', [
+            'period_start' => '2026-06-08',
+            'period_end' => '2026-06-08',
+            'period_type' => 'adjustment',
+            'adjustment_of_period_id' => $unpaidRegular->id,
+        ]);
+        $mustReferencePaid->assertStatus(422)
+            ->assertJsonValidationErrors(['adjustment_of_period_id']);
+
+        $paidRegular = PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-06-10',
+            'period_end' => '2026-06-15',
+            'period_type' => 'regular',
+            'status' => PayrollPeriod::STATUS_PAID,
+            'paid_at' => '2026-06-16 12:00:00',
+        ]);
+
+        $mustNotOverlapRegular = $this->postJson('/api/admin/finance/payroll/periods', [
+            'period_start' => '2026-06-12',
+            'period_end' => '2026-06-12',
+            'period_type' => 'adjustment',
+            'adjustment_of_period_id' => $paidRegular->id,
+        ]);
+        $mustNotOverlapRegular->assertStatus(422)
+            ->assertJsonValidationErrors(['period_start']);
+
+        $adjustmentCreate = $this->postJson('/api/admin/finance/payroll/periods', [
+            'period_start' => '2026-06-16',
+            'period_end' => '2026-06-16',
+            'period_type' => 'adjustment',
+            'adjustment_of_period_id' => $paidRegular->id,
+        ]);
+        $adjustmentCreate->assertCreated();
+        $adjustmentId = (int) $adjustmentCreate->json('period.id');
+
+        $missingNote = $this->putJson("/api/admin/finance/payroll/periods/{$adjustmentId}/entries", [
+            'entries' => [
+                [
+                    'user_id' => $staff->id,
+                    'base_amount_cents' => -5000,
+                ],
+            ],
+        ]);
+        $missingNote->assertStatus(422)
+            ->assertJsonValidationErrors(['entries.0.notes']);
+    }
+
     /**
      * @return array{0: User, 1: Restaurant}
      */

@@ -27,7 +27,11 @@ class FinancePayrollController extends Controller
 
         $periods = PayrollPeriod::query()
             ->where('restaurant_id', $restaurant->id)
-            ->with(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role'])
+            ->with([
+                'entries.user:id,name,email,phone,role',
+                'processedBy:id,name,email,role',
+                'adjustmentOfPeriod:id,period_start,period_end,status',
+            ])
             ->orderByDesc('period_start')
             ->orderByDesc('id')
             ->get();
@@ -44,25 +48,71 @@ class FinancePayrollController extends Controller
         $validated = $request->validate([
             'period_start' => ['required', 'date'],
             'period_end' => ['required', 'date', 'after_or_equal:period_start'],
+            'period_type' => ['nullable', 'in:regular,adjustment'],
+            'adjustment_of_period_id' => ['nullable', 'integer'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $hasOverlap = PayrollPeriod::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->whereDate('period_start', '<=', $validated['period_end'])
-            ->whereDate('period_end', '>=', $validated['period_start'])
-            ->exists();
+        $periodType = (string) ($validated['period_type'] ?? PayrollPeriod::TYPE_REGULAR);
+        $adjustmentOfPeriodId = isset($validated['adjustment_of_period_id']) ? (int) $validated['adjustment_of_period_id'] : null;
 
-        if ($hasOverlap) {
-            throw ValidationException::withMessages([
-                'period_start' => 'Payroll period overlaps an existing period.',
-            ]);
+        if ($periodType === PayrollPeriod::TYPE_ADJUSTMENT) {
+            if ($adjustmentOfPeriodId === null) {
+                throw ValidationException::withMessages([
+                    'adjustment_of_period_id' => 'Adjustment period must reference an original payroll period.',
+                ]);
+            }
+
+            $originPeriod = PayrollPeriod::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('id', $adjustmentOfPeriodId)
+                ->first();
+            if (! $originPeriod) {
+                throw ValidationException::withMessages([
+                    'adjustment_of_period_id' => 'Referenced original payroll period was not found.',
+                ]);
+            }
+            if ($originPeriod->period_type !== PayrollPeriod::TYPE_REGULAR) {
+                throw ValidationException::withMessages([
+                    'adjustment_of_period_id' => 'Adjustment period must reference a regular payroll period.',
+                ]);
+            }
+            if ($originPeriod->status !== PayrollPeriod::STATUS_PAID) {
+                throw ValidationException::withMessages([
+                    'adjustment_of_period_id' => 'You can only create adjustments for paid payroll periods.',
+                ]);
+            }
+
+            $overlapsRegular = PayrollPeriod::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('period_type', PayrollPeriod::TYPE_REGULAR)
+                ->whereDate('period_start', '<=', $validated['period_end'])
+                ->whereDate('period_end', '>=', $validated['period_start'])
+                ->exists();
+            if ($overlapsRegular) {
+                throw ValidationException::withMessages([
+                    'period_start' => 'Adjustment period cannot overlap regular payroll periods.',
+                ]);
+            }
+        } else {
+            $hasOverlap = PayrollPeriod::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->whereDate('period_start', '<=', $validated['period_end'])
+                ->whereDate('period_end', '>=', $validated['period_start'])
+                ->exists();
+            if ($hasOverlap) {
+                throw ValidationException::withMessages([
+                    'period_start' => 'Payroll period overlaps an existing period.',
+                ]);
+            }
         }
 
         $period = PayrollPeriod::query()->create([
             'restaurant_id' => $restaurant->id,
             'period_start' => $validated['period_start'],
             'period_end' => $validated['period_end'],
+            'period_type' => $periodType,
+            'adjustment_of_period_id' => $periodType === PayrollPeriod::TYPE_ADJUSTMENT ? $adjustmentOfPeriodId : null,
             'status' => PayrollPeriod::STATUS_DRAFT,
             'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
         ]);
@@ -329,10 +379,14 @@ class FinancePayrollController extends Controller
             ]);
         }
 
+        $isAdjustmentPeriod = $period->period_type === PayrollPeriod::TYPE_ADJUSTMENT;
+
         $validated = $request->validate([
             'entries' => ['required', 'array', 'min:1'],
             'entries.*.user_id' => ['required', 'integer', 'distinct'],
-            'entries.*.base_amount_cents' => ['required', 'integer', 'min:0'],
+            'entries.*.base_amount_cents' => $isAdjustmentPeriod
+                ? ['required', 'integer']
+                : ['required', 'integer', 'min:0'],
             'entries.*.overtime_amount_cents' => ['sometimes', 'integer', 'min:0'],
             'entries.*.bonus_amount_cents' => ['sometimes', 'integer', 'min:0'],
             'entries.*.allowance_amount_cents' => ['sometimes', 'integer', 'min:0'],
@@ -354,18 +408,36 @@ class FinancePayrollController extends Controller
 
         DB::transaction(function () use ($validated, $period, $restaurant): void {
             foreach ($validated['entries'] as $index => $entryPayload) {
-                $base = (int) $entryPayload['base_amount_cents'];
-                $overtime = (int) ($entryPayload['overtime_amount_cents'] ?? 0);
-                $bonus = (int) ($entryPayload['bonus_amount_cents'] ?? 0);
-                $allowance = (int) ($entryPayload['allowance_amount_cents'] ?? 0);
-                $reimbursement = (int) ($entryPayload['reimbursement_amount_cents'] ?? 0);
-                $deduction = (int) ($entryPayload['deduction_amount_cents'] ?? 0);
-                $tax = (int) ($entryPayload['tax_amount_cents'] ?? 0);
-                $net = $base + $overtime + $bonus + $allowance + $reimbursement - $deduction - $tax;
-                if ($net < 0) {
-                    throw ValidationException::withMessages([
-                        "entries.{$index}.deduction_amount_cents" => 'Payroll entry net pay cannot be negative.',
-                    ]);
+                if ($isAdjustmentPeriod) {
+                    $correction = (int) $entryPayload['base_amount_cents'];
+                    $note = $this->normalizeOptionalString($entryPayload['notes'] ?? null);
+                    if ($note === null) {
+                        throw ValidationException::withMessages([
+                            "entries.{$index}.notes" => 'Adjustment entries require a note explaining the correction.',
+                        ]);
+                    }
+                    $base = $correction;
+                    $overtime = 0;
+                    $bonus = 0;
+                    $allowance = 0;
+                    $reimbursement = 0;
+                    $deduction = 0;
+                    $tax = 0;
+                    $net = $correction;
+                } else {
+                    $base = (int) $entryPayload['base_amount_cents'];
+                    $overtime = (int) ($entryPayload['overtime_amount_cents'] ?? 0);
+                    $bonus = (int) ($entryPayload['bonus_amount_cents'] ?? 0);
+                    $allowance = (int) ($entryPayload['allowance_amount_cents'] ?? 0);
+                    $reimbursement = (int) ($entryPayload['reimbursement_amount_cents'] ?? 0);
+                    $deduction = (int) ($entryPayload['deduction_amount_cents'] ?? 0);
+                    $tax = (int) ($entryPayload['tax_amount_cents'] ?? 0);
+                    $net = $base + $overtime + $bonus + $allowance + $reimbursement - $deduction - $tax;
+                    if ($net < 0) {
+                        throw ValidationException::withMessages([
+                            "entries.{$index}.deduction_amount_cents" => 'Payroll entry net pay cannot be negative.',
+                        ]);
+                    }
                 }
 
                 PayrollEntry::query()->updateOrCreate(
@@ -646,7 +718,11 @@ class FinancePayrollController extends Controller
      */
     private function formatPeriod(PayrollPeriod $period): array
     {
-        $relations = ['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role'];
+        $relations = [
+            'entries.user:id,name,email,phone,role',
+            'processedBy:id,name,email,role',
+            'adjustmentOfPeriod:id,period_start,period_end,status',
+        ];
         $mirroredExpenseId = null;
         if ($this->isPayrollMirrorSchemaReady()) {
             try {
@@ -655,7 +731,11 @@ class FinancePayrollController extends Controller
                 $mirroredExpenseId = $period->mirroredExpense?->id;
             } catch (Throwable) {
                 self::$payrollMirrorSchemaReady = false;
-                $period->loadMissing(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role']);
+                $period->loadMissing([
+                    'entries.user:id,name,email,phone,role',
+                    'processedBy:id,name,email,role',
+                    'adjustmentOfPeriod:id,period_start,period_end,status',
+                ]);
             }
         } else {
             $period->loadMissing($relations);
@@ -675,6 +755,8 @@ class FinancePayrollController extends Controller
             'restaurant_id' => $period->restaurant_id,
             'period_start' => $period->period_start?->toDateString(),
             'period_end' => $period->period_end?->toDateString(),
+            'period_type' => $period->period_type ?? PayrollPeriod::TYPE_REGULAR,
+            'adjustment_of_period_id' => $period->adjustment_of_period_id,
             'status' => $period->status,
             'approved_at' => $period->approved_at?->toISOString(),
             'paid_at' => $period->paid_at?->toISOString(),
@@ -686,6 +768,12 @@ class FinancePayrollController extends Controller
                 'name' => $period->processedBy->name,
                 'email' => $period->processedBy->email,
                 'role' => $period->processedBy->role,
+            ] : null,
+            'adjustment_of_period' => $period->adjustmentOfPeriod ? [
+                'id' => $period->adjustmentOfPeriod->id,
+                'period_start' => $period->adjustmentOfPeriod->period_start?->toDateString(),
+                'period_end' => $period->adjustmentOfPeriod->period_end?->toDateString(),
+                'status' => $period->adjustmentOfPeriod->status,
             ] : null,
             'mirrored_expense_id' => $mirroredExpenseId,
             'entries' => $period->entries
