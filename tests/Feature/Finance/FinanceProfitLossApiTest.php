@@ -8,6 +8,8 @@ use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Feature;
 use App\Models\Invoice;
+use App\Models\PayrollEntry;
+use App\Models\PayrollPeriod;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
 use App\Models\StockMovement;
@@ -122,6 +124,57 @@ final class FinanceProfitLossApiTest extends TestCase
             ->assertJsonPath('totals.expenses', 150)
             ->assertJsonPath('totals.cogs', 40)
             ->assertJsonPath('totals.profit', 10);
+    }
+
+    public function test_profit_and_loss_includes_paid_payroll_mirror_expense(): void
+    {
+        [$admin, $restaurant] = $this->createAdminWithRestaurant('pl-payroll');
+        $this->enableFeatureForRestaurant($restaurant, 'payroll_management');
+
+        $staff = User::factory()->staff()->create();
+        $restaurant->staffUsers()->attach($staff->id);
+
+        $this->createInvoice($restaurant->id, '2026-05-05', Invoice::STATUS_ISSUED, 200.00);
+        $this->createStockMovement($restaurant->id, '2026-05-05 15:00:00', StockMovement::TYPE_ORDER_CONSUMPTION, 4000);
+
+        $period = PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-05-01',
+            'period_end' => '2026-05-31',
+            'status' => PayrollPeriod::STATUS_APPROVED,
+        ]);
+
+        PayrollEntry::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'payroll_period_id' => $period->id,
+            'user_id' => $staff->id,
+            'base_amount_cents' => 100000,
+            'overtime_amount_cents' => 10000,
+            'bonus_amount_cents' => 0,
+            'allowance_amount_cents' => 0,
+            'reimbursement_amount_cents' => 0,
+            'deduction_amount_cents' => 1000,
+            'tax_amount_cents' => 2000,
+            'net_amount_cents' => 107000,
+            'currency' => 'USD',
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $beforePaid = $this->getJson('/api/admin/finance/profit-loss?date_from=2026-05-01&date_to=2026-05-31');
+        $beforePaid->assertOk()
+            ->assertJsonPath('operating_expenses', 0)
+            ->assertJsonPath('net_profit', 160);
+
+        $markPaid = $this->patchJson("/api/admin/finance/payroll/periods/{$period->id}", [
+            'status' => PayrollPeriod::STATUS_PAID,
+        ]);
+        $markPaid->assertOk();
+
+        $afterPaid = $this->getJson('/api/admin/finance/profit-loss?date_from=2026-05-01&date_to=2026-05-31');
+        $afterPaid->assertOk()
+            ->assertJsonPath('operating_expenses', 1100)
+            ->assertJsonPath('net_profit', -940);
     }
 
     public function test_non_admin_user_cannot_access_profit_and_loss_endpoint(): void

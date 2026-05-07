@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Finance;
 
+use App\Models\Expense;
+use App\Models\ExpenseCategory;
 use App\Models\Feature;
 use App\Models\PayrollPeriod;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -173,6 +176,35 @@ final class FinancePayrollApiTest extends TestCase
             ->assertJsonPath('period.status', PayrollPeriod::STATUS_PAID)
             ->assertJsonPath('period.paid_at', fn ($value): bool => is_string($value) && $value !== '');
 
+        $payrollCategoryId = ExpenseCategory::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('code', 'payroll')
+            ->value('id');
+
+        $this->assertNotNull($payrollCategoryId);
+        $this->assertDatabaseHas('expenses', [
+            'restaurant_id' => $restaurant->id,
+            'payroll_period_id' => $includedPeriod->id,
+            'expense_category_id' => $payrollCategoryId,
+            'amount_cents' => 297000,
+            'tax_amount_cents' => 0,
+            'status' => Expense::STATUS_PAID,
+        ]);
+
+        $markPaidAgain = $this->patchJson("/api/admin/finance/payroll/periods/{$includedPeriod->id}", [
+            'status' => PayrollPeriod::STATUS_PAID,
+        ]);
+
+        $markPaidAgain->assertOk();
+
+        $this->assertSame(
+            1,
+            Expense::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('payroll_period_id', $includedPeriod->id)
+                ->count()
+        );
+
         $cannotEditPaidEntries = $this->putJson("/api/admin/finance/payroll/periods/{$includedPeriod->id}/entries", [
             'entries' => [
                 [
@@ -184,6 +216,80 @@ final class FinancePayrollApiTest extends TestCase
 
         $cannotEditPaidEntries->assertStatus(422)
             ->assertJsonValidationErrors(['status']);
+    }
+
+    public function test_payroll_mirror_backfill_command_creates_and_updates_gross_expense_rows(): void
+    {
+        [$admin, $restaurant] = $this->createAdminWithRestaurant('payroll-backfill');
+
+        $staff = User::factory()->staff()->create();
+        $restaurant->staffUsers()->attach($staff->id);
+
+        $period = PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-05-01',
+            'period_end' => '2026-05-31',
+            'status' => PayrollPeriod::STATUS_PAID,
+            'paid_at' => '2026-05-31 12:00:00',
+        ]);
+
+        \App\Models\PayrollEntry::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'payroll_period_id' => $period->id,
+            'user_id' => $staff->id,
+            'base_amount_cents' => 100000,
+            'overtime_amount_cents' => 10000,
+            'bonus_amount_cents' => 5000,
+            'allowance_amount_cents' => 5000,
+            'reimbursement_amount_cents' => 5000,
+            'deduction_amount_cents' => 1000,
+            'tax_amount_cents' => 2000,
+            'net_amount_cents' => 122000,
+            'currency' => 'USD',
+        ]);
+
+        $this->assertDatabaseMissing('expenses', [
+            'restaurant_id' => $restaurant->id,
+            'payroll_period_id' => $period->id,
+        ]);
+
+        $code = Artisan::call('finance:backfill-payroll-mirror-expenses', [
+            '--restaurant_id' => (string) $restaurant->id,
+        ]);
+
+        $this->assertSame(0, $code);
+
+        $this->assertDatabaseHas('expenses', [
+            'restaurant_id' => $restaurant->id,
+            'payroll_period_id' => $period->id,
+            'amount_cents' => 125000,
+            'tax_amount_cents' => 0,
+            'status' => Expense::STATUS_PAID,
+        ]);
+
+        \App\Models\PayrollEntry::query()
+            ->where('payroll_period_id', $period->id)
+            ->update(['bonus_amount_cents' => 10000, 'net_amount_cents' => 127000]);
+
+        $secondCode = Artisan::call('finance:backfill-payroll-mirror-expenses', [
+            '--period_id' => (string) $period->id,
+        ]);
+
+        $this->assertSame(0, $secondCode);
+        $this->assertSame(
+            1,
+            Expense::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('payroll_period_id', $period->id)
+                ->count()
+        );
+        $this->assertDatabaseHas('expenses', [
+            'restaurant_id' => $restaurant->id,
+            'payroll_period_id' => $period->id,
+            'amount_cents' => 130000,
+            'tax_amount_cents' => 0,
+            'status' => Expense::STATUS_PAID,
+        ]);
     }
 
     public function test_payroll_entries_reject_invalid_users_negative_net_and_cross_tenant_period_access(): void

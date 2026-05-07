@@ -491,7 +491,13 @@ class FinancePayrollController extends Controller
 
         $period->loadMissing('entries');
 
-        $netCents = (int) $period->entries->sum('net_amount_cents');
+        $grossCents = (int) (
+            (int) $period->entries->sum('base_amount_cents')
+            + (int) $period->entries->sum('overtime_amount_cents')
+            + (int) $period->entries->sum('bonus_amount_cents')
+            + (int) $period->entries->sum('allowance_amount_cents')
+            + (int) $period->entries->sum('reimbursement_amount_cents')
+        );
         $employeeCount = $period->entries->pluck('user_id')->unique()->count();
         $currency = strtoupper((string) ($restaurant->currency ?? 'USD'));
 
@@ -518,7 +524,7 @@ class FinancePayrollController extends Controller
                 'expense_category_id' => $payrollCategory->id,
                 'vendor_id' => null,
                 'expense_date' => $paidDate,
-                'amount_cents' => max(0, $netCents),
+                'amount_cents' => max(0, $grossCents),
                 'tax_amount_cents' => 0,
                 'currency' => $currency,
                 'status' => Expense::STATUS_PAID,
