@@ -94,7 +94,7 @@ class FinancePayrollController extends Controller
         $notes = $this->normalizeOptionalString($validated['notes'] ?? null);
         $targetSegments = $this->buildQuerySegments($windowStart, $windowEnd, $splitMode, $splitDays);
 
-        $periods = DB::transaction(function () use ($restaurant, $windowStart, $windowEnd, $notes, $targetSegments, $splitMode): array {
+        $result = DB::transaction(function () use ($restaurant, $windowStart, $windowEnd, $notes, $targetSegments, $splitMode): array {
             $existing = PayrollPeriod::query()
                 ->where('restaurant_id', $restaurant->id)
                 ->whereDate('period_start', '<=', $windowEnd->toDateString())
@@ -103,6 +103,7 @@ class FinancePayrollController extends Controller
                 ->orderBy('period_end')
                 ->lockForUpdate()
                 ->get();
+            $createdIds = [];
 
             if ($splitMode === 'full') {
                 if ($existing->isEmpty()) {
@@ -114,7 +115,10 @@ class FinancePayrollController extends Controller
                         'notes' => $notes,
                     ]);
 
-                    return [$period];
+                    return [
+                        'periods' => [$period],
+                        'created_ids' => [$period->id],
+                    ];
                 }
 
                 $selected = [];
@@ -130,13 +134,15 @@ class FinancePayrollController extends Controller
                             $gapEnd = $windowEnd->copy();
                         }
                         if ($cursor->lte($gapEnd)) {
-                            $selected[] = PayrollPeriod::query()->create([
+                            $created = PayrollPeriod::query()->create([
                                 'restaurant_id' => $restaurant->id,
                                 'period_start' => $cursor->toDateString(),
                                 'period_end' => $gapEnd->toDateString(),
                                 'status' => PayrollPeriod::STATUS_DRAFT,
                                 'notes' => $notes,
                             ]);
+                            $selected[] = $created;
+                            $createdIds[] = $created->id;
                         }
                     }
 
@@ -153,13 +159,15 @@ class FinancePayrollController extends Controller
                 }
 
                 if ($cursor->lte($windowEnd)) {
-                    $selected[] = PayrollPeriod::query()->create([
+                    $created = PayrollPeriod::query()->create([
                         'restaurant_id' => $restaurant->id,
                         'period_start' => $cursor->toDateString(),
                         'period_end' => $windowEnd->toDateString(),
                         'status' => PayrollPeriod::STATUS_DRAFT,
                         'notes' => $notes,
                     ]);
+                    $selected[] = $created;
+                    $createdIds[] = $created->id;
                 }
 
                 usort($selected, function (PayrollPeriod $a, PayrollPeriod $b): int {
@@ -171,7 +179,10 @@ class FinancePayrollController extends Controller
                     return (int) $a->id <=> (int) $b->id;
                 });
 
-                return $selected;
+                return [
+                    'periods' => $selected,
+                    'created_ids' => $createdIds,
+                ];
             }
 
             $existingByRange = $existing
@@ -186,13 +197,15 @@ class FinancePayrollController extends Controller
                     continue;
                 }
 
-                $selected[] = PayrollPeriod::query()->create([
+                $created = PayrollPeriod::query()->create([
                     'restaurant_id' => $restaurant->id,
                     'period_start' => $segment['start']->toDateString(),
                     'period_end' => $segment['end']->toDateString(),
                     'status' => PayrollPeriod::STATUS_DRAFT,
                     'notes' => $notes,
                 ]);
+                $selected[] = $created;
+                $createdIds[] = $created->id;
             }
 
             usort($selected, function (PayrollPeriod $a, PayrollPeriod $b): int {
@@ -204,10 +217,14 @@ class FinancePayrollController extends Controller
                 return (int) $a->id <=> (int) $b->id;
             });
 
-            return $selected;
+            return [
+                'periods' => $selected,
+                'created_ids' => $createdIds,
+            ];
         });
 
-        $periodIds = collect($periods)->pluck('id')->values()->all();
+        $periodIds = collect($result['periods'] ?? [])->pluck('id')->values()->all();
+        $createdIds = collect($result['created_ids'] ?? [])->map(fn ($id): int => (int) $id)->values()->all();
         $resolvedPeriods = PayrollPeriod::query()
             ->whereIn('id', $periodIds)
             ->with(['entries.user:id,name,email,phone,role', 'processedBy:id,name,email,role'])
@@ -219,6 +236,8 @@ class FinancePayrollController extends Controller
             'mode' => $validated['mode'],
             'split_mode' => $splitMode,
             'split_days' => $splitMode === 'custom_days' ? $splitDays : null,
+            'created_period_ids' => $createdIds,
+            'created_count' => count($createdIds),
             'window' => [
                 'date_from' => $windowStart->toDateString(),
                 'date_to' => $windowEnd->toDateString(),
