@@ -93,17 +93,6 @@ class FinancePayrollController extends Controller
                 ]);
             }
 
-            $overlapsRegular = PayrollPeriod::query()
-                ->where('restaurant_id', $restaurant->id)
-                ->where('period_type', PayrollPeriod::TYPE_REGULAR)
-                ->whereDate('period_start', '<=', $validated['period_end'])
-                ->whereDate('period_end', '>=', $validated['period_start'])
-                ->exists();
-            if ($overlapsRegular) {
-                throw ValidationException::withMessages([
-                    'period_start' => 'Adjustment period cannot overlap regular payroll periods.',
-                ]);
-            }
             $adjustmentEmployeeId = (int) ($originPeriod->employee_id ?? 0);
             if ($adjustmentEmployeeId <= 0) {
                 throw ValidationException::withMessages([
