@@ -20,9 +20,11 @@ use Throwable;
 class FinancePayrollController extends Controller
 {
     private static ?bool $payrollMirrorSchemaReady = null;
+    private static ?bool $payrollSalarySchemaReady = null;
 
     public function periodsIndex(Request $request): JsonResponse
     {
+        $this->assertPayrollSalarySchemaReady();
         $restaurant = $this->getRestaurantForRequest($request);
 
         $periods = PayrollPeriod::query()
@@ -45,6 +47,7 @@ class FinancePayrollController extends Controller
 
     public function periodsStore(Request $request): JsonResponse
     {
+        $this->assertPayrollSalarySchemaReady();
         $restaurant = $this->getRestaurantForRequest($request);
 
         $validated = $request->validate([
@@ -176,6 +179,7 @@ class FinancePayrollController extends Controller
 
     public function queryPeriods(Request $request): JsonResponse
     {
+        $this->assertPayrollSalarySchemaReady();
         $restaurant = $this->getRestaurantForRequest($request);
 
         $validated = $request->validate([
@@ -349,6 +353,7 @@ class FinancePayrollController extends Controller
 
     public function periodsUpdate(Request $request, PayrollPeriod $payrollPeriod): JsonResponse
     {
+        $this->assertPayrollSalarySchemaReady();
         $restaurant = $this->getRestaurantForRequest($request);
         $period = $this->assertPeriodBelongsToRestaurant($payrollPeriod, $restaurant);
 
@@ -421,8 +426,10 @@ class FinancePayrollController extends Controller
 
     public function entriesUpsert(Request $request, PayrollPeriod $payrollPeriod): JsonResponse
     {
+        $this->assertPayrollSalarySchemaReady();
         $restaurant = $this->getRestaurantForRequest($request);
         $period = $this->assertPeriodBelongsToRestaurant($payrollPeriod, $restaurant);
+        $isAdjustmentPeriod = ($period->period_type ?? PayrollPeriod::TYPE_REGULAR) === PayrollPeriod::TYPE_ADJUSTMENT;
 
         if ($period->status === PayrollPeriod::STATUS_PAID) {
             throw ValidationException::withMessages([
@@ -462,7 +469,7 @@ class FinancePayrollController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($validated, $period, $restaurant): void {
+        DB::transaction(function () use ($validated, $period, $restaurant, $isAdjustmentPeriod): void {
             foreach ($validated['entries'] as $index => $entryPayload) {
                 if ($isAdjustmentPeriod) {
                     $correction = (int) $entryPayload['base_amount_cents'];
@@ -526,6 +533,7 @@ class FinancePayrollController extends Controller
 
     public function summary(Request $request): JsonResponse
     {
+        $this->assertPayrollSalarySchemaReady();
         $restaurant = $this->getRestaurantForRequest($request);
 
         $validated = $request->validate([
@@ -911,5 +919,22 @@ class FinancePayrollController extends Controller
         self::$payrollMirrorSchemaReady = Schema::hasColumn('expenses', 'payroll_period_id');
 
         return self::$payrollMirrorSchemaReady;
+    }
+
+    private function assertPayrollSalarySchemaReady(): void
+    {
+        if (self::$payrollSalarySchemaReady === null) {
+            self::$payrollSalarySchemaReady = Schema::hasColumns('payroll_periods', [
+                'period_type',
+                'adjustment_of_period_id',
+                'employee_id',
+            ]);
+        }
+
+        if (! self::$payrollSalarySchemaReady) {
+            throw ValidationException::withMessages([
+                'schema' => 'Payroll salary/adjustment schema is not ready. Please run the latest database migrations.',
+            ]);
+        }
     }
 }
