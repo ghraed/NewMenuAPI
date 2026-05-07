@@ -83,14 +83,19 @@ class FinancePayrollController extends Controller
             'month' => ['required_if:mode,monthly', 'integer', 'min:1', 'max:12'],
             'date_from' => ['required_if:mode,range', 'date'],
             'date_to' => ['required_if:mode,range', 'date', 'after_or_equal:date_from'],
+            'split_mode' => ['nullable', 'in:full,weekly,custom_days'],
+            'split_days' => ['required_if:split_mode,custom_days', 'integer', 'min:1', 'max:31'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
         [$windowStart, $windowEnd] = $this->resolveQueryWindow($validated);
+        $splitMode = (string) ($validated['split_mode'] ?? 'full');
+        $splitDays = isset($validated['split_days']) ? (int) $validated['split_days'] : null;
         $notes = $this->normalizeOptionalString($validated['notes'] ?? null);
+        $targetSegments = $this->buildQuerySegments($windowStart, $windowEnd, $splitMode, $splitDays);
 
-        $periods = DB::transaction(function () use ($restaurant, $windowStart, $windowEnd, $notes): array {
-            $overlapping = PayrollPeriod::query()
+        $periods = DB::transaction(function () use ($restaurant, $windowStart, $windowEnd, $notes, $targetSegments, $splitMode): array {
+            $existing = PayrollPeriod::query()
                 ->where('restaurant_id', $restaurant->id)
                 ->whereDate('period_start', '<=', $windowEnd->toDateString())
                 ->whereDate('period_end', '>=', $windowStart->toDateString())
@@ -99,58 +104,92 @@ class FinancePayrollController extends Controller
                 ->lockForUpdate()
                 ->get();
 
-            if ($overlapping->isEmpty()) {
-                $period = PayrollPeriod::query()->create([
-                    'restaurant_id' => $restaurant->id,
-                    'period_start' => $windowStart->toDateString(),
-                    'period_end' => $windowEnd->toDateString(),
-                    'status' => PayrollPeriod::STATUS_DRAFT,
-                    'notes' => $notes,
-                ]);
+            if ($splitMode === 'full') {
+                if ($existing->isEmpty()) {
+                    $period = PayrollPeriod::query()->create([
+                        'restaurant_id' => $restaurant->id,
+                        'period_start' => $windowStart->toDateString(),
+                        'period_end' => $windowEnd->toDateString(),
+                        'status' => PayrollPeriod::STATUS_DRAFT,
+                        'notes' => $notes,
+                    ]);
 
-                return [$period];
-            }
+                    return [$period];
+                }
 
-            $selected = [];
-            $cursor = $windowStart->copy();
+                $selected = [];
+                $cursor = $windowStart->copy();
 
-            foreach ($overlapping as $period) {
-                $periodStart = Carbon::parse($period->period_start)->startOfDay();
-                $periodEnd = Carbon::parse($period->period_end)->endOfDay();
+                foreach ($existing as $period) {
+                    $periodStart = Carbon::parse($period->period_start)->startOfDay();
+                    $periodEnd = Carbon::parse($period->period_end)->endOfDay();
 
-                if ($periodStart->gt($cursor) && $cursor->lte($windowEnd)) {
-                    $gapEnd = $periodStart->copy()->subDay();
-                    if ($gapEnd->gt($windowEnd)) {
-                        $gapEnd = $windowEnd->copy();
+                    if ($periodStart->gt($cursor) && $cursor->lte($windowEnd)) {
+                        $gapEnd = $periodStart->copy()->subDay();
+                        if ($gapEnd->gt($windowEnd)) {
+                            $gapEnd = $windowEnd->copy();
+                        }
+                        if ($cursor->lte($gapEnd)) {
+                            $selected[] = PayrollPeriod::query()->create([
+                                'restaurant_id' => $restaurant->id,
+                                'period_start' => $cursor->toDateString(),
+                                'period_end' => $gapEnd->toDateString(),
+                                'status' => PayrollPeriod::STATUS_DRAFT,
+                                'notes' => $notes,
+                            ]);
+                        }
                     }
-                    if ($cursor->lte($gapEnd)) {
-                        $selected[] = PayrollPeriod::query()->create([
-                            'restaurant_id' => $restaurant->id,
-                            'period_start' => $cursor->toDateString(),
-                            'period_end' => $gapEnd->toDateString(),
-                            'status' => PayrollPeriod::STATUS_DRAFT,
-                            'notes' => $notes,
-                        ]);
+
+                    if ($periodEnd->lt($windowStart) || $periodStart->gt($windowEnd)) {
+                        continue;
+                    }
+
+                    $selected[] = $period;
+
+                    $nextCursor = $periodEnd->copy()->addDay()->startOfDay();
+                    if ($nextCursor->gt($cursor)) {
+                        $cursor = $nextCursor;
                     }
                 }
 
-                if ($periodEnd->lt($windowStart) || $periodStart->gt($windowEnd)) {
+                if ($cursor->lte($windowEnd)) {
+                    $selected[] = PayrollPeriod::query()->create([
+                        'restaurant_id' => $restaurant->id,
+                        'period_start' => $cursor->toDateString(),
+                        'period_end' => $windowEnd->toDateString(),
+                        'status' => PayrollPeriod::STATUS_DRAFT,
+                        'notes' => $notes,
+                    ]);
+                }
+
+                usort($selected, function (PayrollPeriod $a, PayrollPeriod $b): int {
+                    $startCompare = strcmp((string) $a->period_start, (string) $b->period_start);
+                    if ($startCompare !== 0) {
+                        return $startCompare;
+                    }
+
+                    return (int) $a->id <=> (int) $b->id;
+                });
+
+                return $selected;
+            }
+
+            $existingByRange = $existing
+                ->keyBy(fn (PayrollPeriod $period): string => $period->period_start->toDateString().'|'.$period->period_end->toDateString());
+
+            $selected = [];
+            foreach ($targetSegments as $segment) {
+                $key = $segment['start']->toDateString().'|'.$segment['end']->toDateString();
+                $period = $existingByRange->get($key);
+                if ($period) {
+                    $selected[] = $period;
                     continue;
                 }
 
-                $selected[] = $period;
-
-                $nextCursor = $periodEnd->copy()->addDay()->startOfDay();
-                if ($nextCursor->gt($cursor)) {
-                    $cursor = $nextCursor;
-                }
-            }
-
-            if ($cursor->lte($windowEnd)) {
                 $selected[] = PayrollPeriod::query()->create([
                     'restaurant_id' => $restaurant->id,
-                    'period_start' => $cursor->toDateString(),
-                    'period_end' => $windowEnd->toDateString(),
+                    'period_start' => $segment['start']->toDateString(),
+                    'period_end' => $segment['end']->toDateString(),
                     'status' => PayrollPeriod::STATUS_DRAFT,
                     'notes' => $notes,
                 ]);
@@ -178,6 +217,8 @@ class FinancePayrollController extends Controller
 
         return response()->json([
             'mode' => $validated['mode'],
+            'split_mode' => $splitMode,
+            'split_days' => $splitMode === 'custom_days' ? $splitDays : null,
             'window' => [
                 'date_from' => $windowStart->toDateString(),
                 'date_to' => $windowEnd->toDateString(),
@@ -469,6 +510,42 @@ class FinancePayrollController extends Controller
         $to = Carbon::parse((string) $validated['date_to'])->endOfDay();
 
         return [$from, $to];
+    }
+
+    /**
+     * @return array<int,array{start:Carbon,end:Carbon}>
+     */
+    private function buildQuerySegments(Carbon $windowStart, Carbon $windowEnd, string $splitMode, ?int $splitDays): array
+    {
+        if ($splitMode === 'full') {
+            return [[
+                'start' => $windowStart->copy()->startOfDay(),
+                'end' => $windowEnd->copy()->endOfDay(),
+            ]];
+        }
+
+        $segments = [];
+        $cursor = $windowStart->copy()->startOfDay();
+        $daysPerSegment = $splitMode === 'weekly'
+            ? 7
+            : max(1, (int) ($splitDays ?? 1));
+
+        while ($cursor->lte($windowEnd)) {
+            $segmentStart = $cursor->copy()->startOfDay();
+            $segmentEnd = $cursor->copy()->addDays($daysPerSegment - 1)->endOfDay();
+            if ($segmentEnd->gt($windowEnd)) {
+                $segmentEnd = $windowEnd->copy()->endOfDay();
+            }
+
+            $segments[] = [
+                'start' => $segmentStart,
+                'end' => $segmentEnd,
+            ];
+
+            $cursor = $segmentEnd->copy()->addDay()->startOfDay();
+        }
+
+        return $segments;
     }
 
     private function normalizeOptionalString(mixed $value): ?string

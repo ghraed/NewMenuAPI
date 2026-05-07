@@ -443,6 +443,62 @@ final class FinancePayrollApiTest extends TestCase
         ]);
     }
 
+    public function test_query_monthly_mode_can_split_into_weekly_periods(): void
+    {
+        [$admin] = $this->createAdminWithRestaurant('payroll-query-weekly');
+        Sanctum::actingAs($admin);
+
+        $response = $this->postJson('/api/admin/finance/payroll/query', [
+            'mode' => 'monthly',
+            'year' => 2026,
+            'month' => 4,
+            'split_mode' => 'weekly',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('split_mode', 'weekly')
+            ->assertJsonCount(5, 'periods')
+            ->assertJsonPath('periods.0.period_start', '2026-04-01')
+            ->assertJsonPath('periods.0.period_end', '2026-04-07')
+            ->assertJsonPath('periods.1.period_start', '2026-04-08')
+            ->assertJsonPath('periods.1.period_end', '2026-04-14')
+            ->assertJsonPath('periods.4.period_start', '2026-04-29')
+            ->assertJsonPath('periods.4.period_end', '2026-04-30');
+    }
+
+    public function test_query_range_mode_can_split_into_custom_day_blocks_and_reuse_existing_segments(): void
+    {
+        [$admin, $restaurant] = $this->createAdminWithRestaurant('payroll-query-custom-days');
+        Sanctum::actingAs($admin);
+
+        $seeded = PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'period_start' => '2026-05-05',
+            'period_end' => '2026-05-08',
+            'status' => PayrollPeriod::STATUS_APPROVED,
+        ]);
+
+        $response = $this->postJson('/api/admin/finance/payroll/query', [
+            'mode' => 'range',
+            'date_from' => '2026-05-01',
+            'date_to' => '2026-05-12',
+            'split_mode' => 'custom_days',
+            'split_days' => 4,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('split_mode', 'custom_days')
+            ->assertJsonPath('split_days', 4)
+            ->assertJsonCount(3, 'periods')
+            ->assertJsonPath('periods.0.period_start', '2026-05-01')
+            ->assertJsonPath('periods.0.period_end', '2026-05-04')
+            ->assertJsonPath('periods.1.id', $seeded->id)
+            ->assertJsonPath('periods.1.period_start', '2026-05-05')
+            ->assertJsonPath('periods.1.period_end', '2026-05-08')
+            ->assertJsonPath('periods.2.period_start', '2026-05-09')
+            ->assertJsonPath('periods.2.period_end', '2026-05-12');
+    }
+
     /**
      * @return array{0: User, 1: Restaurant}
      */
