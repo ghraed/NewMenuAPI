@@ -17,6 +17,7 @@ class PayrollPeriod extends Model
 
     protected $fillable = [
         'restaurant_id',
+        'employee_id',
         'period_start',
         'period_end',
         'period_type',
@@ -32,6 +33,7 @@ class PayrollPeriod extends Model
         'period_start' => 'date',
         'period_end' => 'date',
         'adjustment_of_period_id' => 'integer',
+        'employee_id' => 'integer',
         'approved_at' => 'datetime',
         'paid_at' => 'datetime',
         'created_at' => 'datetime',
@@ -41,6 +43,11 @@ class PayrollPeriod extends Model
     public function restaurant(): BelongsTo
     {
         return $this->belongsTo(Restaurant::class);
+    }
+
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'employee_id');
     }
 
     public function entries(): HasMany
