@@ -365,6 +365,40 @@ final class FinancePayrollApiTest extends TestCase
         $response->assertForbidden();
     }
 
+    public function test_admin_can_delete_draft_payroll_record_but_not_paid_record(): void
+    {
+        [$admin, $restaurant] = $this->createAdminWithRestaurant('payroll-delete');
+        Sanctum::actingAs($admin);
+
+        $draft = PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'employee_id' => null,
+            'period_start' => '2026-08-01',
+            'period_end' => '2026-08-01',
+            'period_type' => 'regular',
+            'status' => PayrollPeriod::STATUS_DRAFT,
+        ]);
+
+        $paid = PayrollPeriod::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'employee_id' => null,
+            'period_start' => '2026-08-02',
+            'period_end' => '2026-08-02',
+            'period_type' => 'regular',
+            'status' => PayrollPeriod::STATUS_PAID,
+        ]);
+
+        $deleteDraft = $this->deleteJson("/api/admin/finance/payroll/periods/{$draft->id}");
+        $deleteDraft->assertOk()
+            ->assertJsonPath('message', 'Payroll record deleted successfully.');
+        $this->assertDatabaseMissing('payroll_periods', ['id' => $draft->id]);
+
+        $deletePaid = $this->deleteJson("/api/admin/finance/payroll/periods/{$paid->id}");
+        $deletePaid->assertStatus(422)
+            ->assertJsonValidationErrors(['status']);
+        $this->assertDatabaseHas('payroll_periods', ['id' => $paid->id]);
+    }
+
     public function test_query_monthly_mode_creates_and_reuses_period_container(): void
     {
         [$admin, $restaurant] = $this->createAdminWithRestaurant('payroll-query-monthly');

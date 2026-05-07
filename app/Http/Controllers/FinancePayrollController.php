@@ -424,6 +424,27 @@ class FinancePayrollController extends Controller
         ]);
     }
 
+    public function periodsDestroy(Request $request, PayrollPeriod $payrollPeriod): JsonResponse
+    {
+        $this->assertPayrollSalarySchemaReady();
+        $restaurant = $this->getRestaurantForRequest($request);
+        $period = $this->assertPeriodBelongsToRestaurant($payrollPeriod, $restaurant);
+
+        if ($period->status !== PayrollPeriod::STATUS_DRAFT) {
+            throw ValidationException::withMessages([
+                'status' => 'Only draft payroll records can be deleted.',
+            ]);
+        }
+
+        DB::transaction(function () use ($period): void {
+            $period->delete();
+        });
+
+        return response()->json([
+            'message' => 'Payroll record deleted successfully.',
+        ]);
+    }
+
     public function entriesUpsert(Request $request, PayrollPeriod $payrollPeriod): JsonResponse
     {
         $this->assertPayrollSalarySchemaReady();

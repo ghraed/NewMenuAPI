@@ -208,6 +208,8 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('feature:payroll_management');
         Route::patch('/admin/finance/payroll/periods/{payrollPeriod}', [FinancePayrollController::class, 'periodsUpdate'])
             ->middleware('feature:payroll_management');
+        Route::delete('/admin/finance/payroll/periods/{payrollPeriod}', [FinancePayrollController::class, 'periodsDestroy'])
+            ->middleware('feature:payroll_management');
         Route::put('/admin/finance/payroll/periods/{payrollPeriod}/entries', [FinancePayrollController::class, 'entriesUpsert'])
             ->middleware('feature:payroll_management');
         Route::get('/admin/finance/payroll/summary', [FinancePayrollController::class, 'summary'])
