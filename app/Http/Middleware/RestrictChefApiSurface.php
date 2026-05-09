@@ -33,12 +33,25 @@ class RestrictChefApiSurface
             && (
                 $request->is('api/inventory/*')
                 || $request->is('api/global-ingredients')
+                || $request->is('api/admin/finance/expense-categories')
+                || $request->is('api/admin/finance/vendors')
             )
         ) {
             return $next($request);
         }
 
-        if (! $user->hasRole(User::ROLE_CHEF, User::ROLE_STOCK_MANAGER)) {
+        if (
+            $user->hasRole(User::ROLE_ACCOUNTANT)
+            && (
+                $request->is('api/orders/accounting')
+                || $request->is('api/orders/*/account')
+                || $request->is('api/admin/finance/*')
+            )
+        ) {
+            return $next($request);
+        }
+
+        if (! $user->hasRole(User::ROLE_CHEF, User::ROLE_STOCK_MANAGER, User::ROLE_ACCOUNTANT)) {
             return $next($request);
         }
 

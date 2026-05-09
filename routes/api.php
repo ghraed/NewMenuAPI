@@ -152,7 +152,7 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
             });
         });
 
-    Route::middleware('role:admin')->group(function () {
+    Route::middleware('role:admin,accountant')->group(function () {
         Route::get('/orders/accounting', [OrderController::class, 'accounting'])
             ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
         Route::post('/orders/{order}/account', [OrderController::class, 'account'])
@@ -186,13 +186,9 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
         Route::patch('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'update'])
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
-        Route::get('/admin/finance/expense-categories', [FinanceExpenseCategoryController::class, 'index'])
-            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
         Route::post('/admin/finance/expense-categories', [FinanceExpenseCategoryController::class, 'store'])
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
         Route::patch('/admin/finance/expense-categories/{expenseCategory}', [FinanceExpenseCategoryController::class, 'update'])
-            ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
-        Route::get('/admin/finance/vendors', [FinanceVendorController::class, 'index'])
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
         Route::post('/admin/finance/vendors', [FinanceVendorController::class, 'store'])
             ->middleware(['feature:finance_dashboard', 'feature:expense_management']);
@@ -279,6 +275,12 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
         Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
         Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
+    });
+
+    Route::middleware(['role:admin,accountant,stock_manager', 'feature:finance_dashboard', 'feature:expense_management'])->group(function () {
+        // Stock manager exception: lookup only, used by "Link this restock to a finance expense".
+        Route::get('/admin/finance/expense-categories', [FinanceExpenseCategoryController::class, 'index']);
+        Route::get('/admin/finance/vendors', [FinanceVendorController::class, 'index']);
     });
 
     Route::middleware(['role:chef', 'feature:realtime_staff_orders'])->group(function () {
