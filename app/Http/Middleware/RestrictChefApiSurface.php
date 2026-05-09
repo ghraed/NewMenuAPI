@@ -46,6 +46,7 @@ class RestrictChefApiSurface
                 $request->is('api/orders/accounting')
                 || $request->is('api/orders/*/account')
                 || $request->is('api/admin/finance/*')
+                || $request->is('api/restaurant/staff')
             )
         ) {
             return $next($request);

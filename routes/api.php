@@ -245,7 +245,6 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::post('/restaurant/profile/logo', [RestaurantController::class, 'uploadLogo']);
         Route::get('/restaurant/currency-settings', [CurrencySettingsController::class, 'show']);
         Route::patch('/restaurant/currency-settings', [CurrencySettingsController::class, 'update']);
-        Route::get('/restaurant/staff', [RestaurantController::class, 'indexStaff']);
         Route::post('/restaurant/staff', [RestaurantController::class, 'storeStaff']);
         Route::patch('/restaurant/staff/{staff}/tables', [RestaurantController::class, 'updateStaffTables']);
         Route::get('/restaurant/table-management', [RestaurantController::class, 'tableManagement']);
@@ -275,6 +274,10 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
         Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
         Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
+    });
+
+    Route::middleware('role:admin,accountant')->group(function () {
+        Route::get('/restaurant/staff', [RestaurantController::class, 'indexStaff']);
     });
 
     Route::middleware(['role:admin,accountant,stock_manager', 'feature:finance_dashboard', 'feature:expense_management'])->group(function () {
