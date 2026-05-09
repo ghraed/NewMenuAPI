@@ -13,6 +13,7 @@ use App\Models\TableWave;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
 use App\Services\InvoiceSplitService;
+use App\Services\StaffCapabilityService;
 use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,12 +24,19 @@ class TableSessionController extends Controller
         private readonly GuestMenuSessionService $guestMenuSessionService,
         private readonly TableSessionAccessService $tableSessionAccessService,
         private readonly InvoiceSplitService $invoiceSplitService,
+        private readonly StaffCapabilityService $staffCapabilityService,
     ) {
     }
 
     public function requestBill(TableSession $tableSession, WaveController $waveController): JsonResponse
     {
         $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+        $user = request()->user();
+        if ($user instanceof User) {
+            $restaurant = $this->getRestaurantForRequest(request());
+            $this->assertSessionBelongsToRestaurant($tableSession, $restaurant);
+            $this->staffCapabilityService->assertCanAccessSession($user, $restaurant, $tableSession);
+        }
 
         if (! feature_enabled('request_bill', $session->restaurant)) {
             return response()->json([
@@ -85,7 +93,7 @@ class TableSessionController extends Controller
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertSessionBelongsToRestaurant($tableSession, $restaurant);
-        $this->assertStaffCanAccessSession($request->user(), $tableSession, $restaurant);
+        $this->staffCapabilityService->assertCanAccessSession($request->user(), $restaurant, $tableSession);
 
         $orders = $this->loadInvoiceOrdersForSession($tableSession);
 
@@ -110,7 +118,7 @@ class TableSessionController extends Controller
                     return true;
                 }
 
-                $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
+                $assignedTableIds = $this->staffCapabilityService->assignedTableIds($user, $restaurant);
 
                 return in_array($session->restaurant_table_id, $assignedTableIds, true);
             })
@@ -143,7 +151,7 @@ class TableSessionController extends Controller
             ->firstOrFail();
 
         if ($user->isStaff()) {
-            $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
+            $assignedTableIds = $this->staffCapabilityService->assignedTableIds($user, $restaurant);
 
             if (! in_array($table->id, $assignedTableIds, true)) {
                 abort(403, 'This staff account is not assigned to that table.');
@@ -175,7 +183,7 @@ class TableSessionController extends Controller
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertSessionBelongsToRestaurant($tableSession, $restaurant);
-        $this->assertStaffCanAccessSession($request->user(), $tableSession, $restaurant);
+        $this->staffCapabilityService->assertCanAccessSession($request->user(), $restaurant, $tableSession);
 
         $result = $this->tableSessionAccessService->resetPin($tableSession, $request->user()->id);
 
@@ -190,7 +198,7 @@ class TableSessionController extends Controller
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertSessionBelongsToRestaurant($tableSession, $restaurant);
-        $this->assertStaffCanAccessSession($request->user(), $tableSession, $restaurant);
+        $this->staffCapabilityService->assertCanAccessSession($request->user(), $restaurant, $tableSession);
 
         $validated = $request->validate([
             'payment_method' => ['nullable', 'in:cash,card,transfer,other'],
@@ -228,38 +236,10 @@ class TableSessionController extends Controller
         return $restaurant;
     }
 
-    private function getAccessibleStaffTableIds(User $user, Restaurant $restaurant): array
-    {
-        $user->loadMissing(['assignedTables' => function ($query) use ($restaurant) {
-            $query->where('restaurant_id', $restaurant->id);
-        }]);
-
-        return $user->assignedTables
-            ->pluck('id')
-            ->map(fn ($tableId) => (int) $tableId)
-            ->all();
-    }
-
     private function assertSessionBelongsToRestaurant(TableSession $tableSession, Restaurant $restaurant): void
     {
         if ($tableSession->restaurant_id !== $restaurant->id) {
             abort(404);
-        }
-    }
-
-    private function assertStaffCanAccessSession(User $user, TableSession $tableSession, Restaurant $restaurant): void
-    {
-        if (! $user->isStaff()) {
-            return;
-        }
-
-        $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
-
-        if (
-            $tableSession->restaurant_table_id === null
-            || ! in_array($tableSession->restaurant_table_id, $assignedTableIds, true)
-        ) {
-            abort(403, 'This staff account is not assigned to that table.');
         }
     }
 

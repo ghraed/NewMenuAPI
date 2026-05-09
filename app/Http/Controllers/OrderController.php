@@ -18,6 +18,7 @@ use App\Services\GuestMenuSessionService;
 use App\Services\MobilePushNotificationService;
 use App\Services\OrderInventoryDeductionService;
 use App\Services\OrderInvoiceCalculator;
+use App\Services\StaffCapabilityService;
 use App\Services\TenantRestaurantResolver;
 use App\Services\TableSessionAccessService;
 use Illuminate\Http\JsonResponse;
@@ -36,7 +37,8 @@ class OrderController extends Controller
         private readonly TableSessionAccessService $tableSessionAccessService,
         private readonly OrderInventoryDeductionService $orderInventoryDeductionService,
         private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService,
-        private readonly TenantRestaurantResolver $tenantRestaurantResolver
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver,
+        private readonly StaffCapabilityService $staffCapabilityService,
     ) {
     }
 
@@ -188,7 +190,7 @@ class OrderController extends Controller
             ->latest();
 
         if ($user->isStaff()) {
-            $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
+            $assignedTableIds = $this->staffCapabilityService->assignedTableIds($user, $restaurant);
 
             if ($assignedTableIds === []) {
                 return response()->json([
@@ -208,6 +210,7 @@ class OrderController extends Controller
 
     public function kitchenActiveOrders(Request $request): JsonResponse
     {
+        $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
         $statusFilter = $request->query('status');
 
@@ -229,6 +232,16 @@ class OrderController extends Controller
             ->orderBy('confirmed_at')
             ->orderBy('created_at');
 
+        if ($user->isStaff()) {
+            $assignedTableIds = $this->staffCapabilityService->assignedTableIds($user, $restaurant);
+            if ($assignedTableIds === []) {
+                return response()->json([
+                    'orders' => [],
+                ]);
+            }
+            $ordersQuery->whereIn('restaurant_table_id', $assignedTableIds);
+        }
+
         if (is_string($statusFilter) && $statusFilter !== '' && in_array($statusFilter, $allowedKitchenStatuses, true)) {
             $ordersQuery->where('kitchen_status', $statusFilter);
         }
@@ -242,8 +255,10 @@ class OrderController extends Controller
 
     public function kitchenOrderDetails(Request $request, Order $order): JsonResponse
     {
+        $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertOrderBelongsToRestaurant($order, $restaurant);
+        $this->staffCapabilityService->assertCanAccessOrder($user, $restaurant, $order);
 
         return response()->json([
             'order' => $this->formatKitchenOrder($order),
@@ -420,7 +435,7 @@ class OrderController extends Controller
         $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertOrderBelongsToRestaurant($order, $restaurant);
-        $this->assertStaffCanAccessOrder($user, $order, $restaurant);
+        $this->staffCapabilityService->assertCanAccessOrder($user, $restaurant, $order);
 
         if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
             return response()->json([
@@ -489,7 +504,7 @@ class OrderController extends Controller
         $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertOrderBelongsToRestaurant($order, $restaurant);
-        $this->assertStaffCanAccessOrder($user, $order, $restaurant);
+        $this->staffCapabilityService->assertCanAccessOrder($user, $restaurant, $order);
 
         if ($order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION) {
             return response()->json([
@@ -563,7 +578,7 @@ class OrderController extends Controller
         $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertOrderBelongsToRestaurant($order, $restaurant);
-        $this->assertStaffCanAccessOrder($user, $order, $restaurant);
+        $this->staffCapabilityService->assertCanAccessOrder($user, $restaurant, $order);
 
         if (
             $order->status !== Order::STATUS_PENDING_STAFF_CONFIRMATION
@@ -624,6 +639,34 @@ class OrderController extends Controller
         return response()->json([
             'message' => __('messages.orders.cancelled'),
             'order' => $this->formatOrder($order),
+        ]);
+    }
+
+    public function markServed(Request $request, Order $order): JsonResponse
+    {
+        $user = $request->user();
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+        $this->staffCapabilityService->assertCanAccessOrder($user, $restaurant, $order);
+
+        if (
+            $order->status !== Order::STATUS_STAFF_CONFIRMED
+            || ! in_array($order->kitchen_status, [Order::KITCHEN_STATUS_IN_PROGRESS, Order::KITCHEN_STATUS_READY], true)
+        ) {
+            return response()->json([
+                'message' => 'Only confirmed in-progress/ready orders can be marked as served.',
+            ], 422);
+        }
+
+        $order->update([
+            'kitchen_status' => Order::KITCHEN_STATUS_SERVED,
+            'kitchen_completed_at' => now(),
+            'kitchen_updated_by' => $user->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Order marked as served.',
+            'order' => $this->formatOrder($order->fresh()),
         ]);
     }
 
@@ -982,32 +1025,9 @@ class OrderController extends Controller
         }
     }
 
-    private function assertStaffCanAccessOrder(User $user, Order $order, Restaurant $restaurant): void
-    {
-        if (! $user->isStaff()) {
-            return;
-        }
-
-        $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
-
-        if (
-            $order->restaurant_table_id === null
-            || ! in_array($order->restaurant_table_id, $assignedTableIds, true)
-        ) {
-            abort(403, 'This staff account is not assigned to that table.');
-        }
-    }
-
     private function getAccessibleStaffTableIds(User $user, Restaurant $restaurant): array
     {
-        $user->loadMissing(['assignedTables' => function ($query) use ($restaurant) {
-            $query->where('restaurant_id', $restaurant->id);
-        }]);
-
-        return $user->assignedTables
-            ->pluck('id')
-            ->map(fn ($tableId) => (int) $tableId)
-            ->all();
+        return $this->staffCapabilityService->assignedTableIds($user, $restaurant);
     }
 
     private function formatOrder(Order $order): array

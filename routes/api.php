@@ -113,15 +113,18 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::middleware('role:admin,staff')->group(function () {
             Route::middleware('feature:realtime_staff_orders')->group(function () {
                 Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
+                Route::get('/kitchen/orders', [OrderController::class, 'kitchenActiveOrders']);
+                Route::get('/kitchen/orders/{order}', [OrderController::class, 'kitchenOrderDetails']);
                 Route::patch('/orders/{order}', [OrderController::class, 'update']);
                 Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
-            Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
-            Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
-            Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
-            Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
-            Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
-            Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
-            Route::get('/waves/pending', [WaveController::class, 'pending']);
+                Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+                Route::post('/orders/{order}/served', [OrderController::class, 'markServed']);
+                Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
+                Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
+                Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
+                Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
+                Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
+                Route::get('/waves/pending', [WaveController::class, 'pending']);
                 Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
             });
             Route::get('/table-sessions/{tableSession}/invoice-split', [TableSessionController::class, 'invoiceSplit'])
@@ -149,12 +152,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::middleware('feature:table_reservations')->group(function () {
                 Route::get('/admin/reservations', [ReservationController::class, 'index']);
-                Route::post('/admin/reservations', [ReservationController::class, 'store']);
-                Route::patch('/admin/reservations/{reservation}', [ReservationController::class, 'update']);
-                Route::post('/admin/reservations/{reservation}/cancel', [ReservationController::class, 'cancel']);
-                Route::post('/admin/reservations/{reservation}/busy', [ReservationController::class, 'markBusy']);
-                Route::post('/admin/reservations/{reservation}/complete', [ReservationController::class, 'markCompleted']);
-                Route::post('/admin/reservations/{reservation}/no-show', [ReservationController::class, 'markNoShow']);
             });
         });
 
@@ -276,6 +273,15 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('/ingredients', [IngredientLibraryController::class, 'destroyAll']);
         });
 
+        Route::middleware('feature:table_reservations')->group(function () {
+            Route::post('/admin/reservations', [ReservationController::class, 'store']);
+            Route::patch('/admin/reservations/{reservation}', [ReservationController::class, 'update']);
+            Route::post('/admin/reservations/{reservation}/cancel', [ReservationController::class, 'cancel']);
+            Route::post('/admin/reservations/{reservation}/busy', [ReservationController::class, 'markBusy']);
+            Route::post('/admin/reservations/{reservation}/complete', [ReservationController::class, 'markCompleted']);
+            Route::post('/admin/reservations/{reservation}/no-show', [ReservationController::class, 'markNoShow']);
+        });
+
         // Inventory ingredients
         Route::middleware('feature:inventory')->group(function () {
             Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
@@ -291,8 +297,6 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware(['role:chef', 'feature:realtime_staff_orders'])->group(function () {
-        Route::get('/kitchen/orders', [OrderController::class, 'kitchenActiveOrders']);
-        Route::get('/kitchen/orders/{order}', [OrderController::class, 'kitchenOrderDetails']);
         Route::post('/kitchen/orders/{order}/start', [OrderController::class, 'startKitchenPreparation']);
         Route::post('/kitchen/orders/{order}/ready', [OrderController::class, 'markKitchenReady']);
     });

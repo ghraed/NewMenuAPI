@@ -10,6 +10,7 @@ use App\Models\TableWave;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
 use App\Services\MobilePushNotificationService;
+use App\Services\StaffCapabilityService;
 use App\Services\TableSessionAccessService;
 use App\Services\TenantRestaurantResolver;
 use App\Services\WebPushNotificationService;
@@ -24,7 +25,8 @@ class WaveController extends Controller
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService,
         private readonly TableSessionAccessService $tableSessionAccessService,
-        private readonly TenantRestaurantResolver $tenantRestaurantResolver
+        private readonly TenantRestaurantResolver $tenantRestaurantResolver,
+        private readonly StaffCapabilityService $staffCapabilityService,
     ) {
     }
 
@@ -115,7 +117,7 @@ class WaveController extends Controller
             ->latest('created_at');
 
         if ($user->isStaff()) {
-            $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
+            $assignedTableIds = $this->staffCapabilityService->assignedTableIds($user, $restaurant);
 
             if ($assignedTableIds === []) {
                 return response()->json([
@@ -136,7 +138,7 @@ class WaveController extends Controller
         $user = $request->user();
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertWaveBelongsToRestaurant($wave, $restaurant);
-        $this->assertStaffCanAccessWave($user, $wave, $restaurant);
+        $this->staffCapabilityService->assertCanAccessWave($user, $restaurant, $wave);
 
         if ($wave->status !== TableWave::STATUS_PENDING) {
             return response()->json([
@@ -181,38 +183,10 @@ class WaveController extends Controller
         return $restaurant;
     }
 
-    private function getAccessibleStaffTableIds(User $user, Restaurant $restaurant): array
-    {
-        $user->loadMissing(['assignedTables' => function ($query) use ($restaurant) {
-            $query->where('restaurant_id', $restaurant->id);
-        }]);
-
-        return $user->assignedTables
-            ->pluck('id')
-            ->map(fn ($tableId) => (int) $tableId)
-            ->all();
-    }
-
     private function assertWaveBelongsToRestaurant(TableWave $wave, Restaurant $restaurant): void
     {
         if ($wave->restaurant_id !== $restaurant->id) {
             abort(404);
-        }
-    }
-
-    private function assertStaffCanAccessWave(User $user, TableWave $wave, Restaurant $restaurant): void
-    {
-        if (! $user->isStaff()) {
-            return;
-        }
-
-        $assignedTableIds = $this->getAccessibleStaffTableIds($user, $restaurant);
-
-        if (
-            $wave->restaurant_table_id === null
-            || ! in_array($wave->restaurant_table_id, $assignedTableIds, true)
-        ) {
-            abort(403, 'This staff account is not assigned to that table.');
         }
     }
 

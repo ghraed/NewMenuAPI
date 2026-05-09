@@ -6,6 +6,7 @@ use App\Models\Reservation;
 use App\Models\Restaurant;
 use App\Models\RoomPlanItem;
 use App\Services\ReservationService;
+use App\Services\StaffCapabilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -14,6 +15,7 @@ class ReservationController extends Controller
 {
     public function __construct(
         private readonly ReservationService $reservationService,
+        private readonly StaffCapabilityService $staffCapabilityService,
     ) {
     }
 
@@ -47,6 +49,7 @@ class ReservationController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $this->staffCapabilityService->assertCanMutateReservations($request->user());
         $restaurant = $this->getRestaurantForRequest($request);
         $validated = $this->validateReservationPayload($request, true);
 
@@ -60,6 +63,7 @@ class ReservationController extends Controller
 
     public function update(Request $request, Reservation $reservation): JsonResponse
     {
+        $this->staffCapabilityService->assertCanMutateReservations($request->user());
         $restaurant = $this->getRestaurantForRequest($request);
         $validated = $this->validateReservationPayload($request, false);
 
@@ -93,6 +97,7 @@ class ReservationController extends Controller
 
     private function updateStatus(Request $request, Reservation $reservation, string $status, string $message): JsonResponse
     {
+        $this->staffCapabilityService->assertCanMutateReservations($request->user());
         $restaurant = $this->getRestaurantForRequest($request);
         $updated = $this->reservationService->updateStatus($restaurant, $reservation, $status);
 
