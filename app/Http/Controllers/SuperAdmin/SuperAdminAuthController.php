@@ -1,15 +1,15 @@
 <?php
 
-namespace App\Http\Controllers\Owner;
+namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
-use App\Models\SaasOwner;
+use App\Models\SuperAdmin;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
-class OwnerAuthController extends Controller
+class SuperAdminAuthController extends Controller
 {
     public function login(Request $request): JsonResponse
     {
@@ -20,7 +20,7 @@ class OwnerAuthController extends Controller
 
         $email = strtolower(trim((string) $validated['email']));
 
-        $saasOwner = SaasOwner::query()
+        $saasOwner = SuperAdmin::query()
             ->where('email', $email)
             ->first();
 
@@ -29,7 +29,7 @@ class OwnerAuthController extends Controller
             || ! Hash::check($validated['password'], $saasOwner->password)
         ) {
             return response()->json([
-                'message' => 'Invalid owner credentials.',
+                'message' => 'Invalid Super Admin credentials.',
             ], 401);
         }
 
@@ -79,7 +79,7 @@ class OwnerAuthController extends Controller
         }
 
         return response()->json([
-            'message' => 'Owner logged out successfully.',
+            'message' => 'Super Admin logged out successfully.',
         ]);
     }
 }

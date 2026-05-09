@@ -45,7 +45,7 @@ class AuthController extends Controller
 
         if ($user->hasRole(User::ROLE_SAAS_OWNER)) {
             return response()->json([
-                'message' => 'Use /owner/login for SaaS owner access.',
+                'message' => 'Use /super-admin/login for Super Admin access.',
             ], 403);
         }
 

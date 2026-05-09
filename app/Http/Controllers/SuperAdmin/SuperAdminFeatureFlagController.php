@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Owner;
+namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Feature;
@@ -11,7 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
-class OwnerFeatureFlagController extends Controller
+class SuperAdminFeatureFlagController extends Controller
 {
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,

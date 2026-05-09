@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\SaasOwner;
+use App\Models\SuperAdmin;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
@@ -16,11 +16,11 @@ class EnsureSaasOwner
 
         $isSaasOwner = $user instanceof User && $user->hasRole(User::ROLE_SAAS_OWNER);
         $existsInSaasOwners = $user instanceof User
-            ? SaasOwner::query()->where('email', $user->email)->exists()
+            ? SuperAdmin::query()->where('email', $user->email)->exists()
             : false;
 
         if (! $isSaasOwner || ! $existsInSaasOwners) {
-            abort(403, 'You do not have permission to access the owner dashboard.');
+            abort(403, 'You do not have permission to access the Super Admin dashboard.');
         }
 
         return $next($request);

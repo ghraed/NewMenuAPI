@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class SaasOwner extends Model
+class SuperAdmin extends Model
 {
     protected $table = 'saas_owners';
 

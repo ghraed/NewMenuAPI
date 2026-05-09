@@ -19,8 +19,8 @@ use App\Http\Controllers\FinanceExpenseController;
 use App\Http\Controllers\FinancePayrollController;
 use App\Http\Controllers\FinanceVendorController;
 use App\Http\Controllers\MenuController;
-use App\Http\Controllers\Owner\OwnerAuthController;
-use App\Http\Controllers\Owner\OwnerFeatureFlagController;
+use App\Http\Controllers\SuperAdmin\SuperAdminAuthController;
+use App\Http\Controllers\SuperAdmin\SuperAdminFeatureFlagController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\PublicReservationController;
@@ -39,7 +39,9 @@ use Illuminate\Support\Facades\Route;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
-Route::post('/owner/auth/login', [OwnerAuthController::class, 'login'])
+Route::post('/owner/auth/login', [SuperAdminAuthController::class, 'login'])
+    ->middleware('throttle:owner-login');
+Route::post('/super-admin/auth/login', [SuperAdminAuthController::class, 'login'])
     ->middleware('throttle:owner-login');
 Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat'])
     ->post('/chat', [ChatController::class, 'chat']);
@@ -84,14 +86,24 @@ Route::post('/analytics/track', [AnalyticsController::class, 'track']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('owner')->middleware('saas_owner')->group(function () {
-        Route::get('/auth/me', [OwnerAuthController::class, 'me']);
-        Route::post('/auth/logout', [OwnerAuthController::class, 'logout']);
+        Route::get('/auth/me', [SuperAdminAuthController::class, 'me']);
+        Route::post('/auth/logout', [SuperAdminAuthController::class, 'logout']);
 
-        Route::get('/restaurants', [OwnerFeatureFlagController::class, 'restaurants']);
-        Route::get('/features', [OwnerFeatureFlagController::class, 'features']);
-        Route::get('/restaurants/{restaurant}/features', [OwnerFeatureFlagController::class, 'restaurantFeatures']);
-        Route::patch('/restaurants/{restaurant}/features/bulk', [OwnerFeatureFlagController::class, 'bulkUpdate']);
-        Route::patch('/restaurants/{restaurant}/features/{feature}', [OwnerFeatureFlagController::class, 'updateFeature']);
+        Route::get('/restaurants', [SuperAdminFeatureFlagController::class, 'restaurants']);
+        Route::get('/features', [SuperAdminFeatureFlagController::class, 'features']);
+        Route::get('/restaurants/{restaurant}/features', [SuperAdminFeatureFlagController::class, 'restaurantFeatures']);
+        Route::patch('/restaurants/{restaurant}/features/bulk', [SuperAdminFeatureFlagController::class, 'bulkUpdate']);
+        Route::patch('/restaurants/{restaurant}/features/{feature}', [SuperAdminFeatureFlagController::class, 'updateFeature']);
+    });
+    Route::prefix('super-admin')->middleware('saas_owner')->group(function () {
+        Route::get('/auth/me', [SuperAdminAuthController::class, 'me']);
+        Route::post('/auth/logout', [SuperAdminAuthController::class, 'logout']);
+
+        Route::get('/restaurants', [SuperAdminFeatureFlagController::class, 'restaurants']);
+        Route::get('/features', [SuperAdminFeatureFlagController::class, 'features']);
+        Route::get('/restaurants/{restaurant}/features', [SuperAdminFeatureFlagController::class, 'restaurantFeatures']);
+        Route::patch('/restaurants/{restaurant}/features/bulk', [SuperAdminFeatureFlagController::class, 'bulkUpdate']);
+        Route::patch('/restaurants/{restaurant}/features/{feature}', [SuperAdminFeatureFlagController::class, 'updateFeature']);
     });
 
     // Auth
