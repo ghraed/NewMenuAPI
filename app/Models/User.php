@@ -161,8 +161,14 @@ class User extends Authenticatable
 
     private function normalizeRole(string $role): string
     {
-        return $role === self::ROLE_RESTAURANT_ADMIN
-            ? self::ROLE_ADMIN
-            : $role;
+        if ($role === self::ROLE_RESTAURANT_ADMIN) {
+            return self::ROLE_ADMIN;
+        }
+
+        if ($role === 'stock_manger') {
+            return self::ROLE_STOCK_MANAGER;
+        }
+
+        return $role;
     }
 }
