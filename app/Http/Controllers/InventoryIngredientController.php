@@ -557,13 +557,14 @@ class InventoryIngredientController extends Controller
     private function getRestaurantForRequest(Request $request): Restaurant
     {
         $user = $request->user();
-        $user?->loadMissing('restaurant');
+        $user?->loadMissing('restaurant', 'staffRestaurants');
+        $restaurant = $user?->currentRestaurant();
 
-        if (! $user?->restaurant) {
+        if (! $restaurant) {
             abort(403, 'No restaurant is linked to this account.');
         }
 
-        return $user->restaurant;
+        return $restaurant;
     }
 
     private function assertIngredientBelongsToRestaurant(Ingredient $ingredient, Restaurant $restaurant): Ingredient
