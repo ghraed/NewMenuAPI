@@ -47,6 +47,13 @@ class RealWorldTenantScenarioSeeder extends Seeder
             role: User::ROLE_STAFF
         );
 
+        $alphaChef = $this->upsertUser(
+            name: 'Alpha Chef',
+            email: 'chef@alpha.com',
+            password: 'chef12345',
+            role: User::ROLE_CHEF
+        );
+
         $sigmaStaff = $this->upsertUser(
             name: 'Sigma Staff',
             email: 'staff@sigma.com',
@@ -70,7 +77,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
             address: 'Mar Mikhael, Beirut'
         );
 
-        $alphaRestaurant->staffUsers()->syncWithoutDetaching([$alphaStaff->id]);
+        $alphaRestaurant->staffUsers()->syncWithoutDetaching([$alphaStaff->id, $alphaChef->id]);
         $sigmaRestaurant->staffUsers()->syncWithoutDetaching([$sigmaStaff->id]);
 
         $this->upsertDomain($alphaRestaurant, 'alpha.rozer.fun');
