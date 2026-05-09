@@ -10,25 +10,38 @@ use Symfony\Component\HttpFoundation\Response;
 class RestrictChefApiSurface
 {
     /**
-     * Chef accounts may only use auth me/logout and kitchen workflow endpoints.
+     * Restricted roles may only use their dedicated workflow + auth me/logout.
      */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
 
-        if (! $user || ! $user->hasRole(User::ROLE_CHEF)) {
+        if (! $user) {
+            return $next($request);
+        }
+
+        if ($request->is('api/auth/me') || $request->is('api/auth/logout')) {
+            return $next($request);
+        }
+
+        if ($user->hasRole(User::ROLE_CHEF) && $request->is('api/kitchen/*')) {
             return $next($request);
         }
 
         if (
-            $request->is('api/auth/me')
-            || $request->is('api/auth/logout')
-            || $request->is('api/kitchen/*')
+            $user->hasRole(User::ROLE_STOCK_MANAGER)
+            && (
+                $request->is('api/inventory/*')
+                || $request->is('api/global-ingredients')
+            )
         ) {
+            return $next($request);
+        }
+
+        if (! $user->hasRole(User::ROLE_CHEF, User::ROLE_STOCK_MANAGER)) {
             return $next($request);
         }
 
         abort(403, 'You do not have permission to perform this action.');
     }
 }
-

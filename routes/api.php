@@ -10,7 +10,6 @@ use App\Http\Controllers\DishController;
 use App\Http\Controllers\GuestTableAccessController;
 use App\Http\Controllers\GuestController;
 use App\Http\Controllers\GlobalIngredientController;
-use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\InventoryIngredientController;
 use App\Http\Controllers\InventoryStockHistoryController;
 use App\Http\Controllers\InvoiceController;
@@ -256,21 +255,6 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::get('/restaurant/table-management', [RestaurantController::class, 'tableManagement']);
         Route::put('/restaurant/table-management/manual-count', [RestaurantController::class, 'updateManualTableCount']);
 
-        // Global ingredients (catalog reference used by ingredient library only)
-        Route::get('/global-ingredients', [GlobalIngredientController::class, 'index']);
-
-        // Ingredient library
-        Route::middleware('feature:inventory')->group(function () {
-            Route::get('/ingredients', [IngredientLibraryController::class, 'index']);
-            Route::post('/ingredients', [IngredientLibraryController::class, 'store']);
-            Route::patch('/ingredients/{ingredient}', [IngredientLibraryController::class, 'update']);
-            Route::delete('/ingredients/{ingredient}', [IngredientLibraryController::class, 'destroy']);
-            Route::post('/ingredients/{ingredient}/generate-image', [IngredientLibraryController::class, 'generateImage']);
-            Route::post('/ingredients/generate-missing-images', [IngredientLibraryController::class, 'generateMissingImages']);
-            Route::post('/ingredients/bulk-upload', [IngredientLibraryController::class, 'bulkUpload']);
-            Route::delete('/ingredients', [IngredientLibraryController::class, 'destroyAll']);
-        });
-
         Route::middleware('feature:table_reservations')->group(function () {
             Route::post('/admin/reservations', [ReservationController::class, 'store']);
             Route::patch('/admin/reservations/{reservation}', [ReservationController::class, 'update']);
@@ -279,19 +263,22 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
             Route::post('/admin/reservations/{reservation}/complete', [ReservationController::class, 'markCompleted']);
             Route::post('/admin/reservations/{reservation}/no-show', [ReservationController::class, 'markNoShow']);
         });
+    });
+
+    Route::middleware(['role:admin,stock_manager', 'feature:inventory'])->group(function () {
+        // Inventory catalog reference
+        Route::get('/global-ingredients', [GlobalIngredientController::class, 'index']);
 
         // Inventory ingredients
-        Route::middleware('feature:inventory')->group(function () {
-            Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
-            Route::get('/inventory/stock-history', [InventoryStockHistoryController::class, 'index']);
-            Route::post('/inventory/ingredients', [InventoryIngredientController::class, 'store']);
-            Route::post('/inventory/ingredients/import-global', [InventoryIngredientController::class, 'importGlobal']);
-            Route::patch('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'update']);
-            Route::post('/inventory/ingredients/{ingredient}/activate', [InventoryIngredientController::class, 'activate']);
-            Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
-            Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
-            Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
-        });
+        Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
+        Route::get('/inventory/stock-history', [InventoryStockHistoryController::class, 'index']);
+        Route::post('/inventory/ingredients', [InventoryIngredientController::class, 'store']);
+        Route::post('/inventory/ingredients/import-global', [InventoryIngredientController::class, 'importGlobal']);
+        Route::patch('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'update']);
+        Route::post('/inventory/ingredients/{ingredient}/activate', [InventoryIngredientController::class, 'activate']);
+        Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
+        Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
+        Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
     });
 
     Route::middleware(['role:chef', 'feature:realtime_staff_orders'])->group(function () {
