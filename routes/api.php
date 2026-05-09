@@ -158,14 +158,6 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::post('/orders/{order}/account', [OrderController::class, 'account'])
             ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
 
-        // Dishes
-        Route::apiResource('dishes', DishController::class);
-        Route::post('/admin/dishes/generate-description', [DishController::class, 'generateDescription']);
-        Route::post('/dishes/{dish}/copy-model', [DishController::class, 'copyModel']);
-        Route::patch('/dishes/{dish}/publish', [DishController::class, 'publish']);
-        Route::patch('/dishes/{dish}/unpublish', [DishController::class, 'unpublish']);
-        Route::post('/dishes/{dish}/restore', [DishController::class, 'restore']);
-        Route::delete('/dishes/{dish}/force', [DishController::class, 'forceDelete']);
         Route::get('/admin/finance/invoices/revenue-trends', [InvoiceController::class, 'revenueTrends'])
             ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
         Route::get('/admin/finance/profit-loss', [InvoiceController::class, 'profitLoss'])
@@ -258,6 +250,17 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
             Route::post('/admin/reservations/{reservation}/complete', [ReservationController::class, 'markCompleted']);
             Route::post('/admin/reservations/{reservation}/no-show', [ReservationController::class, 'markNoShow']);
         });
+    });
+
+    Route::middleware(['role:admin,chef,stock_manager'])->group(function () {
+        // Dishes
+        Route::apiResource('dishes', DishController::class);
+        Route::post('/admin/dishes/generate-description', [DishController::class, 'generateDescription']);
+        Route::post('/dishes/{dish}/copy-model', [DishController::class, 'copyModel']);
+        Route::patch('/dishes/{dish}/publish', [DishController::class, 'publish']);
+        Route::patch('/dishes/{dish}/unpublish', [DishController::class, 'unpublish']);
+        Route::post('/dishes/{dish}/restore', [DishController::class, 'restore']);
+        Route::delete('/dishes/{dish}/force', [DishController::class, 'forceDelete']);
     });
 
     Route::middleware(['role:admin,stock_manager', 'feature:inventory'])->group(function () {

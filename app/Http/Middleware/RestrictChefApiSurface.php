@@ -24,7 +24,14 @@ class RestrictChefApiSurface
             return $next($request);
         }
 
-        if ($user->hasRole(User::ROLE_CHEF) && $request->is('api/kitchen/*')) {
+        if (
+            $user->hasRole(User::ROLE_CHEF)
+            && (
+                $request->is('api/kitchen/*')
+                || $request->is('api/dishes*')
+                || $request->is('api/admin/dishes/generate-description')
+            )
+        ) {
             return $next($request);
         }
 
@@ -35,6 +42,8 @@ class RestrictChefApiSurface
                 || $request->is('api/global-ingredients')
                 || $request->is('api/admin/finance/expense-categories')
                 || $request->is('api/admin/finance/vendors')
+                || $request->is('api/dishes*')
+                || $request->is('api/admin/dishes/generate-description')
             )
         ) {
             return $next($request);
