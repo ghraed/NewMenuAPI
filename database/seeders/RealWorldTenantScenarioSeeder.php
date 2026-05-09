@@ -26,6 +26,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
         $this->cleanupLegacyAlphaSlug();
         $this->cleanupLegacyTenantUsers();
         $this->reconcileLegacyStockManagerEmail();
+        $this->reconcileLegacyAccountantEmail();
 
         $alphaAdmin = $this->upsertUser(
             name: 'Alpha Admin',
@@ -62,6 +63,13 @@ class RealWorldTenantScenarioSeeder extends Seeder
             role: User::ROLE_STOCK_MANAGER
         );
 
+        $alphaAccountant = $this->upsertUser(
+            name: 'Alpha Accountant',
+            email: 'accountant@alpha.com',
+            password: 'accountant12345',
+            role: 'accountant'
+        );
+
         $sigmaStaff = $this->upsertUser(
             name: 'Sigma Staff',
             email: 'staff@sigma.com',
@@ -85,7 +93,12 @@ class RealWorldTenantScenarioSeeder extends Seeder
             address: 'Mar Mikhael, Beirut'
         );
 
-        $alphaRestaurant->staffUsers()->syncWithoutDetaching([$alphaStaff->id, $alphaChef->id, $alphaStockManager->id]);
+        $alphaRestaurant->staffUsers()->syncWithoutDetaching([
+            $alphaStaff->id,
+            $alphaChef->id,
+            $alphaStockManager->id,
+            $alphaAccountant->id,
+        ]);
         $sigmaRestaurant->staffUsers()->syncWithoutDetaching([$sigmaStaff->id]);
 
         $this->upsertDomain($alphaRestaurant, 'alpha.rozer.fun');
@@ -156,6 +169,25 @@ class RealWorldTenantScenarioSeeder extends Seeder
     {
         $legacyEmail = 'stock@alph.com';
         $canonicalEmail = 'stock@alpha.com';
+
+        $canonicalExists = User::query()->where('email', $canonicalEmail)->exists();
+        if ($canonicalExists) {
+            return;
+        }
+
+        $legacyUser = User::query()->where('email', $legacyEmail)->first();
+        if (! $legacyUser) {
+            return;
+        }
+
+        $legacyUser->email = $canonicalEmail;
+        $legacyUser->save();
+    }
+
+    private function reconcileLegacyAccountantEmail(): void
+    {
+        $legacyEmail = 'accountant@alph.com';
+        $canonicalEmail = 'accountant@alpha.com';
 
         $canonicalExists = User::query()->where('email', $canonicalEmail)->exists();
         if ($canonicalExists) {
