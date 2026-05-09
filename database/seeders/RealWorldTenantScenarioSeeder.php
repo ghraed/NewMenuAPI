@@ -25,6 +25,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
     {
         $this->cleanupLegacyAlphaSlug();
         $this->cleanupLegacyTenantUsers();
+        $this->reconcileLegacyStockManagerEmail();
 
         $alphaAdmin = $this->upsertUser(
             name: 'Alpha Admin',
@@ -56,7 +57,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
 
         $alphaStockManager = $this->upsertUser(
             name: 'Alpha Stock Manager',
-            email: 'stock@alph.com',
+            email: 'stock@alpha.com',
             password: 'stock12345',
             role: User::ROLE_STOCK_MANAGER
         );
@@ -149,6 +150,25 @@ class RealWorldTenantScenarioSeeder extends Seeder
         User::query()
             ->whereIn('email', ['alpha.owner@rozer.fun', 'sigma.owner@rozer.fun'])
             ->delete();
+    }
+
+    private function reconcileLegacyStockManagerEmail(): void
+    {
+        $legacyEmail = 'stock@alph.com';
+        $canonicalEmail = 'stock@alpha.com';
+
+        $canonicalExists = User::query()->where('email', $canonicalEmail)->exists();
+        if ($canonicalExists) {
+            return;
+        }
+
+        $legacyUser = User::query()->where('email', $legacyEmail)->first();
+        if (! $legacyUser) {
+            return;
+        }
+
+        $legacyUser->email = $canonicalEmail;
+        $legacyUser->save();
     }
 
     private function upsertUser(string $name, string $email, string $password, string $role): User
