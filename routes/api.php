@@ -84,7 +84,7 @@ Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
     ->name('api.assets.show');
 Route::post('/analytics/track', [AnalyticsController::class, 'track']);
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () {
     Route::prefix('owner')->middleware('saas_owner')->group(function () {
         Route::get('/auth/me', [SuperAdminAuthController::class, 'me']);
         Route::post('/auth/logout', [SuperAdminAuthController::class, 'logout']);

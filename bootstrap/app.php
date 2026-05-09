@@ -29,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
             'saas_owner' => \App\Http\Middleware\EnsureSaasOwner::class,
             'feature' => \App\Http\Middleware\EnsureRestaurantFeatureEnabled::class,
+            'restrict_chef_surface' => \App\Http\Middleware\RestrictChefApiSurface::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
