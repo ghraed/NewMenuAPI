@@ -19,8 +19,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique('dedupe_key');
-            $table->index(['event_reservation_id', 'notification_type']);
-            $table->index(['sent_to_role', 'sent_at']);
+            $table->index(['event_reservation_id', 'notification_type'], 'enl_event_type_idx');
+            $table->index(['sent_to_role', 'sent_at'], 'enl_role_sent_idx');
         });
     }
 
@@ -29,4 +29,3 @@ return new class extends Migration
         Schema::dropIfExists('event_notification_logs');
     }
 };
-
