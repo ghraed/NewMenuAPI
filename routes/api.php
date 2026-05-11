@@ -253,7 +253,7 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         });
     });
 
-    Route::middleware(['role:admin', 'feature:event_reservations'])->group(function () {
+    Route::middleware(['role:admin,chef,stock_manager', 'feature:event_reservations'])->group(function () {
         Route::get('/admin/events', [AdminEventReservationController::class, 'index']);
         Route::post('/admin/events', [AdminEventReservationController::class, 'store']);
         Route::get('/admin/events/{event}', [AdminEventReservationController::class, 'show']);
