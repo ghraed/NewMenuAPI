@@ -49,4 +49,8 @@ if [ "${RUN_CONFIG_CACHE:-true}" = "true" ]; then
   fi
 fi
 
+if [ "$#" -gt 0 ]; then
+  exec "$@"
+fi
+
 exec apache2-foreground

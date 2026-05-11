@@ -10,6 +10,7 @@
         "endroid/qr-code": "^6.1",
         "jenssegers/agent": "^2.6",
         "laravel/framework": "^12.0",
+        "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
         "minishlink/web-push": "^9",
