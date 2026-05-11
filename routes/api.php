@@ -110,7 +110,7 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
-        Route::middleware('role:admin,staff')->group(function () {
+        Route::middleware('role:admin,staff,chef,stock_manager')->group(function () {
             Route::middleware('feature:realtime_staff_orders')->group(function () {
                 Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
                 Route::patch('/orders/{order}', [OrderController::class, 'update']);
@@ -130,13 +130,18 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
             Route::post('/pos/checkout', [OrderController::class, 'quickCheckout'])
                 ->middleware('feature:table_ordering');
             Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
-            Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
-            Route::post('/push/mobile-token', [PushSubscriptionController::class, 'storeMobileToken']);
+                Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
+                Route::post('/push/mobile-token', [PushSubscriptionController::class, 'storeMobileToken']);
 
             Route::middleware('feature:room_plan_editor')->group(function () {
                 Route::get('/room-plans', [RoomPlanController::class, 'index']);
-                Route::post('/room-plans', [RoomPlanController::class, 'store']);
                 Route::get('/room-plans/{roomPlan}', [RoomPlanController::class, 'show']);
+            });
+        });
+
+        Route::middleware('role:admin,staff')->group(function () {
+            Route::middleware('feature:room_plan_editor')->group(function () {
+                Route::post('/room-plans', [RoomPlanController::class, 'store']);
                 Route::patch('/room-plans/{roomPlan}', [RoomPlanController::class, 'update']);
                 Route::delete('/room-plans/{roomPlan}', [RoomPlanController::class, 'destroy']);
                 Route::post('/room-plans/{roomPlan}/background', [RoomPlanController::class, 'uploadBackground']);
