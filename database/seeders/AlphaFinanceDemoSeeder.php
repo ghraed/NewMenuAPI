@@ -7,6 +7,7 @@ use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\PayrollPeriod;
 use App\Models\Restaurant;
 use App\Models\RestaurantTable;
 use App\Models\User;
@@ -31,18 +32,17 @@ class AlphaFinanceDemoSeeder extends Seeder
         $fromDate = $today->copy()->subMonthsNoOverflow(4)->startOfDay();
         $toDate = $today->copy()->endOfDay();
 
-        $this->cleanupTemporaryGeneratedData($restaurant->id);
-        $this->seedSalesInvoices($restaurant->id, $fromDate, $toDate);
-        $this->seedOperatingExpenses($restaurant->id, $fromDate, $toDate);
+        $this->cleanupTemporaryGeneratedData($restaurant->id, $fromDate, $toDate);
+        $seededRevenue = $this->seedSalesInvoices($restaurant->id, $fromDate, $toDate);
+        $this->seedOperatingExpenses($restaurant->id, $fromDate, $toDate, $seededRevenue);
 
         $this->command?->info('Alpha finance demo seeded successfully.');
     }
 
-    private function cleanupTemporaryGeneratedData(int $restaurantId): void
+    private function cleanupTemporaryGeneratedData(int $restaurantId, Carbon $fromDate, Carbon $toDate): void
     {
         Invoice::query()
             ->where('restaurant_id', $restaurantId)
-            ->where('invoice_number', 'like', 'INV-ALP-%')
             ->delete();
 
         Order::query()
@@ -57,12 +57,17 @@ class AlphaFinanceDemoSeeder extends Seeder
         if (Schema::hasTable('expenses')) {
             Expense::query()
                 ->where('restaurant_id', $restaurantId)
-                ->where('reference_no', 'like', 'ALP-EXP-%')
+                ->delete();
+        }
+
+        if (Schema::hasTable('payroll_periods')) {
+            PayrollPeriod::query()
+                ->where('restaurant_id', $restaurantId)
                 ->delete();
         }
     }
 
-    private function seedSalesInvoices(int $restaurantId, Carbon $fromDate, Carbon $toDate): void
+    private function seedSalesInvoices(int $restaurantId, Carbon $fromDate, Carbon $toDate): float
     {
         $dishes = Dish::query()
             ->where('restaurant_id', $restaurantId)
@@ -72,7 +77,7 @@ class AlphaFinanceDemoSeeder extends Seeder
 
         if ($dishes->isEmpty()) {
             $this->command?->warn('No dishes found for Alpha. Skipping sales invoice seeding.');
-            return;
+            return 0.0;
         }
 
         $staffId = User::query()->where('email', 'admin@alpha.com')->value('id')
@@ -82,6 +87,7 @@ class AlphaFinanceDemoSeeder extends Seeder
         $invoiceSequence = 1;
         $orderSequence = 1;
         $cursor = $fromDate->copy()->setTime(11, 15);
+        $recognizedRevenue = 0.0;
 
         while ($cursor->lte($toDate)) {
             // Heavier sales on Thu/Fri/Sat, lighter on weekdays.
@@ -217,13 +223,20 @@ class AlphaFinanceDemoSeeder extends Seeder
 
                 $invoiceSequence++;
                 $orderSequence++;
+
+                // Mirrors dashboard logic: draft/issued/paid count as recognized revenue.
+                if (in_array($invoiceStatus, [Invoice::STATUS_DRAFT, Invoice::STATUS_ISSUED, Invoice::STATUS_PAID], true)) {
+                    $recognizedRevenue += $total;
+                }
             }
 
             $cursor->addDay()->setTime(11, 15);
         }
+
+        return round($recognizedRevenue, 2);
     }
 
-    private function seedOperatingExpenses(int $restaurantId, Carbon $fromDate, Carbon $toDate): void
+    private function seedOperatingExpenses(int $restaurantId, Carbon $fromDate, Carbon $toDate, float $seededRevenue): void
     {
         if (! Schema::hasTable('expenses') || ! Schema::hasTable('expense_categories') || ! Schema::hasTable('vendors')) {
             $this->command?->warn('Expense tables are missing. Skipping expense seeding.');
@@ -383,12 +396,34 @@ class AlphaFinanceDemoSeeder extends Seeder
             static fn (array $row): bool => Carbon::parse($row['expense_date'])->lte($toDate)
         ));
 
+        // Enforce a positive net-profit demo profile by capping seeded operating costs
+        // to a safe percentage of recognized seeded revenue.
+        $rawTotalCents = 0;
+        foreach ($expenseRows as $row) {
+            $rawTotalCents += (int) ($row['amount_cents'] ?? 0) + (int) ($row['tax_amount_cents'] ?? 0);
+        }
+        $targetCostCents = (int) round(max(0.0, $seededRevenue) * 100 * 0.62);
+        $expenseScale = $rawTotalCents > 0
+            ? min(1.0, max(0.05, $targetCostCents / $rawTotalCents))
+            : 1.0;
+
         foreach ($expenseRows as $index => $row) {
+            $scaledAmountCents = max(1000, (int) round(((int) ($row['amount_cents'] ?? 0)) * $expenseScale));
+            $scaledTaxCents = max(0, (int) round(((int) ($row['tax_amount_cents'] ?? 0)) * $expenseScale));
+
             Expense::query()->create(array_merge($row, [
                 'uuid' => (string) Str::uuid(),
                 'reference_no' => sprintf('ALP-EXP-%04d', $index + 1),
+                'amount_cents' => $scaledAmountCents,
+                'tax_amount_cents' => $scaledTaxCents,
             ]));
         }
+
+        $this->command?->info(sprintf(
+            'AlphaFinanceDemoSeeder economics: revenue=$%s, expense-scale=%.4f, target-cost-ratio=62%%',
+            number_format($seededRevenue, 2, '.', ','),
+            $expenseScale
+        ));
     }
 
     /**
@@ -431,4 +466,3 @@ class AlphaFinanceDemoSeeder extends Seeder
         ];
     }
 }
-
