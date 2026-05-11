@@ -64,6 +64,7 @@ Artisan::command('seed:prod', function () {
 })->purpose('Create or update a production admin user and restaurant.');
 
 Schedule::command('dishes:cleanup-deleted-assets')->dailyAt('02:00');
+Schedule::command('events:send-planning-reminders')->everyFifteenMinutes();
 
 Artisan::command('dishes:purge-dummy', function () {
     $dummyDishes = Dish::query()

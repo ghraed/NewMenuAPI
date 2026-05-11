@@ -21,6 +21,7 @@ use App\Services\OrderInvoiceCalculator;
 use App\Services\StaffCapabilityService;
 use App\Services\TenantRestaurantResolver;
 use App\Services\TableSessionAccessService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -191,14 +192,16 @@ class OrderController extends Controller
 
         if ($user->isStaff()) {
             $assignedTableIds = $this->staffCapabilityService->assignedTableIds($user, $restaurant);
+            $ordersQuery->where(function (Builder $query) use ($assignedTableIds): void {
+                if ($assignedTableIds !== []) {
+                    $query->whereIn('restaurant_table_id', $assignedTableIds);
+                }
 
-            if ($assignedTableIds === []) {
-                return response()->json([
-                    'orders' => [],
-                ]);
-            }
-
-            $ordersQuery->whereIn('restaurant_table_id', $assignedTableIds);
+                $query->orWhere(function (Builder $eventQuery): void {
+                    $eventQuery->whereNull('restaurant_table_id')
+                        ->where('table_reference', 'like', 'EVENT-%');
+                });
+            });
         }
 
         $orders = $ordersQuery->get();
@@ -234,12 +237,16 @@ class OrderController extends Controller
 
         if ($user->isStaff()) {
             $assignedTableIds = $this->staffCapabilityService->assignedTableIds($user, $restaurant);
-            if ($assignedTableIds === []) {
-                return response()->json([
-                    'orders' => [],
-                ]);
-            }
-            $ordersQuery->whereIn('restaurant_table_id', $assignedTableIds);
+            $ordersQuery->where(function (Builder $query) use ($assignedTableIds): void {
+                if ($assignedTableIds !== []) {
+                    $query->whereIn('restaurant_table_id', $assignedTableIds);
+                }
+
+                $query->orWhere(function (Builder $eventQuery): void {
+                    $eventQuery->whereNull('restaurant_table_id')
+                        ->where('table_reference', 'like', 'EVENT-%');
+                });
+            });
         }
 
         if (is_string($statusFilter) && $statusFilter !== '' && in_array($statusFilter, $allowedKitchenStatuses, true)) {

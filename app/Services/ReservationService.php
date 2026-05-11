@@ -31,6 +31,16 @@ class ReservationService
                 (string) $payload['end_time'],
             );
 
+            if ($this->availabilityService->hasBlockingEventOverlapForRestaurant(
+                (int) $restaurant->id,
+                $range['start_at'],
+                $range['end_at'],
+            )) {
+                throw ValidationException::withMessages([
+                    'overlap' => 'Venue booked for private event.',
+                ]);
+            }
+
             $status = strtolower(trim((string) ($payload['status'] ?? Reservation::STATUS_RESERVED)));
             if (! in_array($status, Reservation::supportedStatuses(), true)) {
                 throw ValidationException::withMessages([
@@ -103,6 +113,16 @@ class ReservationService
             }
 
             $range = $this->availabilityService->buildDateTimeRange($reservationDate, $startTime, $endTime);
+
+            if ($this->availabilityService->hasBlockingEventOverlapForRestaurant(
+                (int) $restaurant->id,
+                $range['start_at'],
+                $range['end_at'],
+            )) {
+                throw ValidationException::withMessages([
+                    'overlap' => 'Venue booked for private event.',
+                ]);
+            }
 
             if (in_array($status, Reservation::blockingStatuses(), true)) {
                 $overlaps = $this->availabilityService->hasBlockingOverlap(

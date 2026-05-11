@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\AdminEventReservationController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\AuthController;
@@ -250,6 +251,19 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
             Route::post('/admin/reservations/{reservation}/complete', [ReservationController::class, 'markCompleted']);
             Route::post('/admin/reservations/{reservation}/no-show', [ReservationController::class, 'markNoShow']);
         });
+    });
+
+    Route::middleware(['role:admin', 'feature:event_reservations'])->group(function () {
+        Route::get('/admin/events', [AdminEventReservationController::class, 'index']);
+        Route::post('/admin/events', [AdminEventReservationController::class, 'store']);
+        Route::get('/admin/events/{event}', [AdminEventReservationController::class, 'show']);
+        Route::patch('/admin/events/{event}', [AdminEventReservationController::class, 'update']);
+        Route::post('/admin/events/{event}/confirm', [AdminEventReservationController::class, 'confirm']);
+        Route::post('/admin/events/{event}/cancel', [AdminEventReservationController::class, 'cancel']);
+        Route::post('/admin/events/{event}/complete', [AdminEventReservationController::class, 'complete']);
+        Route::put('/admin/events/{event}/menu-items', [AdminEventReservationController::class, 'replaceMenuItems']);
+        Route::get('/admin/events/{event}/forecast', [AdminEventReservationController::class, 'forecast']);
+        Route::post('/admin/events/{event}/generate-order-draft', [AdminEventReservationController::class, 'generateOrderDraft']);
     });
 
     Route::middleware(['role:admin,chef,stock_manager'])->group(function () {

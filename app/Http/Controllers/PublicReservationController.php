@@ -78,10 +78,16 @@ class PublicReservationController extends Controller
             (string) $validated['start_time'],
             (string) $validated['end_time'],
         );
+        $venueBlockedReason = collect($availability)
+            ->pluck('unavailable_reason')
+            ->filter(fn ($value) => is_string($value) && $value !== '')
+            ->first();
 
         return response()->json([
             'room_plan_id' => $roomPlan->id,
             'availability' => $availability,
+            'venue_blocked' => is_string($venueBlockedReason),
+            'venue_blocked_reason' => is_string($venueBlockedReason) ? $venueBlockedReason : null,
         ]);
     }
 

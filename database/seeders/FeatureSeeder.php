@@ -31,6 +31,7 @@ class FeatureSeeder extends Seeder
         ['key' => 'realtime_staff_orders', 'name' => 'Realtime Staff Orders', 'description' => 'Realtime incoming orders for staff dashboards.', 'category' => 'Orders'],
         ['key' => 'room_plan_editor', 'name' => 'Room Plan Editor', 'description' => 'Create and maintain visual room plan layouts.', 'category' => 'Operations'],
         ['key' => 'table_reservations', 'name' => 'Table Reservations', 'description' => 'Allow table reservations with room-plan availability checks.', 'category' => 'Operations'],
+        ['key' => 'event_reservations', 'name' => 'Event Reservations', 'description' => 'Plan full-venue event reservations with menu forecasts and operational alerts.', 'category' => 'Operations'],
         ['key' => 'staff_scheduling', 'name' => 'Staff Scheduling', 'description' => 'Schedule staff shifts and track staffing calendars.', 'category' => 'Operations'],
         ['key' => 'analytics', 'name' => 'Analytics', 'description' => 'Visitor, interaction, and conversion analytics.', 'category' => 'Analytics'],
         ['key' => 'multi_language', 'name' => 'Multi-language', 'description' => 'Enable multi-language guest menu experiences.', 'category' => 'Localization'],

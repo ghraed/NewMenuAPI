@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\EventReservation;
 use App\Models\PushSubscription;
 use App\Models\TableWave;
 use App\Models\User;
@@ -13,6 +14,7 @@ use Minishlink\WebPush\WebPush;
 class WebPushNotificationService
 {
     private const STAFF_ORDERS_URL = '/staff/orders';
+    private const ADMIN_EVENTS_URL = '/admin/events';
 
     public function isConfigured(): bool
     {
@@ -78,6 +80,72 @@ class WebPushNotificationService
             return;
         }
 
+        $this->dispatchPayloadToRecipients($recipients, $payload);
+    }
+
+    /**
+     * @param array<int, string> $targetRoles
+     */
+    public function notifyEventPlanning(
+        EventReservation $eventReservation,
+        string $notificationType,
+        string $title,
+        string $body,
+        array $targetRoles,
+    ): void {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        $eventReservation->loadMissing([
+            'restaurant.user.pushSubscriptions',
+            'restaurant.staffUsers.pushSubscriptions',
+        ]);
+
+        $roleLookup = array_flip($targetRoles);
+        $recipients = collect([$eventReservation->restaurant?->user])
+            ->filter()
+            ->merge(
+                ($eventReservation->restaurant?->staffUsers ?? collect())
+                    ->filter(fn (User $user) => isset($roleLookup[(string) $user->role]))
+            )
+            ->filter(fn (User $user) => $user->pushSubscriptions->isNotEmpty())
+            ->unique('id')
+            ->values();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $payload = json_encode([
+            'title' => $title,
+            'body' => $body,
+            'icon' => '/vite.svg',
+            'badge' => '/vite.svg',
+            'tag' => 'event-planning-'.$eventReservation->id.'-'.$notificationType,
+            'url' => self::ADMIN_EVENTS_URL,
+            'data' => [
+                'kind' => 'event_planning',
+                'event_id' => $eventReservation->id,
+                'notification_type' => $notificationType,
+                'event_title' => $eventReservation->title,
+                'start_at' => $eventReservation->start_at?->toIso8601String(),
+                'target_path' => self::ADMIN_EVENTS_URL,
+            ],
+        ]);
+
+        if (! is_string($payload)) {
+            return;
+        }
+
+        $this->dispatchPayloadToRecipients($recipients, $payload);
+    }
+
+    /**
+     * @param Collection<int, User> $recipients
+     */
+    private function dispatchPayloadToRecipients(Collection $recipients, string $payload): void
+    {
         $webPush = new WebPush([
             'VAPID' => [
                 'subject' => config('services.webpush.subject'),

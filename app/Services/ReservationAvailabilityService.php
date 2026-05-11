@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\EventReservation;
 use App\Models\Reservation;
 use App\Models\RoomPlan;
 use App\Models\RoomPlanItem;
@@ -75,6 +76,13 @@ class ReservationAvailabilityService
             return [];
         }
 
+        $venueBlocked = $this->hasBlockingEventOverlapForRestaurant(
+            (int) $roomPlan->restaurant_id,
+            $startAt,
+            $endAt
+        );
+        $venueBlockedReason = 'Venue booked for private event.';
+
         $reservations = Reservation::query()
             ->where('room_plan_id', $roomPlan->id)
             ->whereIn('room_plan_item_id', $tableItems->pluck('id')->all())
@@ -103,11 +111,33 @@ class ReservationAvailabilityService
                 'room_plan_item_id' => $item->id,
                 'restaurant_table_id' => $item->restaurant_table_id,
                 'label' => $displayLabel,
-                'status' => $status,
-                'color' => $this->statusColor($status),
-                'is_selectable' => ! in_array($status, [Reservation::STATUS_RESERVED, Reservation::STATUS_BUSY], true),
+                'status' => $venueBlocked ? Reservation::STATUS_RESERVED : $status,
+                'color' => $venueBlocked ? 'red' : $this->statusColor($status),
+                'is_selectable' => $venueBlocked
+                    ? false
+                    : ! in_array($status, [Reservation::STATUS_RESERVED, Reservation::STATUS_BUSY], true),
+                'unavailable_reason' => $venueBlocked ? $venueBlockedReason : null,
             ];
         })->values()->all();
+    }
+
+    public function hasBlockingEventOverlapForRestaurant(
+        int $restaurantId,
+        CarbonImmutable $startAt,
+        CarbonImmutable $endAt,
+        ?int $ignoreEventReservationId = null,
+    ): bool {
+        $query = EventReservation::query()
+            ->where('restaurant_id', $restaurantId)
+            ->whereIn('status', EventReservation::blockingStatuses())
+            ->where('start_at', '<', $endAt)
+            ->where('end_at', '>', $startAt);
+
+        if ($ignoreEventReservationId) {
+            $query->where('id', '!=', $ignoreEventReservationId);
+        }
+
+        return $query->exists();
     }
 
     private function duplicateLabelSetForRestaurant(int $restaurantId): Collection

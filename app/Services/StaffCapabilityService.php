@@ -28,6 +28,14 @@ class StaffCapabilityService
             return;
         }
 
+        if (
+            $order->restaurant_table_id === null
+            && is_string($order->table_reference)
+            && str_starts_with($order->table_reference, 'EVENT-')
+        ) {
+            return;
+        }
+
         $this->assertTableAssignment($user, $restaurant, $order->restaurant_table_id);
     }
 

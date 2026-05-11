@@ -30,3 +30,15 @@ Broadcast::channel('restaurant.{restaurantId}.kitchen', function (User $user, in
 
     return $user->isAdmin() || $user->isChef();
 });
+
+Broadcast::channel('restaurant.{restaurantId}.events', function (User $user, int $restaurantId) {
+    $user->loadMissing('restaurant', 'staffRestaurants');
+
+    $restaurant = $user->currentRestaurant();
+
+    if (! $restaurant || $restaurant->id !== $restaurantId) {
+        return false;
+    }
+
+    return $user->isAdmin() || $user->isChef() || $user->isStockManager();
+});

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\EventReservation;
 use App\Models\MobilePushToken;
 use App\Models\Order;
 use App\Models\TableWave;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 class MobilePushNotificationService
 {
     private const STAFF_ORDERS_URL = '/staff/orders';
+    private const ADMIN_EVENTS_URL = '/admin/events';
     private const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
     private const TOKEN_CACHE_TTL_SECONDS = 3000;
 
@@ -113,6 +115,51 @@ class MobilePushNotificationService
                 'channel' => 'staff_orders',
             ]
         );
+    }
+
+    /**
+     * @param array<int, string> $targetRoles
+     */
+    public function notifyEventPlanning(
+        EventReservation $eventReservation,
+        string $notificationType,
+        string $title,
+        string $body,
+        array $targetRoles
+    ): void {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        $eventReservation->loadMissing([
+            'restaurant.user.mobilePushTokens',
+            'restaurant.staffUsers.mobilePushTokens',
+        ]);
+
+        $roleLookup = array_flip($targetRoles);
+        $recipients = collect([$eventReservation->restaurant?->user])
+            ->filter()
+            ->merge(
+                ($eventReservation->restaurant?->staffUsers ?? collect())
+                    ->filter(fn (User $user) => isset($roleLookup[(string) $user->role]))
+            )
+            ->filter(fn (User $user) => $user->mobilePushTokens->isNotEmpty())
+            ->unique('id')
+            ->values();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $this->dispatchToRecipients($recipients, 'notify_order', $title, $body, [
+            'kind' => 'event_planning',
+            'event_id' => (string) $eventReservation->id,
+            'event_title' => (string) $eventReservation->title,
+            'notification_type' => $notificationType,
+            'start_at' => (string) ($eventReservation->start_at?->toIso8601String() ?? ''),
+            'target_path' => self::ADMIN_EVENTS_URL,
+            'channel' => 'event_planning',
+        ]);
     }
 
     /**

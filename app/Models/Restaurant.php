@@ -123,6 +123,11 @@ class Restaurant extends Model
         return $this->hasMany(Reservation::class);
     }
 
+    public function eventReservations(): HasMany
+    {
+        return $this->hasMany(EventReservation::class);
+    }
+
     public function domains(): HasMany
     {
         return $this->hasMany(RestaurantDomain::class);
