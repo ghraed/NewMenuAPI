@@ -31,6 +31,8 @@ class RestrictChefApiSurface
                 || $request->is('api/dishes*')
                 || $request->is('api/admin/events')
                 || $request->is('api/admin/events/*')
+                || $request->is('api/room-plans')
+                || $request->is('api/room-plans/*')
                 || $request->is('api/admin/dishes/generate-description')
             )
         ) {
@@ -44,6 +46,8 @@ class RestrictChefApiSurface
                 || $request->is('api/global-ingredients')
                 || $request->is('api/admin/events')
                 || $request->is('api/admin/events/*')
+                || $request->is('api/room-plans')
+                || $request->is('api/room-plans/*')
                 || $request->is('api/admin/finance/expense-categories')
                 || $request->is('api/admin/finance/vendors')
                 || $request->is('api/dishes*')
