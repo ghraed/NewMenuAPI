@@ -240,24 +240,24 @@ class FinanceExpenseController extends Controller
         bool $isUpdate,
         ?Expense $existing = null
     ): array {
-        $required = $isUpdate ? 'sometimes|required' : 'required';
-        $nullable = $isUpdate ? 'sometimes|nullable' : 'nullable';
+        $required = $isUpdate ? ['sometimes', 'required'] : ['required'];
+        $nullable = $isUpdate ? ['sometimes', 'nullable'] : ['nullable'];
 
         return $request->validate([
             'expense_category_id' => [
-                $required,
+                ...$required,
                 'integer',
                 Rule::exists('expense_categories', 'id')->where('restaurant_id', $restaurant->id),
             ],
             'vendor_id' => [
-                $nullable,
+                ...$nullable,
                 'integer',
                 Rule::exists('vendors', 'id')->where('restaurant_id', $restaurant->id),
             ],
-            'expense_date' => [$required, 'date'],
-            'amount_cents' => [$required, 'integer', 'min:0'],
+            'expense_date' => [...$required, 'date'],
+            'amount_cents' => [...$required, 'integer', 'min:0'],
             'tax_amount_cents' => ['sometimes', 'integer', 'min:0'],
-            'currency' => [$required, 'string', 'size:3'],
+            'currency' => [...$required, 'string', 'size:3'],
             'status' => ['sometimes', Rule::in([Expense::STATUS_DRAFT, Expense::STATUS_APPROVED, Expense::STATUS_PAID, Expense::STATUS_VOID])],
             'payment_method' => ['sometimes', 'nullable', Rule::in(['cash', 'card', 'bank_transfer', 'wallet', 'other'])],
             'reference_no' => ['sometimes', 'nullable', 'string', 'max:120'],
