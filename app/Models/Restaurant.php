@@ -19,6 +19,7 @@ class Restaurant extends Model
         'description',
         'address',
         'currency',
+        'other_currency',
         'dollar_rate',
         'logo_path',
         'profile',

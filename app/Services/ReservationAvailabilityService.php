@@ -98,7 +98,7 @@ class ReservationAvailabilityService
 
         $duplicateLabelSet = $this->duplicateLabelSetForRestaurant((int) $roomPlan->restaurant_id);
 
-        return $tableItems->map(function (RoomPlanItem $item) use ($reservations, $duplicateLabelSet, $roomPlan): array {
+        return $tableItems->map(function (RoomPlanItem $item) use ($reservations, $duplicateLabelSet, $roomPlan, $venueBlocked, $venueBlockedReason): array {
             $itemReservations = $reservations->get($item->id, collect());
             $status = $this->resolveVisualStatus($itemReservations);
             $roomName = $item->roomPlan?->name ?? $roomPlan->name;

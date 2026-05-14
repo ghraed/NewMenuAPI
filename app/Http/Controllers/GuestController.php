@@ -300,6 +300,7 @@ class GuestController extends Controller
             'logo_url' => $restaurant->logo_url,
             'profile' => $restaurant->profile,
             'currency' => $restaurant->currency,
+            'other_currency' => $restaurant->other_currency,
             'dollar_rate' => $restaurant->dollar_rate,
             'feature_flags' => $this->featureFlagService->flagsForRestaurant($restaurant),
         ];

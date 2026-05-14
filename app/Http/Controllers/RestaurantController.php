@@ -401,6 +401,7 @@ class RestaurantController extends Controller
             'slug' => $restaurant->slug,
             'logo_url' => $restaurant->logo_url,
             'currency' => $restaurant->currency,
+            'other_currency' => $restaurant->other_currency,
             'dollar_rate' => $restaurant->dollar_rate,
             'manual_table_count' => $restaurant->manual_table_count,
             'profile' => $restaurant->profile,

@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class FinanceExpenseController extends Controller
@@ -68,31 +69,56 @@ class FinanceExpenseController extends Controller
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $validated = $this->validatePayload($request, $restaurant, false);
+        $expense = DB::transaction(function () use ($request, $restaurant, $validated): Expense {
+            $movementToLink = null;
+            if (array_key_exists('linked_stock_movement_id', $validated) && $validated['linked_stock_movement_id'] !== null) {
+                $movementToLink = StockMovement::query()
+                    ->whereKey((int) $validated['linked_stock_movement_id'])
+                    ->where('restaurant_id', $restaurant->id)
+                    ->lockForUpdate()
+                    ->first();
 
-        $expense = Expense::query()->create([
-            'uuid' => (string) Str::uuid(),
-            'restaurant_id' => $restaurant->id,
-            'expense_category_id' => (int) $validated['expense_category_id'],
-            'vendor_id' => isset($validated['vendor_id']) ? (int) $validated['vendor_id'] : null,
-            'expense_date' => $validated['expense_date'],
-            'amount_cents' => (int) $validated['amount_cents'],
-            'tax_amount_cents' => (int) ($validated['tax_amount_cents'] ?? 0),
-            'currency' => strtoupper((string) $validated['currency']),
-            'status' => $validated['status'] ?? Expense::STATUS_DRAFT,
-            'payment_method' => $validated['payment_method'] ?? null,
-            'reference_no' => $this->normalizeOptionalString($validated['reference_no'] ?? null),
-            'description' => $this->normalizeOptionalString($validated['description'] ?? null),
-            'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
-            'due_date' => $validated['due_date'] ?? null,
-            'paid_at' => $this->resolvePaidAtForWrite(
-                status: $validated['status'] ?? Expense::STATUS_DRAFT,
-                paidAtInput: $validated['paid_at'] ?? null
-            ),
-            'created_by' => $request->user()?->id,
-            'approved_by' => ($validated['status'] ?? Expense::STATUS_DRAFT) === Expense::STATUS_APPROVED
-                ? $request->user()?->id
-                : null,
-        ]);
+                if (! $movementToLink) {
+                    abort(422, 'Selected stock movement was not found for this restaurant.');
+                }
+                if ($movementToLink->linked_expense_id !== null) {
+                    abort(422, 'Selected stock movement is already linked to another expense.');
+                }
+            }
+
+            $created = Expense::query()->create([
+                'uuid' => (string) Str::uuid(),
+                'restaurant_id' => $restaurant->id,
+                'expense_category_id' => (int) $validated['expense_category_id'],
+                'vendor_id' => isset($validated['vendor_id']) ? (int) $validated['vendor_id'] : null,
+                'expense_date' => $validated['expense_date'],
+                'amount_cents' => (int) $validated['amount_cents'],
+                'tax_amount_cents' => (int) ($validated['tax_amount_cents'] ?? 0),
+                'currency' => strtoupper((string) $validated['currency']),
+                'status' => $validated['status'] ?? Expense::STATUS_DRAFT,
+                'payment_method' => $validated['payment_method'] ?? null,
+                'reference_no' => $this->normalizeOptionalString($validated['reference_no'] ?? null),
+                'description' => $this->normalizeOptionalString($validated['description'] ?? null),
+                'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
+                'due_date' => $validated['due_date'] ?? null,
+                'paid_at' => $this->resolvePaidAtForWrite(
+                    status: $validated['status'] ?? Expense::STATUS_DRAFT,
+                    paidAtInput: $validated['paid_at'] ?? null
+                ),
+                'created_by' => $request->user()?->id,
+                'approved_by' => ($validated['status'] ?? Expense::STATUS_DRAFT) === Expense::STATUS_APPROVED
+                    ? $request->user()?->id
+                    : null,
+            ]);
+
+            if ($movementToLink !== null) {
+                $movementToLink->update([
+                    'linked_expense_id' => $created->id,
+                ]);
+            }
+
+            return $created;
+        });
 
         $expense->load(['category', 'vendor', 'linkedStockMovement.ingredient']);
 
@@ -265,6 +291,7 @@ class FinanceExpenseController extends Controller
             'notes' => ['sometimes', 'nullable', 'string'],
             'due_date' => ['sometimes', 'nullable', 'date'],
             'paid_at' => ['sometimes', 'nullable', 'date'],
+            'linked_stock_movement_id' => ['sometimes', 'nullable', 'integer'],
         ]);
     }
 

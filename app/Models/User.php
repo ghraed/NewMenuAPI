@@ -171,6 +171,10 @@ class User extends Authenticatable
             return self::ROLE_ADMIN;
         }
 
+        if ($role === 'add') {
+            return self::ROLE_ADMIN;
+        }
+
         if ($role === 'stock_manger') {
             return self::ROLE_STOCK_MANAGER;
         }

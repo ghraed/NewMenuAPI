@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\AccountingOrderCreated;
+use App\Events\AccountingOrderRemoved;
 use App\Events\KitchenOrderCreated;
 use App\Events\KitchenOrderReady;
 use App\Events\KitchenOrderUpdated;
@@ -573,6 +575,7 @@ class OrderController extends Controller
         }
 
         $this->broadcastKitchenOrderCreated($order);
+        $this->broadcastAccountingOrderCreated($order);
 
         return response()->json([
             'message' => __('messages.orders.confirmed'),
@@ -595,6 +598,8 @@ class OrderController extends Controller
                 'message' => __('messages.orders.cancel_only_pending_or_confirmed'),
             ], 422);
         }
+
+        $wasConfirmedAtRequestStart = $order->status === Order::STATUS_STAFF_CONFIRMED;
 
         try {
             $order = DB::transaction(function () use ($order, $request, $restaurant) {
@@ -641,6 +646,10 @@ class OrderController extends Controller
                     : __('messages.orders.cancel_only_pending_or_confirmed'),
                 'errors' => $exception->errors(),
             ], 422);
+        }
+
+        if ($wasConfirmedAtRequestStart) {
+            $this->broadcastAccountingOrderRemoved($order);
         }
 
         return response()->json([
@@ -746,6 +755,8 @@ class OrderController extends Controller
 
             return $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
         });
+
+        $this->broadcastAccountingOrderRemoved($order);
 
         return response()->json([
             'message' => __('messages.orders.accounted'),
@@ -1138,6 +1149,34 @@ class OrderController extends Controller
             event(new KitchenOrderCreated($order, $payload));
         } catch (Throwable $exception) {
             Log::warning('Failed to broadcast a kitchen-order.created event.', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function broadcastAccountingOrderCreated(Order $order): void
+    {
+        $payload = $this->formatOrder($order);
+
+        try {
+            event(new AccountingOrderCreated($order, $payload));
+        } catch (Throwable $exception) {
+            Log::warning('Failed to broadcast an accounting-order.created event.', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function broadcastAccountingOrderRemoved(Order $order): void
+    {
+        $payload = $this->formatOrder($order);
+
+        try {
+            event(new AccountingOrderRemoved($order, $payload));
+        } catch (Throwable $exception) {
+            Log::warning('Failed to broadcast an accounting-order.removed event.', [
                 'order_id' => $order->id,
                 'message' => $exception->getMessage(),
             ]);

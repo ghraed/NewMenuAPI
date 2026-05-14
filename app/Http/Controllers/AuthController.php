@@ -111,6 +111,7 @@ class AuthController extends Controller
                 'slug' => $restaurant->slug,
                 'logo_url' => $restaurant->logo_url,
                 'currency' => $restaurant->currency,
+                'other_currency' => $restaurant->other_currency,
                 'dollar_rate' => $restaurant->dollar_rate,
                 'feature_flags' => $this->featureFlagService->flagsForRestaurant($restaurant),
                 'profile' => $restaurant->profile,
