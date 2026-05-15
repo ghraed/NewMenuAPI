@@ -199,8 +199,12 @@ class Dish extends Model
         foreach ($dishIngredients as $dishIngredient) {
             $ingredient = $dishIngredient->ingredient;
 
+            // If a recipe row points to a missing or inactive ingredient,
+            // the dish should be treated as unavailable for ordering.
             if (! $ingredient || ! $ingredient->is_active) {
-                continue;
+                $this->cachedOrderable = false;
+
+                return false;
             }
 
             $requiredQuantity = round((float) $dishIngredient->quantity, 3);
