@@ -120,6 +120,7 @@ class InventoryStockHistoryController extends Controller
             'id' => $movement->id,
             'ingredient_name' => $movement->ingredient?->name ?: $movement->ingredient_name_snapshot,
             'movement_type' => $movement->movement_type,
+            'unit' => $movement->unit,
             'quantity' => $this->formatQuantity((float) $movement->quantity_delta),
             'quantity_before' => $movement->quantity_before === null ? null : $this->formatQuantity((float) $movement->quantity_before),
             'quantity_after' => $movement->quantity_after === null ? null : $this->formatQuantity((float) $movement->quantity_after),
