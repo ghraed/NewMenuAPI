@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
+use App\Models\Order;
 use App\Models\Restaurant;
 use App\Models\StockMovement;
 use Illuminate\Http\JsonResponse;
@@ -776,6 +777,46 @@ class InvoiceController extends Controller
     private function formatInvoice(Invoice $invoice): array
     {
         $invoice->loadMissing('items');
+        $linkedOrders = collect();
+
+        if (is_string($invoice->invoice_number) && trim($invoice->invoice_number) !== '') {
+            $linkedOrders = Order::query()
+                ->where('restaurant_id', $invoice->restaurant_id)
+                ->where('invoice_number', trim($invoice->invoice_number))
+                ->where('status', Order::STATUS_ACCOUNTED)
+                ->with(['confirmedBy:id,name,email,phone,role'])
+                ->orderBy('accounted_at')
+                ->orderBy('id')
+                ->get();
+        }
+
+        $tableReference = $linkedOrders
+            ->map(fn (Order $order): ?string => $order->table_reference ?: $order->guest_name)
+            ->first(fn (?string $value): bool => is_string($value) && trim($value) !== '');
+
+        $waiter = $linkedOrders
+            ->map(fn (Order $order) => $order->confirmedBy)
+            ->first(fn ($value): bool => $value !== null);
+
+        $discountTypes = $linkedOrders
+            ->pluck('discount_type')
+            ->filter(fn ($value): bool => is_string($value) && trim($value) !== '')
+            ->unique()
+            ->values();
+        $discountType = $discountTypes->count() === 1 ? (string) $discountTypes->first() : null;
+        $discountValue = $discountType === 'percentage'
+            ? (float) $linkedOrders->max(fn (Order $order): float => (float) ($order->discount_value ?? 0))
+            : (float) $linkedOrders->sum(fn (Order $order): float => (float) ($order->discount_value ?? 0));
+        $discountAmount = (float) $linkedOrders->sum(fn (Order $order): float => (float) ($order->discount_amount ?? 0));
+        $taxableSubtotal = (float) $linkedOrders->sum(fn (Order $order): float => (float) ($order->taxable_subtotal ?? 0));
+        $vatAmount = (float) $linkedOrders->sum(fn (Order $order): float => (float) ($order->vat_amount ?? 0));
+        $vatRates = $linkedOrders
+            ->map(fn (Order $order): float => (float) ($order->vat_rate ?? 0))
+            ->unique()
+            ->values();
+        $vatRate = $vatRates->count() === 1
+            ? (float) $vatRates->first()
+            : (float) ($linkedOrders->first()?->vat_rate ?? 0);
 
         return [
             'id' => $invoice->id,
@@ -788,6 +829,21 @@ class InvoiceController extends Controller
             'total' => $invoice->total,
             'notes' => $invoice->notes,
             'paid_at' => $invoice->paid_at?->toIso8601String(),
+            'table_reference' => $tableReference,
+            'waiter_name' => $waiter?->name,
+            'waiter' => $waiter ? [
+                'id' => $waiter->id,
+                'name' => $waiter->name,
+                'email' => $waiter->email,
+                'phone' => $waiter->phone,
+                'role' => $waiter->role,
+            ] : null,
+            'discount_type' => $discountType,
+            'discount_value' => number_format($discountValue, 2, '.', ''),
+            'discount_amount' => number_format($discountAmount, 2, '.', ''),
+            'taxable_subtotal' => number_format($taxableSubtotal, 2, '.', ''),
+            'vat_rate' => number_format($vatRate, 2, '.', ''),
+            'vat_amount' => number_format($vatAmount, 2, '.', ''),
             'created_at' => $invoice->created_at?->toIso8601String(),
             'updated_at' => $invoice->updated_at?->toIso8601String(),
             'items' => $invoice->items
@@ -800,6 +856,27 @@ class InvoiceController extends Controller
                     'unit_price' => $item->unit_price,
                     'line_total' => $item->line_total,
                     'order_index' => $item->order_index,
+                    'order_item_id' => $item->order_item_id,
+                    'status' => $item->status ?? 'normal',
+                    'compensation_type' => $item->compensation_type ?? 'none',
+                    'compensation_reason' => $item->compensation_reason,
+                    'complaint_category' => $item->complaint_category,
+                    'operational_loss_category' => $item->operational_loss_category,
+                    'adjustment_action_type' => $item->adjustment_action_type,
+                    'compensation_note' => $item->compensation_note,
+                    'approved_by_staff_name' => $item->approved_by_staff_name,
+                    'approved_by_staff_role' => $item->approved_by_staff_role,
+                    'approved_at' => $item->approved_at?->toIso8601String(),
+                    'original_unit_price' => $item->original_unit_price,
+                    'final_unit_price' => $item->final_unit_price,
+                    'original_line_total' => $item->original_line_total,
+                    'partial_discount_percentage' => $item->partial_discount_percentage,
+                    'partial_discount_type' => $item->partial_discount_type,
+                    'partial_discount_value' => $item->partial_discount_value,
+                    'is_complimentary' => (bool) ($item->is_complimentary ?? false),
+                    'accounting_bucket' => $item->accounting_bucket,
+                    'customer_satisfaction_rating' => $item->customer_satisfaction_rating,
+                    'evidence_photo_url' => $item->evidence_photo_url,
                 ])
                 ->all(),
         ];

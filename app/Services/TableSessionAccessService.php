@@ -341,12 +341,36 @@ class TableSessionAccessService
         foreach ($orders as $order) {
             foreach ($order->items as $item) {
                 $itemOrder += 1;
+                $quantity = (float) $item->quantity;
+                $originalUnitPrice = (float) ($item->original_unit_price ?? $item->unit_price ?? 0);
+                $finalUnitPrice = (float) ($item->final_unit_price ?? $item->unit_price ?? 0);
                 $invoiceItems[] = [
                     'name' => $item->dish_name,
                     'quantity' => $item->quantity,
-                    'unit_price' => $item->unit_price,
+                    'unit_price' => number_format($finalUnitPrice, 2, '.', ''),
                     'line_total' => $item->line_subtotal,
                     'order_index' => $itemOrder,
+                    'order_item_id' => $item->id,
+                    'status' => $item->status ?? 'normal',
+                    'compensation_type' => $item->compensation_type ?? 'none',
+                    'compensation_reason' => $item->compensation_reason,
+                    'complaint_category' => $item->complaint_category,
+                    'operational_loss_category' => $item->operational_loss_category,
+                    'adjustment_action_type' => $item->adjustment_action_type,
+                    'compensation_note' => $item->compensation_note,
+                    'approved_by_staff_name' => $item->approved_by_staff_name,
+                    'approved_by_staff_role' => $item->approved_by_staff_role,
+                    'approved_at' => $item->approved_at,
+                    'original_unit_price' => number_format($originalUnitPrice, 2, '.', ''),
+                    'final_unit_price' => number_format($finalUnitPrice, 2, '.', ''),
+                    'original_line_total' => number_format($originalUnitPrice * $quantity, 2, '.', ''),
+                    'partial_discount_percentage' => $item->partial_discount_percentage,
+                    'partial_discount_type' => $item->partial_discount_type,
+                    'partial_discount_value' => $item->partial_discount_value,
+                    'is_complimentary' => (bool) ($item->is_complimentary ?? false),
+                    'accounting_bucket' => $item->accounting_bucket,
+                    'customer_satisfaction_rating' => $item->customer_satisfaction_rating,
+                    'evidence_photo_url' => $item->evidence_photo_url,
                 ];
             }
         }

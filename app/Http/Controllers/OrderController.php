@@ -721,6 +721,26 @@ class OrderController extends Controller
             'vat_rate' => 'nullable|numeric|min:0|max:100',
             'discount_type' => 'nullable|in:fixed,percentage',
             'discount_value' => 'nullable|numeric|min:0',
+            'items' => 'nullable|array|min:1',
+            'items.*.order_item_id' => 'nullable|integer|min:1',
+            'items.*.dish_id' => 'required_with:items|integer|min:1',
+            'items.*.quantity' => 'required_with:items|integer|min:1|max:99',
+            'items.*.status' => 'nullable|in:normal,problematic,cancelled,compensated',
+            'items.*.compensation_type' => 'nullable|in:none,full_waiver,partial_discount,complimentary',
+            'items.*.compensation_reason' => 'nullable|string|max:80',
+            'items.*.complaint_category' => 'nullable|string|max:60',
+            'items.*.operational_loss_category' => 'nullable|in:kitchen_mistake,burned_food,wrong_order_sent,quality_complaint,customer_satisfaction_recovery',
+            'items.*.adjustment_action_type' => 'nullable|in:issue_refund,complimentary_gift,service_recovery,operational_waste',
+            'items.*.compensation_note' => 'nullable|string|max:2000',
+            'items.*.original_unit_price' => 'nullable|numeric|min:0',
+            'items.*.final_unit_price' => 'nullable|numeric|min:0',
+            'items.*.partial_discount_percentage' => 'nullable|numeric|min:0|max:100',
+            'items.*.partial_discount_type' => 'nullable|in:fixed,percentage',
+            'items.*.partial_discount_value' => 'nullable|numeric|min:0',
+            'items.*.is_complimentary' => 'nullable|boolean',
+            'items.*.accounting_bucket' => 'nullable|string|max:80',
+            'items.*.customer_satisfaction_rating' => 'nullable|integer|min:1|max:5',
+            'items.*.evidence_photo_url' => 'nullable|string|max:2048',
         ]);
 
         $discountType = $validated['discount_type'] ?? null;
@@ -732,28 +752,201 @@ class OrderController extends Controller
             ]);
         }
 
-        $order->loadMissing('items', 'restaurant', 'restaurantTable', 'confirmedBy', 'accountedBy');
+        $actor = $request->user();
+        $order = DB::transaction(function () use ($order, $validated, $actor, $invoiceCalculator, $discountType, $discountValue) {
+            $lockedOrder = Order::query()
+                ->whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $invoice = $invoiceCalculator->calculate(
-            $order->items->map(fn (OrderItem $item) => [
-                'unit_price' => $item->unit_price,
-                'quantity' => $item->quantity,
-            ]),
-            (float) ($validated['vat_rate'] ?? 0),
-            $discountType,
-            $discountValue
-        );
+            $lockedOrder->load('items');
 
-        $order = DB::transaction(function () use ($request, $order, $invoice) {
-            $order->update([
+            if (array_key_exists('items', $validated) && is_array($validated['items'])) {
+                $existingItemsById = $lockedOrder->items->keyBy(fn (OrderItem $item): int => (int) $item->id);
+                $availableItemIdsByDish = [];
+
+                foreach ($lockedOrder->items as $existingItem) {
+                    if ($existingItem->dish_id === null) {
+                        continue;
+                    }
+                    $dishKey = (int) $existingItem->dish_id;
+                    if (! array_key_exists($dishKey, $availableItemIdsByDish)) {
+                        $availableItemIdsByDish[$dishKey] = [];
+                    }
+                    $availableItemIdsByDish[$dishKey][] = (int) $existingItem->id;
+                }
+
+                foreach ($validated['items'] as $itemInput) {
+                    $status = in_array(($itemInput['status'] ?? 'normal'), ['normal', 'problematic', 'cancelled', 'compensated'], true)
+                        ? (string) $itemInput['status']
+                        : 'normal';
+                    $compensationType = in_array(($itemInput['compensation_type'] ?? 'none'), ['none', 'full_waiver', 'partial_discount', 'complimentary'], true)
+                        ? (string) $itemInput['compensation_type']
+                        : 'none';
+                    $isComplimentary = (bool) ($itemInput['is_complimentary'] ?? false) || $compensationType === 'complimentary';
+
+                    if ($isComplimentary && ! in_array((string) $actor->role, ['admin', 'accountant'], true)) {
+                        abort(403, 'Only Admin or Accountant can create or approve complimentary adjustments.');
+                    }
+
+                    $orderItemId = isset($itemInput['order_item_id']) ? (int) $itemInput['order_item_id'] : null;
+                    $dishId = (int) $itemInput['dish_id'];
+                    $quantity = max(1, (int) $itemInput['quantity']);
+                    $targetItem = null;
+
+                    if ($orderItemId !== null && $orderItemId > 0) {
+                        $targetItem = $existingItemsById->get($orderItemId);
+                        if (! $targetItem instanceof OrderItem) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Order item #{$orderItemId} does not belong to this order."],
+                            ]);
+                        }
+                    } elseif (
+                        $status !== 'normal'
+                        && $isComplimentary
+                    ) {
+                        $dish = Dish::query()
+                            ->where('restaurant_id', $lockedOrder->restaurant_id)
+                            ->whereKey($dishId)
+                            ->first();
+
+                        if (! $dish) {
+                            throw ValidationException::withMessages([
+                                'items' => ["Dish #{$dishId} could not be found for complimentary adjustment."],
+                            ]);
+                        }
+
+                        $targetItem = $lockedOrder->items()->create([
+                            'dish_id' => $dish->id,
+                            'dish_name' => $dish->name,
+                            'unit_price' => number_format((float) $dish->price, 2, '.', ''),
+                            'quantity' => $quantity,
+                            'line_subtotal' => number_format((float) $dish->price * $quantity, 2, '.', ''),
+                            'original_unit_price' => number_format((float) $dish->price, 2, '.', ''),
+                            'final_unit_price' => number_format((float) $dish->price, 2, '.', ''),
+                        ]);
+                    } elseif (array_key_exists($dishId, $availableItemIdsByDish) && count($availableItemIdsByDish[$dishId]) === 1) {
+                        $resolvedItemId = array_shift($availableItemIdsByDish[$dishId]);
+                        $targetItem = $resolvedItemId !== null ? $existingItemsById->get($resolvedItemId) : null;
+                    } elseif (array_key_exists($dishId, $availableItemIdsByDish) && count($availableItemIdsByDish[$dishId]) > 1) {
+                        throw ValidationException::withMessages([
+                            'items' => ["Multiple order items found for dish #{$dishId}; please pass order_item_id."],
+                        ]);
+                    } else {
+                        throw ValidationException::withMessages([
+                            'items' => ["Dish #{$dishId} does not belong to this order."],
+                        ]);
+                    }
+
+                    if (! $targetItem instanceof OrderItem) {
+                        continue;
+                    }
+
+                    $originalUnitPrice = isset($itemInput['original_unit_price'])
+                        ? max(0, (float) $itemInput['original_unit_price'])
+                        : (float) ($targetItem->original_unit_price ?? $targetItem->unit_price);
+
+                    $finalUnitPrice = isset($itemInput['final_unit_price'])
+                        ? max(0, (float) $itemInput['final_unit_price'])
+                        : ($status === 'normal'
+                            ? $originalUnitPrice
+                            : (($compensationType === 'complimentary' || $compensationType === 'full_waiver' || $status === 'cancelled')
+                                ? 0.0
+                                : (float) ($targetItem->final_unit_price ?? $targetItem->unit_price)));
+
+                    $effectiveCompensationType = $status === 'normal' ? 'none' : $compensationType;
+                    $effectiveReason = $status === 'normal'
+                        ? null
+                        : ($this->normalizeOptionalString($itemInput['compensation_reason'] ?? null));
+                    $effectiveOperationalLossCategory = $status === 'normal'
+                        ? null
+                        : $this->deriveOperationalLossCategory(
+                            isset($itemInput['operational_loss_category']) ? (string) $itemInput['operational_loss_category'] : null,
+                            $effectiveReason,
+                            $status,
+                            $effectiveCompensationType
+                        );
+
+                    $effectiveActionType = $status === 'normal'
+                        ? null
+                        : $this->deriveAdjustmentActionType(
+                            isset($itemInput['adjustment_action_type']) ? (string) $itemInput['adjustment_action_type'] : null,
+                            $status,
+                            $effectiveCompensationType,
+                            $isComplimentary,
+                            $effectiveOperationalLossCategory
+                        );
+
+                    $targetItem->update([
+                        'quantity' => $quantity,
+                        'unit_price' => number_format($originalUnitPrice, 2, '.', ''),
+                        'line_subtotal' => number_format($finalUnitPrice * $quantity, 2, '.', ''),
+                        'status' => $status,
+                        'compensation_type' => $effectiveCompensationType,
+                        'compensation_reason' => $effectiveReason,
+                        'complaint_category' => $status === 'normal'
+                            ? null
+                            : $this->normalizeOptionalString($itemInput['complaint_category'] ?? null),
+                        'operational_loss_category' => $effectiveOperationalLossCategory,
+                        'adjustment_action_type' => $effectiveActionType,
+                        'compensation_note' => $status === 'normal'
+                            ? null
+                            : $this->normalizeOptionalString($itemInput['compensation_note'] ?? null),
+                        'approved_by_staff_id' => $status === 'normal' ? null : $actor->id,
+                        'approved_by_staff_name' => $status === 'normal' ? null : $actor->name,
+                        'approved_by_staff_role' => $status === 'normal' ? null : $actor->role,
+                        'approved_at' => $status === 'normal' ? null : now(),
+                        'original_unit_price' => number_format($originalUnitPrice, 2, '.', ''),
+                        'final_unit_price' => number_format($finalUnitPrice, 2, '.', ''),
+                        'partial_discount_percentage' => ($status !== 'normal' && isset($itemInput['partial_discount_percentage']))
+                            ? number_format(max(0, min(100, (float) $itemInput['partial_discount_percentage'])), 2, '.', '')
+                            : null,
+                        'partial_discount_type' => ($status !== 'normal' && isset($itemInput['partial_discount_type']))
+                            ? $itemInput['partial_discount_type']
+                            : null,
+                        'partial_discount_value' => ($status !== 'normal' && isset($itemInput['partial_discount_value']))
+                            ? number_format(max(0, (float) $itemInput['partial_discount_value']), 2, '.', '')
+                            : null,
+                        'is_complimentary' => $status !== 'normal' && $isComplimentary,
+                        'accounting_bucket' => $status === 'normal'
+                            ? null
+                            : $this->normalizeOptionalString($itemInput['accounting_bucket'] ?? null),
+                        'customer_satisfaction_rating' => ($status !== 'normal' && isset($itemInput['customer_satisfaction_rating']))
+                            ? (int) $itemInput['customer_satisfaction_rating']
+                            : null,
+                        'evidence_photo_url' => ($status !== 'normal')
+                            ? $this->normalizeOptionalString($itemInput['evidence_photo_url'] ?? null)
+                            : null,
+                    ]);
+                }
+            }
+
+            $lockedOrder->load('items');
+
+            $invoice = $invoiceCalculator->calculate(
+                $lockedOrder->items->map(fn (OrderItem $item) => [
+                    'unit_price' => number_format(
+                        (float) ($item->final_unit_price ?? $item->unit_price ?? 0),
+                        2,
+                        '.',
+                        ''
+                    ),
+                    'quantity' => $item->quantity,
+                ]),
+                (float) ($validated['vat_rate'] ?? 0),
+                $discountType,
+                $discountValue
+            );
+
+            $lockedOrder->update([
                 'status' => Order::STATUS_ACCOUNTED,
-                'invoice_number' => $order->invoice_number ?: $this->formatInvoiceNumber($order),
-                'accounted_by' => $request->user()->id,
+                'invoice_number' => $lockedOrder->invoice_number ?: $this->formatInvoiceNumber($lockedOrder),
+                'accounted_by' => $actor->id,
                 'accounted_at' => now(),
                 ...$invoice,
             ]);
 
-            return $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
+            return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
         });
 
         $this->broadcastAccountingOrderRemoved($order);
@@ -1085,6 +1278,28 @@ class OrderController extends Controller
                 'unit_price' => $item->unit_price,
                 'quantity' => $item->quantity,
                 'line_subtotal' => $item->line_subtotal,
+                'status' => $item->status ?? 'normal',
+                'compensation_type' => $item->compensation_type ?? 'none',
+                'compensation_reason' => $item->compensation_reason,
+                'complaint_category' => $item->complaint_category,
+                'operational_loss_category' => $item->operational_loss_category,
+                'adjustment_action_type' => $item->adjustment_action_type,
+                'compensation_note' => $item->compensation_note,
+                'approved_by' => $item->approved_by_staff_id ? [
+                    'id' => $item->approved_by_staff_id,
+                    'name' => $item->approved_by_staff_name,
+                    'role' => $item->approved_by_staff_role,
+                ] : null,
+                'approved_at' => $item->approved_at?->toIso8601String(),
+                'original_unit_price' => $item->original_unit_price ?? $item->unit_price,
+                'final_unit_price' => $item->final_unit_price ?? $item->unit_price,
+                'partial_discount_percentage' => $item->partial_discount_percentage,
+                'partial_discount_type' => $item->partial_discount_type,
+                'partial_discount_value' => $item->partial_discount_value,
+                'is_complimentary' => (bool) ($item->is_complimentary ?? false),
+                'accounting_bucket' => $item->accounting_bucket,
+                'customer_satisfaction_rating' => $item->customer_satisfaction_rating,
+                'evidence_photo_url' => $item->evidence_photo_url,
             ])->values(),
             'invoice' => [
                 'subtotal' => $order->subtotal,
@@ -1115,6 +1330,87 @@ class OrderController extends Controller
             'phone' => $user->phone,
             'role' => $user->role,
         ];
+    }
+
+    private function deriveOperationalLossCategory(
+        ?string $explicitCategory,
+        ?string $reason,
+        string $status,
+        string $compensationType
+    ): ?string {
+        $allowed = [
+            'kitchen_mistake',
+            'burned_food',
+            'wrong_order_sent',
+            'quality_complaint',
+            'customer_satisfaction_recovery',
+        ];
+
+        if ($explicitCategory && in_array($explicitCategory, $allowed, true)) {
+            return $explicitCategory;
+        }
+
+        $reasonMap = [
+            'kitchen_mistake' => 'kitchen_mistake',
+            'burned_food' => 'burned_food',
+            'wrong_order_sent' => 'wrong_order_sent',
+            'quality_complaint' => 'quality_complaint',
+            'customer_satisfaction_recovery' => 'customer_satisfaction_recovery',
+            'quality_issue' => 'quality_complaint',
+            'wrong_cooking' => 'kitchen_mistake',
+            'foreign_object' => 'quality_complaint',
+            'fly_or_hair' => 'quality_complaint',
+            'allergy_risk' => 'quality_complaint',
+            'temperature_issue' => 'quality_complaint',
+            'late_service' => 'customer_satisfaction_recovery',
+        ];
+
+        if ($reason && array_key_exists($reason, $reasonMap)) {
+            return $reasonMap[$reason];
+        }
+
+        if ($compensationType === 'complimentary') {
+            return 'customer_satisfaction_recovery';
+        }
+
+        if ($status === 'compensated') {
+            return 'kitchen_mistake';
+        }
+
+        return 'quality_complaint';
+    }
+
+    private function deriveAdjustmentActionType(
+        ?string $explicitActionType,
+        string $status,
+        string $compensationType,
+        bool $isComplimentary,
+        ?string $operationalLossCategory
+    ): ?string {
+        $allowed = [
+            'issue_refund',
+            'complimentary_gift',
+            'service_recovery',
+            'operational_waste',
+        ];
+
+        if ($explicitActionType && in_array($explicitActionType, $allowed, true)) {
+            return $explicitActionType;
+        }
+
+        if ($operationalLossCategory === 'customer_satisfaction_recovery') {
+            return $isComplimentary ? 'service_recovery' : 'issue_refund';
+        }
+
+        if ($isComplimentary || $compensationType === 'complimentary') {
+            return 'complimentary_gift';
+        }
+
+        if ($status === 'cancelled' || $status === 'problematic' || $compensationType === 'full_waiver') {
+            return 'issue_refund';
+        }
+
+        return 'operational_waste';
     }
 
     private function formatKitchenOrder(Order $order): array
