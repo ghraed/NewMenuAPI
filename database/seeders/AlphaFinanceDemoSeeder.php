@@ -43,6 +43,7 @@ class AlphaFinanceDemoSeeder extends Seeder
     {
         Invoice::query()
             ->where('restaurant_id', $restaurantId)
+            ->where('invoice_number', 'like', 'INV-ALP-%')
             ->delete();
 
         Order::query()
@@ -57,12 +58,18 @@ class AlphaFinanceDemoSeeder extends Seeder
         if (Schema::hasTable('expenses')) {
             Expense::query()
                 ->where('restaurant_id', $restaurantId)
+                ->where(function ($query): void {
+                    $query->where('reference_no', 'like', 'ALP-EXP-%')
+                        ->orWhere('reference_no', 'like', 'ADJ-ALP-%')
+                        ->orWhere('notes', 'like', 'Finance demo seed data%');
+                })
                 ->delete();
         }
 
         if (Schema::hasTable('payroll_periods')) {
             PayrollPeriod::query()
                 ->where('restaurant_id', $restaurantId)
+                ->where('notes', 'like', 'Finance demo seed data%')
                 ->delete();
         }
     }
@@ -108,14 +115,12 @@ class AlphaFinanceDemoSeeder extends Seeder
                 $invoiceNumber = sprintf('INV-ALP-%s-%04d', $invoiceAt->format('Ymd'), $invoiceSequence);
 
                 $pickedDishes = $dishes->shuffle()->take(random_int(1, 4))->values();
-                $subtotal = 0.0;
                 $itemsPayload = [];
 
                 foreach ($pickedDishes as $dish) {
                     $quantity = random_int(1, 3);
                     $unitPrice = (float) $dish->price;
                     $lineSubtotal = round($unitPrice * $quantity, 2);
-                    $subtotal += $lineSubtotal;
 
                     $itemsPayload[] = [
                         'dish_id' => $dish->id,
@@ -123,10 +128,116 @@ class AlphaFinanceDemoSeeder extends Seeder
                         'unit_price' => number_format($unitPrice, 2, '.', ''),
                         'quantity' => $quantity,
                         'line_subtotal' => number_format($lineSubtotal, 2, '.', ''),
+                        'status' => 'normal',
+                        'compensation_type' => 'none',
+                        'compensation_reason' => null,
+                        'complaint_category' => null,
+                        'operational_loss_category' => null,
+                        'adjustment_action_type' => null,
+                        'compensation_note' => null,
+                        'approved_by_staff_id' => null,
+                        'approved_by_staff_name' => null,
+                        'approved_by_staff_role' => null,
+                        'approved_at' => null,
+                        'original_unit_price' => number_format($unitPrice, 2, '.', ''),
+                        'final_unit_price' => number_format($unitPrice, 2, '.', ''),
+                        'partial_discount_percentage' => null,
+                        'partial_discount_type' => null,
+                        'partial_discount_value' => null,
+                        'is_complimentary' => false,
+                        'accounting_bucket' => null,
+                        'customer_satisfaction_rating' => null,
+                        'evidence_photo_url' => null,
                         'created_at' => $invoiceAt,
                         'updated_at' => $invoiceAt,
                     ];
                 }
+
+                if ($itemsPayload !== [] && random_int(1, 100) <= 18) {
+                    $adjustedIndex = array_rand($itemsPayload);
+                    $adjusted = $itemsPayload[$adjustedIndex];
+                    $originalUnitPrice = (float) $adjusted['unit_price'];
+                    $quantity = (int) $adjusted['quantity'];
+                    $originalLineTotal = round($originalUnitPrice * $quantity, 2);
+                    $adjustmentTypeRoll = random_int(1, 100);
+
+                    if ($adjustmentTypeRoll <= 45) {
+                        $itemsPayload[$adjustedIndex] = array_merge($adjusted, [
+                            'line_subtotal' => number_format(0, 2, '.', ''),
+                            'status' => 'problematic',
+                            'compensation_type' => 'complimentary',
+                            'compensation_reason' => 'quality_complaint',
+                            'complaint_category' => 'food_quality',
+                            'operational_loss_category' => 'customer_satisfaction_recovery',
+                            'adjustment_action_type' => 'complimentary_gift',
+                            'compensation_note' => 'Guest received complimentary replacement after quality issue.',
+                            'approved_by_staff_id' => $staffId,
+                            'approved_by_staff_name' => 'Floor Supervisor',
+                            'approved_by_staff_role' => 'captain',
+                            'approved_at' => $invoiceAt->copy()->subMinutes(random_int(2, 9)),
+                            'final_unit_price' => number_format(0, 2, '.', ''),
+                            'partial_discount_percentage' => number_format(100, 2, '.', ''),
+                            'partial_discount_type' => 'percentage',
+                            'partial_discount_value' => number_format($originalLineTotal, 2, '.', ''),
+                            'is_complimentary' => true,
+                            'accounting_bucket' => 'customer_recovery',
+                            'customer_satisfaction_rating' => random_int(3, 5),
+                        ]);
+                    } elseif ($adjustmentTypeRoll <= 82) {
+                        $discountPercent = (float) random_int(25, 60);
+                        $discountUnit = round($originalUnitPrice * ($discountPercent / 100), 2);
+                        $finalUnit = max(0, round($originalUnitPrice - $discountUnit, 2));
+                        $finalLineTotal = round($finalUnit * $quantity, 2);
+                        $itemsPayload[$adjustedIndex] = array_merge($adjusted, [
+                            'line_subtotal' => number_format($finalLineTotal, 2, '.', ''),
+                            'status' => 'problematic',
+                            'compensation_type' => 'partial_discount',
+                            'compensation_reason' => 'wrong_item_served',
+                            'complaint_category' => 'service_error',
+                            'operational_loss_category' => 'wrong_order_sent',
+                            'adjustment_action_type' => 'issue_refund',
+                            'compensation_note' => 'Partial refund after wrong item reached table.',
+                            'approved_by_staff_id' => $staffId,
+                            'approved_by_staff_name' => 'Shift Manager',
+                            'approved_by_staff_role' => 'manager',
+                            'approved_at' => $invoiceAt->copy()->subMinutes(random_int(2, 12)),
+                            'final_unit_price' => number_format($finalUnit, 2, '.', ''),
+                            'partial_discount_percentage' => number_format($discountPercent, 2, '.', ''),
+                            'partial_discount_type' => 'percentage',
+                            'partial_discount_value' => number_format(round($originalLineTotal - $finalLineTotal, 2), 2, '.', ''),
+                            'is_complimentary' => false,
+                            'accounting_bucket' => 'issue_refund',
+                            'customer_satisfaction_rating' => random_int(2, 4),
+                        ]);
+                    } else {
+                        $itemsPayload[$adjustedIndex] = array_merge($adjusted, [
+                            'line_subtotal' => number_format(0, 2, '.', ''),
+                            'status' => 'problematic',
+                            'compensation_type' => 'full_waiver',
+                            'compensation_reason' => 'delayed_service',
+                            'complaint_category' => 'delay',
+                            'operational_loss_category' => 'kitchen_mistake',
+                            'adjustment_action_type' => 'service_recovery',
+                            'compensation_note' => 'Waived item to recover from severe kitchen delay.',
+                            'approved_by_staff_id' => $staffId,
+                            'approved_by_staff_name' => 'Dining Lead',
+                            'approved_by_staff_role' => 'captain',
+                            'approved_at' => $invoiceAt->copy()->subMinutes(random_int(2, 8)),
+                            'final_unit_price' => number_format(0, 2, '.', ''),
+                            'partial_discount_percentage' => number_format(100, 2, '.', ''),
+                            'partial_discount_type' => 'percentage',
+                            'partial_discount_value' => number_format($originalLineTotal, 2, '.', ''),
+                            'is_complimentary' => true,
+                            'accounting_bucket' => 'service_recovery',
+                            'customer_satisfaction_rating' => random_int(3, 5),
+                        ]);
+                    }
+                }
+
+                $subtotal = round(
+                    array_reduce($itemsPayload, static fn (float $carry, array $item): float => $carry + (float) $item['line_subtotal'], 0.0),
+                    2
+                );
 
                 $vatRate = 11.0;
                 $vatAmount = round($subtotal * 0.11, 2);
@@ -170,7 +281,7 @@ class AlphaFinanceDemoSeeder extends Seeder
                         'status' => $orderStatus,
                         'kitchen_status' => Order::KITCHEN_STATUS_SERVED,
                         'guest_name' => 'Walk-in Guest',
-                        'notes' => 'Demo seeded order',
+                        'notes' => 'Demo seeded order with realistic service recovery cases',
                         'vat_rate' => number_format($vatRate, 2, '.', ''),
                         'subtotal' => number_format($subtotal, 2, '.', ''),
                         'discount_type' => null,
@@ -213,6 +324,25 @@ class AlphaFinanceDemoSeeder extends Seeder
                             'unit_price' => $item['unit_price'],
                             'line_total' => $item['line_subtotal'],
                             'order_index' => $index,
+                            'status' => $item['status'],
+                            'compensation_type' => $item['compensation_type'],
+                            'compensation_reason' => $item['compensation_reason'],
+                            'complaint_category' => $item['complaint_category'],
+                            'operational_loss_category' => $item['operational_loss_category'],
+                            'adjustment_action_type' => $item['adjustment_action_type'],
+                            'compensation_note' => $item['compensation_note'],
+                            'approved_by_staff_name' => $item['approved_by_staff_name'],
+                            'approved_by_staff_role' => $item['approved_by_staff_role'],
+                            'approved_at' => $item['approved_at'],
+                            'original_unit_price' => $item['original_unit_price'],
+                            'final_unit_price' => $item['final_unit_price'],
+                            'original_line_total' => number_format((float) $item['original_unit_price'] * (int) $item['quantity'], 2, '.', ''),
+                            'partial_discount_percentage' => $item['partial_discount_percentage'],
+                            'partial_discount_type' => $item['partial_discount_type'],
+                            'partial_discount_value' => $item['partial_discount_value'],
+                            'is_complimentary' => $item['is_complimentary'],
+                            'accounting_bucket' => $item['accounting_bucket'],
+                            'customer_satisfaction_rating' => $item['customer_satisfaction_rating'],
                             'created_at' => $invoiceAt,
                             'updated_at' => $invoiceAt,
                         ];
@@ -254,6 +384,7 @@ class AlphaFinanceDemoSeeder extends Seeder
             ['code' => 'UTIL', 'name' => 'Utilities'],
             ['code' => 'MAINT', 'name' => 'Maintenance'],
             ['code' => 'MARKETING', 'name' => 'Marketing'],
+            ['code' => 'OPS_LOSS', 'name' => 'Operational Loss & Guest Recovery'],
         ];
 
         $categoryMap = [];
@@ -385,6 +516,35 @@ class AlphaFinanceDemoSeeder extends Seeder
                     );
                 }
 
+                if (random_int(1, 100) <= 24) {
+                    $action = ['issue_refund', 'complimentary_gift', 'service_recovery'][array_rand(['issue_refund', 'complimentary_gift', 'service_recovery'])];
+                    $lossCategory = match ($action) {
+                        'issue_refund' => 'wrong_order_sent',
+                        'complimentary_gift' => 'customer_satisfaction_recovery',
+                        default => 'kitchen_mistake',
+                    };
+                    $expenseRows[] = $this->expenseRow(
+                        category: $categoryMap['OPS_LOSS'],
+                        vendor: $vendors[array_rand($vendors)],
+                        date: $day->copy()->addDays(random_int(0, 4))->setTime(random_int(12, 21), random_int(0, 50)),
+                        amountCents: random_int(1800, 12500),
+                        taxCents: 0,
+                        description: 'Guest recovery expense from invoice adjustment',
+                        paymentMethod: random_int(0, 1) === 1 ? 'card' : 'cash',
+                        status: Expense::STATUS_PAID,
+                        staffId: $staffId,
+                        notes: sprintf(
+                            "Finance demo seed data; source: invoice adjustment; action_type: %s; operational_loss_category: %s; approved_by: Shift Manager; approved_at: %s; adjustment_reference: ADJ-ALP-%s; invoice number: INV-ALP-%s",
+                            $action,
+                            $lossCategory,
+                            $day->copy()->setTime(18, random_int(0, 59))->toIso8601String(),
+                            $day->format('Ymd'),
+                            $day->format('Ymd')
+                        ),
+                        referencePrefix: 'ADJ-ALP'
+                    );
+                }
+
                 $day->addWeek();
             }
 
@@ -410,10 +570,14 @@ class AlphaFinanceDemoSeeder extends Seeder
         foreach ($expenseRows as $index => $row) {
             $scaledAmountCents = max(1000, (int) round(((int) ($row['amount_cents'] ?? 0)) * $expenseScale));
             $scaledTaxCents = max(0, (int) round(((int) ($row['tax_amount_cents'] ?? 0)) * $expenseScale));
+            $referencePrefix = (string) ($row['reference_prefix'] ?? 'ALP-EXP');
+            unset($row['reference_prefix']);
 
             Expense::query()->create(array_merge($row, [
                 'uuid' => (string) Str::uuid(),
-                'reference_no' => sprintf('ALP-EXP-%04d', $index + 1),
+                'reference_no' => $referencePrefix === 'ADJ-ALP'
+                    ? sprintf('ADJ-ALP-%04d', $index + 1)
+                    : sprintf('ALP-EXP-%04d', $index + 1),
                 'amount_cents' => $scaledAmountCents,
                 'tax_amount_cents' => $scaledTaxCents,
             ]));
@@ -438,7 +602,9 @@ class AlphaFinanceDemoSeeder extends Seeder
         string $description,
         string $paymentMethod,
         string $status,
-        ?int $staffId
+        ?int $staffId,
+        ?string $notes = null,
+        string $referencePrefix = 'ALP-EXP'
     ): array {
         $dueDate = $date->copy()->addDays(random_int(3, 14));
         if ($dueDate->gt(Carbon::today())) {
@@ -456,13 +622,14 @@ class AlphaFinanceDemoSeeder extends Seeder
             'status' => $status,
             'payment_method' => $paymentMethod,
             'description' => $description,
-            'notes' => 'Finance demo seed data',
+            'notes' => $notes ?? 'Finance demo seed data',
             'due_date' => $dueDate->toDateString(),
             'paid_at' => $status === Expense::STATUS_PAID ? $date->copy()->setTime(random_int(16, 21), random_int(0, 50)) : null,
             'created_by' => $staffId,
             'approved_by' => in_array($status, [Expense::STATUS_APPROVED, Expense::STATUS_PAID], true) ? $staffId : null,
             'created_at' => $date->copy()->setTime(9, random_int(0, 59)),
             'updated_at' => $date->copy()->setTime(10, random_int(0, 59)),
+            'reference_prefix' => $referencePrefix,
         ];
     }
 }
