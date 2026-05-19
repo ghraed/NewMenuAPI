@@ -3,6 +3,8 @@
 namespace Database\Seeders;
 
 use App\Models\Dish;
+use App\Models\DishIngredient;
+use App\Models\Ingredient;
 use App\Models\Restaurant;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
@@ -68,6 +70,9 @@ class DummyDishesSeeder extends Seeder
 
     public function run(): void
     {
+        $removed = $this->purgeExistingDummyDishes();
+        $removedOld = $this->purgeExistingNonDummyDishes();
+
         $restaurants = Restaurant::query()
             ->orderBy('id')
             ->get();
@@ -109,8 +114,15 @@ class DummyDishesSeeder extends Seeder
         }
 
         $this->attachDishLinks($restaurants);
+        $outOfStock = $this->markSomeDishesOutOfStock($restaurants);
 
-        $this->command?->info(sprintf('Created %d dummy dishes with realistic ingredients and unique dish image URLs.', $created));
+        $this->command?->info(sprintf(
+            'Removed %d previous dummy dishes and %d old non-dummy dishes, created %d new dummy dishes, and marked %d as out of stock.',
+            $removed,
+            $removedOld,
+            $created,
+            $outOfStock
+        ));
     }
 
     public static function descriptionMarker(): string
@@ -316,37 +328,168 @@ class DummyDishesSeeder extends Seeder
         );
     }
 
+    private function purgeExistingDummyDishes(): int
+    {
+        $query = Dish::query()
+            ->where('description', 'like', self::DESCRIPTION_MARKER . '%');
+
+        $count = (int) $query->count();
+
+        if ($count === 0) {
+            return 0;
+        }
+
+        $query->delete();
+
+        return $count;
+    }
+
+    private function purgeExistingNonDummyDishes(): int
+    {
+        $query = Dish::query()
+            ->where(function ($builder): void {
+                $builder
+                    ->whereNull('description')
+                    ->orWhere('description', 'not like', self::DESCRIPTION_MARKER . '%');
+            });
+
+        $count = (int) $query->count();
+
+        if ($count === 0) {
+            return 0;
+        }
+
+        $query->delete();
+
+        return $count;
+    }
+
     private function attachDishLinks(Collection $restaurants): void
     {
         foreach ($restaurants as $restaurant) {
             $dishes = Dish::query()
                 ->where('restaurant_id', $restaurant->id)
-                ->where('description', 'not like', self::DESCRIPTION_MARKER . '%')
+                ->where('description', 'like', self::DESCRIPTION_MARKER . '%')
                 ->orderBy('id')
                 ->get();
 
             foreach ($dishes as $position => $dish) {
-                $suggestedIds = $dishes
-                    ->slice($position + 1, 2)
-                    ->pluck('id')
-                    ->all();
-
-                $relatedIds = $dishes
-                    ->slice(max(0, $position - 2), 2)
-                    ->pluck('id')
-                    ->filter(fn (int $id): bool => $id !== $dish->id)
+                $suggestedIds = collect($this->linkCandidates($dishes, $dish, $position, [1, 2]))
+                    ->unique()
                     ->values()
                     ->all();
 
-                if ($suggestedIds !== []) {
-                    $dish->suggestedDishes()->syncWithoutDetaching($suggestedIds);
-                }
+                $relatedIds = collect($this->linkCandidates($dishes, $dish, $position, [3, 4]))
+                    ->unique()
+                    ->values()
+                    ->all();
 
-                if ($relatedIds !== []) {
-                    $dish->relatedDishes()->syncWithoutDetaching($relatedIds);
-                }
+                $dish->suggestedDishes()->sync($suggestedIds);
+                $dish->relatedDishes()->sync($relatedIds);
             }
         }
+    }
+
+    /**
+     * @param Collection<int, Dish> $dishes
+     * @param array<int, int> $offsets
+     * @return array<int, int>
+     */
+    private function linkCandidates(Collection $dishes, Dish $dish, int $position, array $offsets): array
+    {
+        $dishCount = $dishes->count();
+        if ($dishCount === 0) {
+            return [];
+        }
+
+        $ids = collect($offsets)
+            ->map(function (int $offset) use ($dishes, $dishCount, $position): ?int {
+                $target = $dishes[($position + $offset + $dishCount) % $dishCount] ?? null;
+
+                return $target?->id;
+            })
+            ->filter(fn (?int $id): bool => $id !== null && $id !== $dish->id)
+            ->values()
+            ->all();
+
+        if ($ids !== []) {
+            return $ids;
+        }
+
+        $fallbackId = $dishes
+            ->first(fn (Dish $candidate): bool => $candidate->id !== $dish->id)?->id;
+
+        if ($fallbackId !== null) {
+            return [$fallbackId];
+        }
+
+        return [$dish->id];
+    }
+
+    private function markSomeDishesOutOfStock(Collection $restaurants): int
+    {
+        $totalMarked = 0;
+
+        foreach ($restaurants as $restaurant) {
+            $dishes = Dish::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('description', 'like', self::DESCRIPTION_MARKER . '%')
+                ->orderBy('id')
+                ->get();
+
+            $dishCount = $dishes->count();
+            if ($dishCount === 0) {
+                continue;
+            }
+
+            $outOfStockCount = (int) floor($dishCount * 0.18);
+            $outOfStockCount = max(1, $outOfStockCount);
+            $outOfStockCount = min($outOfStockCount, max(1, $dishCount - 1));
+
+            $blockerIngredient = Ingredient::query()->firstOrCreate(
+                [
+                    'restaurant_id' => $restaurant->id,
+                    'name' => 'Seeder Out Of Stock Blocker',
+                ],
+                [
+                    'uuid' => (string) Str::uuid(),
+                    'storage_disk' => 'public',
+                    'file_path' => null,
+                    'stock_unit' => Ingredient::UNIT_PIECE,
+                    'current_stock_quantity' => 0,
+                    'low_stock_threshold' => 0,
+                    'is_active' => false,
+                ]
+            );
+
+            $blockerIngredient->update([
+                'stock_unit' => Ingredient::UNIT_PIECE,
+                'current_stock_quantity' => 0,
+                'low_stock_threshold' => 0,
+                'is_active' => false,
+            ]);
+
+            $targetDishes = $dishes->take($outOfStockCount);
+
+            foreach ($targetDishes as $dish) {
+                DishIngredient::query()->updateOrCreate(
+                    [
+                        'dish_id' => $dish->id,
+                        'ingredient_id' => $blockerIngredient->id,
+                    ],
+                    [
+                        'quantity' => 1,
+                        'unit' => Ingredient::UNIT_PIECE,
+                        'order_index' => 999,
+                        'show_in_animation' => false,
+                    ]
+                );
+
+                $totalMarked++;
+            }
+        }
+
+        return $totalMarked;
     }
 
     private function priceForCategory(string $category, int $index): float
