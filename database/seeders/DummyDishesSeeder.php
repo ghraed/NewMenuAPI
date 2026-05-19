@@ -12,7 +12,6 @@ use Illuminate\Support\Str;
 
 class DummyDishesSeeder extends Seeder
 {
-    private const DISH_COUNT = 200;
     private const DESCRIPTION_MARKER = '[dummy-dishes-seeder]';
 
     private const CATEGORY_IMAGE_URLS = [
@@ -71,7 +70,6 @@ class DummyDishesSeeder extends Seeder
     public function run(): void
     {
         $removed = $this->purgeExistingDummyDishes();
-        $removedOld = $this->purgeExistingNonDummyDishes();
 
         $restaurants = Restaurant::query()
             ->orderBy('id')
@@ -83,43 +81,52 @@ class DummyDishesSeeder extends Seeder
         }
 
         $categoryRecipes = $this->categoryRecipes();
-        $categories = array_keys($categoryRecipes);
+        $recipeRows = $this->recipeRows($categoryRecipes);
+        $ingredientsByRestaurant = $this->scanIngredientsByRestaurant($restaurants);
+        $removedDuplicates = $this->removeDuplicateDishItems($restaurants);
 
         $created = 0;
+        $sequence = 1;
 
-        for ($index = 0; $index < self::DISH_COUNT; $index++) {
-            $restaurant = $restaurants[$index % $restaurants->count()];
-            $category = $categories[$index % count($categories)];
-            $recipes = $categoryRecipes[$category];
-            $recipe = $recipes[$index % count($recipes)];
+        foreach ($restaurants as $restaurant) {
+            $ingredientPool = $ingredientsByRestaurant[$restaurant->id] ?? collect();
 
-            Dish::create([
-                'uuid' => (string) Str::uuid(),
-                'restaurant_id' => $restaurant->id,
-                'name' => $recipe['name'],
-                'description' => $this->buildDescription(
-                    $index + 1,
-                    $restaurant->name,
-                    $category,
-                    $recipe['ingredients']
-                ),
-                'price' => $this->priceForCategory($category, $index),
-                'calories' => $this->caloriesForRecipe($recipe['ingredients'], $category, $index),
-                'category' => $category,
-                'status' => 'published',
-                'image_url' => $this->imageForCategory($category, $index, $recipe['name'], $restaurant->id),
-            ]);
+            foreach ($recipeRows as $index => $recipe) {
+                $dish = Dish::create([
+                    'uuid' => (string) Str::uuid(),
+                    'restaurant_id' => $restaurant->id,
+                    'name' => $recipe['name'],
+                    'description' => $this->buildDescription(
+                        $sequence,
+                        $restaurant->name,
+                        $recipe['category'],
+                        $recipe['ingredients']
+                    ),
+                    'price' => $this->priceForCategory($recipe['category'], $index),
+                    'calories' => $this->caloriesForRecipe($recipe['ingredients'], $recipe['category'], $index),
+                    'category' => $recipe['category'],
+                    'status' => 'published',
+                    'image_url' => $this->imageForCategory($recipe['category'], $index, $recipe['name'], $restaurant->id),
+                ]);
 
-            $created++;
+                $this->attachRealIngredientsToDish($dish, $recipe['ingredients'], $ingredientPool);
+
+                $created++;
+                $sequence++;
+            }
         }
 
         $this->attachDishLinks($restaurants);
         $outOfStock = $this->markSomeDishesOutOfStock($restaurants);
+        $scannedIngredients = $ingredientsByRestaurant
+            ->map(fn (Collection $items): int => $items->count())
+            ->sum();
 
         $this->command?->info(sprintf(
-            'Removed %d previous dummy dishes and %d old non-dummy dishes, created %d new dummy dishes, and marked %d as out of stock.',
+            'Removed %d previous dummy dishes, removed %d duplicate dishes, scanned %d ingredients, created %d unique dishes, and marked %d as out of stock.',
             $removed,
-            $removedOld,
+            $removedDuplicates,
+            $scannedIngredients,
             $created,
             $outOfStock
         ));
@@ -344,24 +351,203 @@ class DummyDishesSeeder extends Seeder
         return $count;
     }
 
-    private function purgeExistingNonDummyDishes(): int
+    /**
+     * @param Collection<int, Restaurant> $restaurants
+     */
+    private function scanIngredientsByRestaurant(Collection $restaurants): Collection
     {
-        $query = Dish::query()
-            ->where(function ($builder): void {
-                $builder
-                    ->whereNull('description')
-                    ->orWhere('description', 'not like', self::DESCRIPTION_MARKER . '%');
+        $restaurantIds = $restaurants->pluck('id')->all();
+
+        $ingredients = Ingredient::query()
+            ->whereIn('restaurant_id', $restaurantIds)
+            ->where('is_active', true)
+            ->orderBy('restaurant_id')
+            ->orderBy('name')
+            ->get();
+
+        return $ingredients->groupBy('restaurant_id');
+    }
+
+    /**
+     * @param Collection<int, Restaurant> $restaurants
+     */
+    private function removeDuplicateDishItems(Collection $restaurants): int
+    {
+        $deleted = 0;
+
+        foreach ($restaurants as $restaurant) {
+            $dishes = Dish::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->orderBy('id')
+                ->get();
+
+            $groups = $dishes->groupBy(function (Dish $dish): string {
+                return trim(mb_strtolower((string) $dish->name));
             });
 
-        $count = (int) $query->count();
+            foreach ($groups as $group) {
+                if ($group->count() <= 1) {
+                    continue;
+                }
 
-        if ($count === 0) {
-            return 0;
+                $keepId = (int) $group->first()->id;
+                $deleteIds = $group
+                    ->pluck('id')
+                    ->filter(fn (int $id): bool => $id !== $keepId)
+                    ->values()
+                    ->all();
+
+                if ($deleteIds === []) {
+                    continue;
+                }
+
+                Dish::query()
+                    ->where('restaurant_id', $restaurant->id)
+                    ->whereIn('id', $deleteIds)
+                    ->delete();
+
+                $deleted += count($deleteIds);
+            }
         }
 
-        $query->delete();
+        return $deleted;
+    }
 
-        return $count;
+    /**
+     * @param array<string, array<int, array{name:string,ingredients:array<int, string>}>> $categoryRecipes
+     * @return array<int, array{name:string,category:string,ingredients:array<int, string>}>
+     */
+    private function recipeRows(array $categoryRecipes): array
+    {
+        $rows = [];
+
+        foreach ($categoryRecipes as $category => $recipes) {
+            foreach ($recipes as $recipe) {
+                $rows[] = [
+                    'name' => $recipe['name'],
+                    'category' => $category,
+                    'ingredients' => $recipe['ingredients'],
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param Collection<int, Ingredient> $ingredientPool
+     * @param array<int, string> $recipeIngredients
+     */
+    private function attachRealIngredientsToDish(Dish $dish, array $recipeIngredients, Collection $ingredientPool): void
+    {
+        if ($ingredientPool->isEmpty()) {
+            return;
+        }
+
+        $selected = collect();
+
+        foreach ($recipeIngredients as $ingredientName) {
+            $match = $this->findIngredientMatch($ingredientPool, $ingredientName, $selected);
+            if (! $match) {
+                continue;
+            }
+
+            $selected->push($match);
+        }
+
+        if ($selected->count() < 3) {
+            $fallback = $ingredientPool
+                ->reject(fn (Ingredient $ingredient): bool => $selected->contains('id', $ingredient->id))
+                ->take(3 - $selected->count());
+
+            $selected = $selected->concat($fallback);
+        }
+
+        $selected = $selected->unique('id')->values()->take(6);
+        if ($selected->isEmpty()) {
+            return;
+        }
+
+        $keptIngredientIds = [];
+        foreach ($selected as $index => $ingredient) {
+            $keptIngredientIds[] = $ingredient->id;
+
+            DishIngredient::query()->updateOrCreate(
+                [
+                    'dish_id' => $dish->id,
+                    'ingredient_id' => $ingredient->id,
+                ],
+                [
+                    'quantity' => $this->realisticQuantityForUnit((string) $ingredient->stock_unit, $index),
+                    'unit' => (string) $ingredient->stock_unit,
+                    'order_index' => $index,
+                    'show_in_animation' => true,
+                ]
+            );
+        }
+
+        DishIngredient::query()
+            ->where('dish_id', $dish->id)
+            ->whereNotIn('ingredient_id', $keptIngredientIds)
+            ->delete();
+    }
+
+    /**
+     * @param Collection<int, Ingredient> $ingredientPool
+     * @param Collection<int, Ingredient> $selected
+     */
+    private function findIngredientMatch(Collection $ingredientPool, string $recipeIngredient, Collection $selected): ?Ingredient
+    {
+        $normalizedTarget = $this->normalizeText($recipeIngredient);
+        if ($normalizedTarget === '') {
+            return null;
+        }
+
+        $available = $ingredientPool
+            ->reject(fn (Ingredient $ingredient): bool => $selected->contains('id', $ingredient->id))
+            ->values();
+
+        $exact = $available->first(function (Ingredient $ingredient) use ($normalizedTarget): bool {
+            return $this->normalizeText((string) $ingredient->name) === $normalizedTarget;
+        });
+        if ($exact) {
+            return $exact;
+        }
+
+        $tokens = array_values(array_filter(explode(' ', $normalizedTarget)));
+        if ($tokens === []) {
+            return null;
+        }
+
+        $partial = $available->first(function (Ingredient $ingredient) use ($tokens): bool {
+            $normalizedIngredient = $this->normalizeText((string) $ingredient->name);
+            foreach ($tokens as $token) {
+                if ($token !== '' && str_contains($normalizedIngredient, $token)) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
+
+        return $partial ?: null;
+    }
+
+    private function normalizeText(string $value): string
+    {
+        $normalized = mb_strtolower(trim($value));
+        $normalized = preg_replace('/[^a-z0-9]+/u', ' ', $normalized) ?? $normalized;
+
+        return trim(preg_replace('/\s+/', ' ', $normalized) ?? $normalized);
+    }
+
+    private function realisticQuantityForUnit(string $unit, int $index): float
+    {
+        return match ($unit) {
+            Ingredient::UNIT_GRAM => [40, 70, 90, 120, 160][$index % 5],
+            Ingredient::UNIT_MILLILITER => [25, 40, 55, 70, 90][$index % 5],
+            default => [1, 1, 2, 2, 3][$index % 5],
+        };
     }
 
     private function attachDishLinks(Collection $restaurants): void
