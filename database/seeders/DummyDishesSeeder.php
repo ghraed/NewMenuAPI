@@ -102,7 +102,7 @@ class DummyDishesSeeder extends Seeder
                 'calories' => $this->caloriesForRecipe($recipe['ingredients'], $category, $index),
                 'category' => $category,
                 'status' => 'published',
-                'image_url' => $this->imageForCategory($category, $index),
+                'image_url' => $this->imageForCategory($category, $index, $recipe['name'], $restaurant->id),
             ]);
 
             $created++;
@@ -110,7 +110,7 @@ class DummyDishesSeeder extends Seeder
 
         $this->attachDishLinks($restaurants);
 
-        $this->command?->info(sprintf('Created %d dummy dishes with realistic ingredients and category-based images.', $created));
+        $this->command?->info(sprintf('Created %d dummy dishes with realistic ingredients and unique dish image URLs.', $created));
     }
 
     public static function descriptionMarker(): string
@@ -385,12 +385,28 @@ class DummyDishesSeeder extends Seeder
         return $baseCalories[$category] + ((count($ingredients) * 18) + ($index % 85));
     }
 
-    private function imageForCategory(string $category, int $index): string
+    private function imageForCategory(string $category, int $index, string $dishName, int $restaurantId): string
     {
         $images = self::CATEGORY_IMAGE_URLS[$category] ?? [
             'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80',
         ];
 
-        return $images[$index % count($images)];
+        $baseUrl = $images[$index % count($images)];
+
+        // Keep category-realistic photos, but assign a unique URL per dish row
+        // so each dish record requests its own image resource during load tests.
+        $normalizedDish = trim((string) preg_replace('/[^a-z0-9 ]+/i', ' ', strtolower($dishName)));
+        $dishKeywords = preg_replace('/\s+/', ',', $normalizedDish) ?: 'dish';
+        $sig = abs(crc32(sprintf('%d:%s:%d', $restaurantId, $dishName, $index)));
+
+        $separator = str_contains($baseUrl, '?') ? '&' : '?';
+
+        return sprintf(
+            '%s%sdish=%s&sig=%d',
+            $baseUrl,
+            $separator,
+            rawurlencode((string) $dishKeywords),
+            $sig
+        );
     }
 }
