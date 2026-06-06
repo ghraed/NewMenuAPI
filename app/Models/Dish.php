@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Ingredient;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +14,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Dish extends Model
 {
     use SoftDeletes;
+    public const ITEM_TYPE_PREPARED_DISH = 'prepared_dish';
+    public const ITEM_TYPE_PREPARED_DRINK = 'prepared_drink';
+    public const ITEM_TYPE_PACKAGED_DRINK = 'packaged_drink';
+    public const ITEM_TYPE_OTHER_PRODUCT = 'other_product';
 
     private ?bool $cachedOrderable = null;
 
@@ -34,9 +39,19 @@ class Dish extends Model
         'category',
         'category_ar',
         'status',
+        'item_type',
+        'direct_stock_ingredient_id',
+        'direct_stock_quantity_per_sale',
         'is_anchor',
         'is_profitable',
         'image_url',
+        'brand',
+        'barcode',
+        'size_label',
+        'packaged_unit',
+        'cost_price',
+        'supplier',
+        'packaged_stock_quantity',
     ];
 
     protected $casts = [
@@ -44,8 +59,12 @@ class Dish extends Model
         'price' => 'decimal:2',
         'currency' => 'string',
         'calories' => 'integer',
+        'direct_stock_ingredient_id' => 'integer',
+        'direct_stock_quantity_per_sale' => 'decimal:3',
         'is_anchor' => 'boolean',
         'is_profitable' => 'boolean',
+        'cost_price' => 'decimal:2',
+        'packaged_stock_quantity' => 'decimal:3',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -194,6 +213,21 @@ class Dish extends Model
             return $this->cachedOrderable;
         }
 
+        if ($this->usesDirectInventory()) {
+            $ingredient = Ingredient::query()->find($this->direct_stock_ingredient_id);
+            if (! $ingredient || ! $ingredient->is_active) {
+                $this->cachedOrderable = false;
+
+                return false;
+            }
+
+            $requiredQuantity = round((float) ($this->direct_stock_quantity_per_sale ?: 1), 3);
+            $availableQuantity = round((float) $ingredient->current_stock_quantity, 3);
+            $this->cachedOrderable = $requiredQuantity > 0 && $availableQuantity >= $requiredQuantity;
+
+            return $this->cachedOrderable;
+        }
+
         $dishIngredients = $this->dishIngredientsWithIngredients();
 
         foreach ($dishIngredients as $dishIngredient) {
@@ -229,6 +263,22 @@ class Dish extends Model
         $this->cachedOrderable = true;
 
         return true;
+    }
+
+    public function isPreparedDish(): bool
+    {
+        return in_array($this->item_type, [self::ITEM_TYPE_PREPARED_DISH, self::ITEM_TYPE_PREPARED_DRINK, null], true);
+    }
+
+    public function usesRecipeInventory(): bool
+    {
+        return $this->isPreparedDish();
+    }
+
+    public function usesDirectInventory(): bool
+    {
+        return in_array($this->item_type, [self::ITEM_TYPE_PACKAGED_DRINK, self::ITEM_TYPE_OTHER_PRODUCT], true)
+            && $this->direct_stock_ingredient_id !== null;
     }
 
     private function dishIngredientsWithIngredients(): EloquentCollection

@@ -42,6 +42,7 @@ class InventoryStockHistoryController extends Controller
             ->where('restaurant_id', $restaurant->id)
             ->with([
                 'ingredient:id,name',
+                'dish:id,name',
                 'linkedExpense:id,status,expense_date',
             ])
             ->orderByDesc('created_at')
@@ -91,7 +92,7 @@ class InventoryStockHistoryController extends Controller
             'movements' => $movements->getCollection()
                 ->map(fn (StockMovement $movement) => $this->formatMovement(
                     $movement,
-                    $dishNameByOrderIngredient[$this->orderIngredientKey($movement->order_id, $movement->ingredient_id)] ?? null,
+                    $dishNameByOrderIngredient[$this->orderIngredientKey($movement->order_id, $movement->ingredient_id)] ?? $movement->dish?->name,
                     $orderContextByOrderId[$movement->order_id ?? 0] ?? null
                 ))
                 ->values(),
@@ -140,6 +141,7 @@ class InventoryStockHistoryController extends Controller
             'id' => $movement->id,
             'ingredient_name' => $movement->ingredient?->name ?: $movement->ingredient_name_snapshot,
             'dish_name' => $dishName,
+            'inventory_source' => $movement->inventory_source,
             'order_number' => $orderContext['order_number'] ?? null,
             'invoice_number' => $orderContext['invoice_number'] ?? null,
             'invoice_id' => $orderContext['invoice_id'] ?? null,

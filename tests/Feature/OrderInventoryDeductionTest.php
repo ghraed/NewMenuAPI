@@ -9,6 +9,9 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderItemIngredientUsage;
 use App\Models\Restaurant;
+use App\Models\RestaurantTable;
+use App\Models\Feature;
+use App\Models\RestaurantFeature;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\OrderInventoryDeductionService;
@@ -24,6 +27,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_confirming_order_deducts_inventory_and_creates_usage_snapshots_and_stock_movements(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $flour = $this->createIngredient($restaurant, 'Flour', 20, Ingredient::UNIT_GRAM);
         $sauce = $this->createIngredient($restaurant, 'Sauce', 15, Ingredient::UNIT_GRAM);
@@ -90,6 +95,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_confirm_fails_safely_when_stock_is_insufficient_and_rolls_back_status_change(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $beef = $this->createIngredient($restaurant, 'Beef Patty', 5, Ingredient::UNIT_GRAM);
 
@@ -104,7 +111,7 @@ class OrderInventoryDeductionTest extends TestCase
 
         $response->assertStatus(422);
         $this->assertStringContainsString(
-            'Insufficient stock',
+            'insufficient ingredient stock',
             (string) $response->json('message')
         );
 
@@ -134,6 +141,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_inventory_deduction_service_is_idempotent_for_same_confirmed_order(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $cheese = $this->createIngredient($restaurant, 'Cheese', 10, Ingredient::UNIT_GRAM);
 
@@ -176,6 +185,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_cancelling_a_confirmed_order_restores_inventory_from_usage_snapshots(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $tomato = $this->createIngredient($restaurant, 'Tomato', 30, Ingredient::UNIT_GRAM);
 
@@ -215,6 +226,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_cancel_confirmed_order_without_prior_deduction_does_not_restore_stock(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $onion = $this->createIngredient($restaurant, 'Onion', 9, Ingredient::UNIT_GRAM);
 
@@ -251,6 +264,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_inventory_restore_service_is_idempotent_for_same_cancelled_order(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $mint = $this->createIngredient($restaurant, 'Mint', 11, Ingredient::UNIT_GRAM);
 
@@ -287,6 +302,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_cancelling_same_order_twice_does_not_restore_stock_twice(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $oliveOil = $this->createIngredient($restaurant, 'Olive Oil', 10, Ingredient::UNIT_MILLILITER);
 
@@ -322,6 +339,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_usage_snapshot_uses_recipe_values_at_confirmation_time(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $rice = $this->createIngredient($restaurant, 'Rice', 20, Ingredient::UNIT_GRAM);
 
@@ -353,6 +372,8 @@ class OrderInventoryDeductionTest extends TestCase
     public function test_recipe_changes_after_confirmation_do_not_alter_existing_usage_history(): void
     {
         $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
         $staff = $this->createStaffUser($restaurant, ['T01']);
         $milk = $this->createIngredient($restaurant, 'Milk', 30, Ingredient::UNIT_MILLILITER);
 
@@ -384,11 +405,54 @@ class OrderInventoryDeductionTest extends TestCase
         $this->assertSame('3.000', (string) $usageAfterRecipeChange->consumed_quantity);
     }
 
+    public function test_packaged_item_uses_direct_stock_deduction_and_restores_on_cancel(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $pepsiStock = $this->createIngredient($restaurant, 'Pepsi Can', 10, Ingredient::UNIT_PIECE);
+
+        $pepsi = $this->createDish($restaurant, 'Pepsi', 2.50, [
+            'item_type' => Dish::ITEM_TYPE_PACKAGED_DRINK,
+            'direct_stock_ingredient_id' => $pepsiStock->id,
+            'direct_stock_quantity_per_sale' => '1.000',
+        ]);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $pepsi, 3);
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $pepsiStock->id,
+            'current_stock_quantity' => '7.000',
+        ]);
+        $this->assertDatabaseMissing('order_item_ingredient_usages', [
+            'order_id' => $order->id,
+            'ingredient_id' => $pepsiStock->id,
+        ]);
+        $this->assertDatabaseHas('stock_movements', [
+            'order_id' => $order->id,
+            'dish_id' => $pepsi->id,
+            'ingredient_id' => $pepsiStock->id,
+            'movement_type' => StockMovement::TYPE_ORDER_CONSUMPTION,
+            'inventory_source' => StockMovement::SOURCE_DIRECT_PACKAGED_SALE,
+            'quantity_delta' => '-3.000',
+        ]);
+
+        $this->postJson("/api/orders/{$order->id}/cancel")->assertOk();
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $pepsiStock->id,
+            'current_stock_quantity' => '10.000',
+        ]);
+    }
+
     private function createRestaurant(?User $owner = null): Restaurant
     {
         $admin = $owner ?? User::factory()->admin()->create();
 
-        return Restaurant::query()->create([
+        $restaurant = Restaurant::query()->create([
             'uuid' => (string) Str::uuid(),
             'user_id' => $admin->id,
             'name' => 'Inventory Deduction '.Str::upper(Str::random(4)),
@@ -396,6 +460,16 @@ class OrderInventoryDeductionTest extends TestCase
             'description' => 'Inventory deduction test restaurant',
             'address' => 'Beirut',
         ]);
+
+        foreach (range(1, 10) as $number) {
+            RestaurantTable::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'name' => sprintf('T%02d', $number),
+                'is_active' => true,
+            ]);
+        }
+
+        return $restaurant;
     }
 
     private function createStaffUser(Restaurant $restaurant, array $tableNames = []): User
@@ -438,9 +512,9 @@ class OrderInventoryDeductionTest extends TestCase
         ]);
     }
 
-    private function createDish(Restaurant $restaurant, string $name, float $price): Dish
+    private function createDish(Restaurant $restaurant, string $name, float $price, array $overrides = []): Dish
     {
-        return Dish::query()->create([
+        return Dish::query()->create(array_merge([
             'uuid' => (string) Str::uuid(),
             'restaurant_id' => $restaurant->id,
             'name' => $name,
@@ -448,7 +522,8 @@ class OrderInventoryDeductionTest extends TestCase
             'price' => $price,
             'category' => 'Main',
             'status' => 'published',
-        ]);
+            'item_type' => Dish::ITEM_TYPE_PREPARED_DISH,
+        ], $overrides));
     }
 
     private function attachRecipe(Dish $dish, Ingredient $ingredient, float $quantity): DishIngredient
@@ -497,5 +572,28 @@ class OrderInventoryDeductionTest extends TestCase
         ]);
 
         return $order;
+    }
+
+    private function enableFeature(Restaurant $restaurant, string $featureKey): void
+    {
+        $feature = Feature::query()->updateOrCreate(
+            ['key' => $featureKey],
+            [
+                'name' => Str::title(str_replace('_', ' ', $featureKey)),
+                'description' => 'Enabled in tests',
+                'category' => 'Testing',
+                'is_active_by_default' => false,
+            ]
+        );
+
+        RestaurantFeature::query()->updateOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'feature_id' => $feature->id,
+            ],
+            [
+                'enabled' => true,
+            ]
+        );
     }
 }

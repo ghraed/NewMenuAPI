@@ -34,9 +34,14 @@ class OrderInventoryDeductionService
                 ->where('order_id', $lockedOrder->id)
                 ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
                 ->exists();
+            $hasRecipeConsumptionMovements = StockMovement::query()
+                ->where('order_id', $lockedOrder->id)
+                ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+                ->where('inventory_source', StockMovement::SOURCE_RECIPE_INGREDIENT_USAGE)
+                ->exists();
 
             if ($hasUsageSnapshots || $hasConsumptionMovements) {
-                if ($hasUsageSnapshots && $hasConsumptionMovements) {
+                if ($hasConsumptionMovements && (! $hasRecipeConsumptionMovements || $hasUsageSnapshots)) {
                     return;
                 }
 
@@ -47,10 +52,13 @@ class OrderInventoryDeductionService
 
             $lockedOrder->loadMissing([
                 'items.dish.dishIngredients.ingredient',
+                'items.dish',
             ]);
 
             $ingredientConsumptionTotals = [];
+            $recipeConsumptionTotals = [];
             $usageSnapshotRows = [];
+            $directConsumptionRows = [];
 
             foreach ($lockedOrder->items as $orderItem) {
                 if (! $orderItem instanceof OrderItem) {
@@ -65,6 +73,37 @@ class OrderInventoryDeductionService
                 $orderItemQuantity = (int) $orderItem->quantity;
 
                 if ($orderItemQuantity <= 0) {
+                    continue;
+                }
+
+                if ($orderItem->dish->usesDirectInventory()) {
+                    $ingredient = Ingredient::query()->find($orderItem->dish->direct_stock_ingredient_id);
+                    if (! $ingredient || ! $ingredient->is_active) {
+                        throw ValidationException::withMessages([
+                            'inventory' => 'Packaged item stock source is missing or inactive.',
+                        ]);
+                    }
+
+                    $directPerSale = round((float) ($orderItem->dish->direct_stock_quantity_per_sale ?: 1), 3);
+                    $consumedQuantity = round($directPerSale * $orderItemQuantity, 3);
+                    if ($consumedQuantity <= 0) {
+                        continue;
+                    }
+
+                    $ingredientId = (int) $ingredient->id;
+                    $ingredientConsumptionTotals[$ingredientId] = round(
+                        ($ingredientConsumptionTotals[$ingredientId] ?? 0) + $consumedQuantity,
+                        3
+                    );
+
+                    $directConsumptionRows[] = [
+                        'ingredient_id' => $ingredientId,
+                        'order_item_id' => $orderItem->id,
+                        'dish_id' => $orderItem->dish_id,
+                        'unit' => $ingredient->stock_unit,
+                        'consumed_quantity' => $consumedQuantity,
+                    ];
+
                     continue;
                 }
 
@@ -106,6 +145,10 @@ class OrderInventoryDeductionService
                     $ingredientId = (int) $ingredient->id;
                     $ingredientConsumptionTotals[$ingredientId] = round(
                         ($ingredientConsumptionTotals[$ingredientId] ?? 0) + $consumedQuantity,
+                        3
+                    );
+                    $recipeConsumptionTotals[$ingredientId] = round(
+                        ($recipeConsumptionTotals[$ingredientId] ?? 0) + $consumedQuantity,
                         3
                     );
 
@@ -196,7 +239,7 @@ class OrderInventoryDeductionService
 
             $movementRows = [];
 
-            foreach ($ingredientConsumptionTotals as $ingredientId => $requiredQuantity) {
+            foreach ($recipeConsumptionTotals as $ingredientId => $requiredQuantity) {
                 /** @var Ingredient $ingredient */
                 $ingredient = $lockedIngredients->get($ingredientId);
                 $quantityBefore = round((float) $ingredient->current_stock_quantity, 3);
@@ -226,8 +269,10 @@ class OrderInventoryDeductionService
                     'ingredient_id' => $ingredient->id,
                     'order_id' => $lockedOrder->id,
                     'order_item_id' => null,
+                    'dish_id' => null,
                     'performed_by' => $performedByUserId,
                     'movement_type' => StockMovement::TYPE_ORDER_CONSUMPTION,
+                    'inventory_source' => StockMovement::SOURCE_RECIPE_INGREDIENT_USAGE,
                     'unit' => $ingredient->stock_unit,
                     'quantity_delta' => round(0 - $requiredQuantity, 3),
                     'quantity_before' => $quantityBefore,
@@ -235,6 +280,54 @@ class OrderInventoryDeductionService
                     'ingredient_name_snapshot' => $ingredient->name,
                     'reference' => 'order:'.$lockedOrder->id,
                     'notes' => 'Stock deducted when order was confirmed.',
+                    'occurred_at' => $now,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            foreach ($directConsumptionRows as $directRow) {
+                /** @var Ingredient $ingredient */
+                $ingredient = $lockedIngredients->get((int) $directRow['ingredient_id']);
+                $requiredQuantity = round((float) $directRow['consumed_quantity'], 3);
+                $quantityBefore = round((float) $ingredient->current_stock_quantity, 3);
+                $quantityAfter = round($quantityBefore - $requiredQuantity, 3);
+
+                if ($quantityAfter < -0.0005) {
+                    throw ValidationException::withMessages([
+                        'inventory' => __('messages.orders.inventory_shortage_line', [
+                            'ingredient' => $ingredient->name,
+                            'required' => $this->formatQuantity($requiredQuantity),
+                            'available' => $this->formatQuantity($quantityBefore),
+                            'unit' => $ingredient->stock_unit,
+                        ]),
+                    ]);
+                }
+
+                if ($quantityAfter < 0) {
+                    $quantityAfter = 0.0;
+                }
+
+                $ingredient->update([
+                    'current_stock_quantity' => $quantityAfter,
+                ]);
+
+                $movementRows[] = [
+                    'restaurant_id' => $lockedOrder->restaurant_id,
+                    'ingredient_id' => $ingredient->id,
+                    'order_id' => $lockedOrder->id,
+                    'order_item_id' => (int) $directRow['order_item_id'],
+                    'dish_id' => (int) $directRow['dish_id'],
+                    'performed_by' => $performedByUserId,
+                    'movement_type' => StockMovement::TYPE_ORDER_CONSUMPTION,
+                    'inventory_source' => StockMovement::SOURCE_DIRECT_PACKAGED_SALE,
+                    'unit' => $ingredient->stock_unit,
+                    'quantity_delta' => round(0 - $requiredQuantity, 3),
+                    'quantity_before' => $quantityBefore,
+                    'quantity_after' => $quantityAfter,
+                    'ingredient_name_snapshot' => $ingredient->name,
+                    'reference' => 'order:'.$lockedOrder->id,
+                    'notes' => 'Direct packaged item sale deduction.',
                     'occurred_at' => $now,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -277,13 +370,18 @@ class OrderInventoryDeductionService
                 ->where('order_id', $lockedOrder->id)
                 ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
                 ->exists();
+            $hasRecipeConsumptionMovements = StockMovement::query()
+                ->where('order_id', $lockedOrder->id)
+                ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+                ->where('inventory_source', StockMovement::SOURCE_RECIPE_INGREDIENT_USAGE)
+                ->exists();
 
             // Only restore when deduction really happened.
             if (! $hasUsageSnapshots && ! $hasConsumptionMovements) {
                 return;
             }
 
-            if ($hasUsageSnapshots xor $hasConsumptionMovements) {
+            if ($hasConsumptionMovements && $hasRecipeConsumptionMovements && ! $hasUsageSnapshots) {
                 throw ValidationException::withMessages([
                     'inventory' => __('messages.orders.inventory_deduction_partial'),
                 ]);
@@ -297,6 +395,21 @@ class OrderInventoryDeductionService
                 ->get()
                 ->mapWithKeys(fn ($row) => [(int) $row->ingredient_id => round((float) $row->consumed_total, 3)])
                 ->all();
+
+            $directConsumedTotals = StockMovement::query()
+                ->selectRaw('ingredient_id, SUM(ABS(quantity_delta)) as consumed_total')
+                ->where('order_id', $lockedOrder->id)
+                ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+                ->where('inventory_source', StockMovement::SOURCE_DIRECT_PACKAGED_SALE)
+                ->whereNotNull('ingredient_id')
+                ->groupBy('ingredient_id')
+                ->get()
+                ->mapWithKeys(fn ($row) => [(int) $row->ingredient_id => round((float) $row->consumed_total, 3)])
+                ->all();
+
+            foreach ($directConsumedTotals as $ingredientId => $directTotal) {
+                $consumedTotals[$ingredientId] = round(($consumedTotals[$ingredientId] ?? 0) + $directTotal, 3);
+            }
 
             if ($consumedTotals === []) {
                 throw ValidationException::withMessages([
@@ -372,6 +485,7 @@ class OrderInventoryDeductionService
                     'order_item_id' => null,
                     'performed_by' => $performedByUserId,
                     'movement_type' => StockMovement::TYPE_CANCELLATION_RESTORE,
+                    'inventory_source' => StockMovement::SOURCE_RECIPE_INGREDIENT_USAGE,
                     'unit' => $ingredient->stock_unit,
                     'quantity_delta' => $consumedTotal,
                     'quantity_before' => $quantityBefore,

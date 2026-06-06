@@ -147,6 +147,7 @@ class GuestController extends Controller
                 'is_anchor',
                 'is_profitable',
                 'image_url',
+                'item_type',
             ])
             ->with([
                 'dishIngredients' => fn ($query) => $query
@@ -205,6 +206,7 @@ class GuestController extends Controller
                 'category_ar' => $dish->category_ar,
                 'is_anchor' => (bool) $dish->is_anchor,
                 'is_profitable' => (bool) $dish->is_profitable,
+                'item_type' => $dish->item_type ?? Dish::ITEM_TYPE_PREPARED_DISH,
                 'is_orderable' => $isOrderable,
                 'is_out_of_stock' => ! $isOrderable,
                 'image_url' => $dish->image_url,

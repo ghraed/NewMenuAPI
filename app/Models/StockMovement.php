@@ -13,15 +13,19 @@ class StockMovement extends Model
     public const TYPE_ORDER_CONSUMPTION = 'order_consumption';
     public const TYPE_CANCELLATION_RESTORE = 'order_restoration';
     public const TYPE_ORDER_RESTORATION = self::TYPE_CANCELLATION_RESTORE;
+    public const SOURCE_RECIPE_INGREDIENT_USAGE = 'recipe_ingredient_usage';
+    public const SOURCE_DIRECT_PACKAGED_SALE = 'direct_packaged_sale';
 
     protected $fillable = [
         'restaurant_id',
         'ingredient_id',
         'order_id',
         'order_item_id',
+        'dish_id',
         'linked_expense_id',
         'performed_by',
         'movement_type',
+        'inventory_source',
         'unit',
         'quantity_delta',
         'quantity_before',
@@ -63,6 +67,11 @@ class StockMovement extends Model
     public function orderItem(): BelongsTo
     {
         return $this->belongsTo(OrderItem::class);
+    }
+
+    public function dish(): BelongsTo
+    {
+        return $this->belongsTo(Dish::class)->withTrashed();
     }
 
     public function performedBy(): BelongsTo

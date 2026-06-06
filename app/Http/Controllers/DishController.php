@@ -18,6 +18,17 @@ use RuntimeException;
 
 class DishController extends Controller
 {
+    private const PREDEFINED_MENU_ITEM_TEMPLATES = [
+        ['key' => 'pepsi', 'name' => 'Pepsi', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'can', 'direct_stock_quantity_per_sale' => 1],
+        ['key' => 'pepsi_diet', 'name' => 'Pepsi Diet', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'can', 'direct_stock_quantity_per_sale' => 1],
+        ['key' => 'coca_cola', 'name' => 'Coca-Cola', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'can', 'direct_stock_quantity_per_sale' => 1],
+        ['key' => '7up', 'name' => '7UP', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'can', 'direct_stock_quantity_per_sale' => 1],
+        ['key' => 'mirinda', 'name' => 'Mirinda', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'can', 'direct_stock_quantity_per_sale' => 1],
+        ['key' => 'water', 'name' => 'Water', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'bottle', 'direct_stock_quantity_per_sale' => 1],
+        ['key' => 'sparkling_water', 'name' => 'Sparkling Water', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'bottle', 'direct_stock_quantity_per_sale' => 1],
+        ['key' => 'red_bull', 'name' => 'Red Bull', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'can', 'direct_stock_quantity_per_sale' => 1],
+        ['key' => 'chips', 'name' => 'Chips', 'category' => 'Products', 'item_type' => 'other_product', 'packaged_unit' => 'bag', 'direct_stock_quantity_per_sale' => 1],
+    ];
     public function __construct(
         private readonly DishDescriptionGenerationService $dishDescriptionGenerationService
     ) {
@@ -59,9 +70,19 @@ class DishController extends Controller
             'category' => 'required|string|max:100',
             'category_ar' => 'nullable|string|max:100',
             'status' => 'nullable|in:draft,published',
+            'item_type' => 'nullable|in:prepared_dish,prepared_drink,packaged_drink,other_product',
             'is_anchor' => 'nullable|boolean',
             'is_profitable' => 'nullable|boolean',
             'image_url' => 'nullable|url',
+            'direct_stock_ingredient_id' => 'nullable|integer|exists:ingredients,id',
+            'direct_stock_quantity_per_sale' => 'nullable|numeric|gt:0',
+            'brand' => 'nullable|string|max:120',
+            'barcode' => 'nullable|string|max:120',
+            'size_label' => 'nullable|string|max:120',
+            'packaged_unit' => 'nullable|string|max:20',
+            'cost_price' => 'nullable|numeric|min:0',
+            'supplier' => 'nullable|string|max:180',
+            'packaged_stock_quantity' => 'nullable|numeric|min:0',
             'suggested_dish_ids' => 'sometimes|array',
             'suggested_dish_ids.*' => 'integer',
             'related_dish_ids' => 'sometimes|array',
@@ -104,15 +125,18 @@ class DishController extends Controller
         unset($validated['suggested_dish_ids']);
         unset($validated['related_dish_ids']);
         unset($validated['recipe_ingredients']);
-        $dish = DB::transaction(function () use ($restaurant, $validated, $status, $suggestedDishIds, $relatedDishIds, $recipeIngredients) {
+        $itemType = $validated['item_type'] ?? Dish::ITEM_TYPE_PREPARED_DISH;
+        $this->assertItemTypePayloadValidity($itemType, $validated, $recipeIngredients, null);
+
+        $dish = DB::transaction(function () use ($restaurant, $validated, $status, $suggestedDishIds, $relatedDishIds, $recipeIngredients, $itemType) {
             $dish = $restaurant->dishes()->create(
-                array_merge($validated, ['status' => $status])
+                array_merge($validated, ['status' => $status, 'item_type' => $itemType])
             );
 
             $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
             $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
 
-            if ($recipeIngredients !== null) {
+            if ($recipeIngredients !== null && $dish->isPreparedDish()) {
                 $this->syncDishIngredients($dish, $restaurant, $recipeIngredients);
             }
 
@@ -222,6 +246,57 @@ class DishController extends Controller
         ]);
     }
 
+    public function predefinedTemplates(): JsonResponse
+    {
+        return response()->json([
+            'templates' => self::PREDEFINED_MENU_ITEM_TEMPLATES,
+        ]);
+    }
+
+    public function activatePredefinedTemplate(Request $request): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $validated = $request->validate([
+            'template_key' => 'required|string',
+            'name' => 'nullable|string|max:255',
+            'price' => 'nullable|numeric|min:0',
+            'status' => 'nullable|in:draft,published',
+            'image_url' => 'nullable|url',
+            'direct_stock_ingredient_id' => 'required|integer|exists:ingredients,id',
+            'direct_stock_quantity_per_sale' => 'nullable|numeric|gt:0',
+        ]);
+
+        $template = collect(self::PREDEFINED_MENU_ITEM_TEMPLATES)
+            ->firstWhere('key', $validated['template_key']);
+
+        if (! is_array($template)) {
+            throw ValidationException::withMessages([
+                'template_key' => 'Unknown predefined template key.',
+            ]);
+        }
+
+        $payload = [
+            'uuid' => (string) Str::uuid(),
+            'name' => $validated['name'] ?? $template['name'],
+            'description' => null,
+            'price' => $validated['price'] ?? 0,
+            'category' => $template['category'],
+            'status' => $validated['status'] ?? 'published',
+            'item_type' => $template['item_type'],
+            'packaged_unit' => $template['packaged_unit'] ?? null,
+            'direct_stock_ingredient_id' => (int) $validated['direct_stock_ingredient_id'],
+            'direct_stock_quantity_per_sale' => $validated['direct_stock_quantity_per_sale'] ?? $template['direct_stock_quantity_per_sale'] ?? 1,
+            'image_url' => $validated['image_url'] ?? null,
+        ];
+
+        $dish = $restaurant->dishes()->create($payload);
+
+        return response()->json([
+            'message' => 'Predefined menu item activated.',
+            'dish' => $dish->fresh(['assets', 'dishIngredients.ingredient']),
+        ], 201);
+    }
+
     public function copyModel(Request $request, Dish $dish): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -300,9 +375,19 @@ class DishController extends Controller
             'category' => 'sometimes|string|max:100',
             'category_ar' => 'nullable|string|max:100',
             'status' => 'sometimes|in:draft,published',
+            'item_type' => 'sometimes|in:prepared_dish,prepared_drink,packaged_drink,other_product',
             'is_anchor' => 'sometimes|boolean',
             'is_profitable' => 'sometimes|boolean',
             'image_url' => 'nullable|url',
+            'direct_stock_ingredient_id' => 'nullable|integer|exists:ingredients,id',
+            'direct_stock_quantity_per_sale' => 'nullable|numeric|gt:0',
+            'brand' => 'nullable|string|max:120',
+            'barcode' => 'nullable|string|max:120',
+            'size_label' => 'nullable|string|max:120',
+            'packaged_unit' => 'nullable|string|max:20',
+            'cost_price' => 'nullable|numeric|min:0',
+            'supplier' => 'nullable|string|max:180',
+            'packaged_stock_quantity' => 'nullable|numeric|min:0',
             'suggested_dish_ids' => 'sometimes|array',
             'suggested_dish_ids.*' => 'integer',
             'related_dish_ids' => 'sometimes|array',
@@ -332,7 +417,10 @@ class DishController extends Controller
             unset($validated['recipe_ingredients']);
         }
 
-        DB::transaction(function () use ($dish, $validated, $restaurant, $suggestedDishIds, $relatedDishIds, $recipeIngredients): void {
+        $effectiveItemType = $validated['item_type'] ?? $dish->item_type ?? Dish::ITEM_TYPE_PREPARED_DISH;
+        $this->assertItemTypePayloadValidity($effectiveItemType, $validated, $recipeIngredients, $dish);
+
+        DB::transaction(function () use ($dish, $validated, $restaurant, $suggestedDishIds, $relatedDishIds, $recipeIngredients, $effectiveItemType): void {
             $dish->update($validated);
 
             if ($suggestedDishIds !== null) {
@@ -343,8 +431,10 @@ class DishController extends Controller
                 $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
             }
 
-            if ($recipeIngredients !== null) {
+            if ($recipeIngredients !== null && in_array($effectiveItemType, [Dish::ITEM_TYPE_PREPARED_DISH, Dish::ITEM_TYPE_PREPARED_DRINK], true)) {
                 $this->syncDishIngredients($dish, $restaurant, $recipeIngredients);
+            } elseif (! in_array($effectiveItemType, [Dish::ITEM_TYPE_PREPARED_DISH, Dish::ITEM_TYPE_PREPARED_DRINK], true)) {
+                $dish->dishIngredients()->delete();
             }
         });
 
@@ -355,6 +445,34 @@ class DishController extends Controller
             'relatedDishes.assets',
             'dishIngredients.ingredient',
         ]));
+    }
+
+    private function assertItemTypePayloadValidity(string $itemType, array $validated, ?array $recipeIngredients, ?Dish $existingDish): void
+    {
+        $isPackaged = in_array($itemType, [Dish::ITEM_TYPE_PACKAGED_DRINK, Dish::ITEM_TYPE_OTHER_PRODUCT], true);
+
+        if ($isPackaged) {
+            if ($recipeIngredients !== null && $recipeIngredients !== []) {
+                throw ValidationException::withMessages([
+                    'recipe_ingredients' => 'Packaged drink/product cannot require recipe ingredients.',
+                ]);
+            }
+
+            $effectiveDirectStockIngredientId = $validated['direct_stock_ingredient_id'] ?? $existingDish?->direct_stock_ingredient_id;
+            if (empty($effectiveDirectStockIngredientId)) {
+                throw ValidationException::withMessages([
+                    'direct_stock_ingredient_id' => 'Packaged drink/product requires a direct stock ingredient link.',
+                ]);
+            }
+        }
+
+        if (in_array($itemType, [Dish::ITEM_TYPE_PREPARED_DISH, Dish::ITEM_TYPE_PREPARED_DRINK], true)
+            && array_key_exists('direct_stock_ingredient_id', $validated)
+            && ! empty($validated['direct_stock_ingredient_id'])) {
+            throw ValidationException::withMessages([
+                'direct_stock_ingredient_id' => 'Prepared dish cannot use direct packaged stock without proper configuration.',
+            ]);
+        }
     }
 
     public function destroy(Request $request, Dish $dish): JsonResponse
