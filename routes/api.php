@@ -21,6 +21,7 @@ use App\Http\Controllers\FinancePayrollController;
 use App\Http\Controllers\FinanceVendorController;
 use App\Http\Controllers\MenuController;
 use App\Http\Controllers\SuperAdmin\SuperAdminAuthController;
+use App\Http\Controllers\SuperAdmin\SuperAdminContactLeadController;
 use App\Http\Controllers\SuperAdmin\SuperAdminFeatureFlagController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
@@ -113,6 +114,8 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::get('/restaurants/{restaurant}/features', [SuperAdminFeatureFlagController::class, 'restaurantFeatures']);
         Route::patch('/restaurants/{restaurant}/features/bulk', [SuperAdminFeatureFlagController::class, 'bulkUpdate']);
         Route::patch('/restaurants/{restaurant}/features/{feature}', [SuperAdminFeatureFlagController::class, 'updateFeature']);
+        Route::get('/contact-requests', [SuperAdminContactLeadController::class, 'index']);
+        Route::get('/contact-requests/{contactLead}', [SuperAdminContactLeadController::class, 'show']);
     });
 
     // Auth
