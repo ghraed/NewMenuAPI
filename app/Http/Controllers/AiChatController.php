@@ -271,7 +271,15 @@ class AiChatController extends Controller
     {
         $recipient = (string) config('services.rozer.contact_email', '');
 
-        if ($recipient === '' || (! filled($lead->email) && ! filled($lead->phone))) {
+        $hasLeadDetails = filled($lead->name)
+            || filled($lead->email)
+            || filled($lead->phone)
+            || filled($lead->business_type)
+            || filled($lead->preferred_contact_method)
+            || filled($lead->message)
+            || filled($lead->conversation_summary);
+
+        if ($recipient === '' || ! $hasLeadDetails) {
             return;
         }
 
