@@ -50,12 +50,17 @@ return [
     'deepseek' => [
         'key' => env('DEEPSEEK_API_KEY'),
         'base_url' => env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
+        'api_url' => env('DEEPSEEK_API_URL', 'https://api.deepseek.com/chat/completions'),
         'model' => env('DEEPSEEK_MODEL', 'deepseek-chat'),
         'timeout' => (int) env('DEEPSEEK_TIMEOUT_SECONDS', 20),
         'connect_timeout' => (int) env('DEEPSEEK_CONNECT_TIMEOUT_SECONDS', 5),
         'retry_times' => (int) env('DEEPSEEK_RETRY_TIMES', 2),
         'retry_sleep_ms' => (int) env('DEEPSEEK_RETRY_SLEEP_MS', 250),
         'cache_ttl' => (int) env('DEEPSEEK_CACHE_TTL_SECONDS', 60),
+    ],
+
+    'rozer' => [
+        'contact_email' => env('ROZER_CONTACT_EMAIL'),
     ],
 
 ];

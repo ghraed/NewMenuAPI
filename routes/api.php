@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\AiChatController;
 use App\Http\Controllers\AdminEventReservationController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AssetFileController;
@@ -45,6 +46,14 @@ Route::post('/super-admin/auth/login', [SuperAdminAuthController::class, 'login'
     ->middleware('throttle:owner-login');
 Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat'])
     ->post('/chat', [ChatController::class, 'chat']);
+Route::prefix('ai-chat')
+    ->middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:ai-chat'])
+    ->group(function (): void {
+        Route::post('/session', [AiChatController::class, 'createSession']);
+        Route::post('/message', [AiChatController::class, 'sendMessage']);
+        Route::post('/lead', [AiChatController::class, 'saveLead']);
+        Route::get('/session/{uuid}', [AiChatController::class, 'getSession']);
+    });
 Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat-orders'])
     ->post('/chat/orders', [OrderController::class, 'storeChatOrder']);
 Route::get('/test', [GuestController::class, 'test']);

@@ -10,6 +10,36 @@ use RuntimeException;
 
 class DeepSeekChatService
 {
+    public const ROZER_SYSTEM_PROMPT = <<<'PROMPT'
+You are Rozer, a friendly AI contact assistant for Rozer.
+
+Always introduce yourself as Rozer and clearly mention that you are a bot.
+
+Your job is to help visitors contact the Rozer team, answer simple questions about services, pricing, demos, support, and general inquiries.
+
+Rozer is a smart digital restaurant system that can include QR menu, guest ordering, staff order management, chef kitchen screen, accounting, invoices, inventory ingredients, stock history, analytics, and modern customer experience features.
+
+Be friendly, professional, short, and clear.
+
+When the visitor seems interested, politely suggest that they leave their phone number and/or email so the Rozer team can contact them.
+
+Never pressure the visitor.
+
+If the visitor asks something you are not sure about, say that you can forward the request to the Rozer team.
+
+Collect useful details when possible:
+- name
+- phone number
+- email
+- business type
+- what they need
+- preferred contact method
+
+After receiving contact information, thank the visitor and tell them the Rozer team will contact them soon.
+
+Do not invent exact prices unless pricing data is provided. Say that pricing depends on features, restaurant size, and setup needs.
+PROMPT;
+
     /**
      * @param array<int, array{role:string, content:string}> $messages
      * @param array{
@@ -38,7 +68,7 @@ class DeepSeekChatService
         $systemPrompt = $this->buildSystemPrompt($language, $chatContext);
 
         $payload = [
-            'model' => 'deepseek-chat',
+            'model' => (string) config('services.deepseek.model', 'deepseek-chat'),
             'temperature' => 0.3,
             'messages' => [
                 [
@@ -67,6 +97,38 @@ class DeepSeekChatService
         }
 
         return $this->executeRequest($apiKey, $payload);
+    }
+
+    /**
+     * @param array<int, array{role:string, content:string}> $messages
+     */
+    public function contactReply(array $messages): string
+    {
+        $apiKey = (string) config('services.deepseek.key', '');
+
+        if ($apiKey === '') {
+            return $this->fallbackContactReply();
+        }
+
+        $payload = [
+            'model' => (string) config('services.deepseek.model', 'deepseek-chat'),
+            'temperature' => 0.5,
+            'max_tokens' => 500,
+            'messages' => $messages,
+        ];
+
+        try {
+            $response = $this->executeContactRequest($apiKey, $payload);
+            $content = trim((string) data_get($response, 'choices.0.message.content', ''));
+
+            return $content !== '' ? $content : $this->fallbackContactReply();
+        } catch (Throwable $e) {
+            Log::channel('ai')->warning('Rozer contact chat failed.', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return $this->fallbackContactReply();
+        }
     }
 
     /**
@@ -396,6 +458,43 @@ class DeepSeekChatService
         }
 
         return trim($withoutFences);
+    }
+
+    private function fallbackContactReply(): string
+    {
+        return "Hi, I'm Rozer, your AI contact assistant bot. I can still help you leave your phone number or email, and the Rozer team will get back to you soon.";
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function executeContactRequest(string $apiKey, array $payload): array
+    {
+        $apiUrl = (string) config('services.deepseek.api_url', 'https://api.deepseek.com/chat/completions');
+        $timeout = max(1, (int) config('services.deepseek.timeout', 20));
+        $connectTimeout = max(1, (int) config('services.deepseek.connect_timeout', 5));
+        $retryTimes = max(0, (int) config('services.deepseek.retry_times', 2));
+        $retrySleepMs = max(0, (int) config('services.deepseek.retry_sleep_ms', 250));
+
+        try {
+            $response = Http::connectTimeout($connectTimeout)
+                ->timeout($timeout)
+                ->retry($retryTimes, $retrySleepMs)
+                ->acceptJson()
+                ->withToken($apiKey)
+                ->post($apiUrl, $payload);
+        } catch (Throwable $e) {
+            throw new RuntimeException('DeepSeek contact API request failed.', previous: $e);
+        }
+
+        if ($response->failed()) {
+            throw new RuntimeException('DeepSeek contact API request failed with status '.$response->status().'.');
+        }
+
+        $json = $response->json();
+
+        return is_array($json) ? $json : [];
     }
 
     /**

@@ -45,6 +45,16 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('ai-chat', function (Request $request): array {
+            $ip = $request->ip() ?: 'unknown';
+            $sessionId = $request->hasSession() ? ($request->session()->getId() ?: 'guest') : 'guest';
+
+            return [
+                Limit::perMinute(20)->by("ai-chat:{$ip}:{$sessionId}"),
+                Limit::perHour(200)->by("ai-chat-hour:{$ip}"),
+            ];
+        });
+
         RateLimiter::for('owner-login', function (Request $request): array {
             $email = strtolower(trim((string) $request->input('email', 'unknown')));
             $ip = $request->ip() ?: 'unknown';
