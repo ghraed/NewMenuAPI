@@ -23,6 +23,7 @@ use App\Services\OrderInvoiceCalculator;
 use App\Services\StaffCapabilityService;
 use App\Services\TenantRestaurantResolver;
 use App\Services\TableSessionAccessService;
+use App\Services\WebPushNotificationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -1563,6 +1564,15 @@ class OrderController extends Controller
 
     private function dispatchPendingOrderCreatedAlerts(Order $order): void
     {
+        try {
+            app(WebPushNotificationService::class)->notifyPendingOrderCreated($order);
+        } catch (Throwable $exception) {
+            Log::warning('Failed to send web push notifications for a pending order.', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+
         try {
             app(MobilePushNotificationService::class)->notifyPendingOrderCreated($order);
         } catch (Throwable $exception) {

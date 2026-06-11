@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\EventReservation;
+use App\Models\Order;
 use App\Models\PushSubscription;
 use App\Models\TableWave;
 use App\Models\User;
@@ -72,6 +73,55 @@ class WebPushNotificationService
                 'wave_id' => $wave->id,
                 'request_type' => $wave->request_type,
                 'table_reference' => $wave->table_reference,
+                'restaurant_name' => $restaurantName,
+            ],
+        ]);
+
+        if (! is_string($payload)) {
+            return;
+        }
+
+        $this->dispatchPayloadToRecipients($recipients, $payload);
+    }
+
+    public function notifyPendingOrderCreated(Order $order): void
+    {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        $order->loadMissing([
+            'restaurant.user.pushSubscriptions',
+            'restaurantTable.staffUsers.pushSubscriptions',
+        ]);
+
+        $recipients = collect([$order->restaurant?->user])
+            ->filter()
+            ->merge($order->restaurantTable?->staffUsers ?? [])
+            ->filter(fn (User $user) => $user->pushSubscriptions->isNotEmpty())
+            ->unique('id')
+            ->values();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $tableReference = $order->table_reference ?: ($order->restaurantTable?->name ?? 'Table');
+        $orderNumber = $order->order_number ?: ('#'.$order->id);
+        $restaurantName = $order->restaurant?->name ?? 'Restaurant';
+
+        $payload = json_encode([
+            'title' => "New order from {$tableReference}",
+            'body' => "Order {$orderNumber} needs staff confirmation.",
+            'icon' => '/vite.svg',
+            'badge' => '/vite.svg',
+            'tag' => 'pending-order-'.$order->id,
+            'url' => self::STAFF_ORDERS_URL,
+            'data' => [
+                'kind' => 'order',
+                'order_id' => $order->id,
+                'order_number' => $orderNumber,
+                'table_reference' => $tableReference,
                 'restaurant_name' => $restaurantName,
             ],
         ]);
