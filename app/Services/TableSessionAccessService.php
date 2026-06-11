@@ -99,7 +99,7 @@ class TableSessionAccessService
         });
     }
 
-    public function findRequestGuestAccess(Request $request, TableSession $expectedSession): ?TableGuestAccess
+    public function findRequestGuestAccess(Request $request, TableSession $expectedSession, bool $touch = true): ?TableGuestAccess
     {
         $token = $this->extractAccessToken($request);
 
@@ -107,7 +107,7 @@ class TableSessionAccessService
             return null;
         }
 
-        return $this->resolveValidAccess($token, $expectedSession, false);
+        return $this->resolveValidAccess($token, $expectedSession, $touch);
     }
 
     public function authorizeRequestForSession(Request $request, TableSession $expectedSession): TableGuestAccess

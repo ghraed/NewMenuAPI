@@ -248,6 +248,13 @@ class GuestMenuSessionService
             'closed_at' => $session->closed_at?->toIso8601String(),
             'close_reason' => $session->close_reason,
             'pin_locked_until' => $session->pin_locked_until?->toIso8601String(),
+            'invoice_split_mode' => is_string($session->invoice_split_mode) && $session->invoice_split_mode !== ''
+                ? $session->invoice_split_mode
+                : null,
+            'invoice_split_count' => is_numeric($session->invoice_split_count)
+                ? max((int) $session->invoice_split_count, 1)
+                : null,
+            'active_guest_count' => $this->countActiveVerifiedGuests($session),
         ];
     }
 
@@ -259,6 +266,26 @@ class GuestMenuSessionService
             'last_seen_at' => $guestAccess?->last_seen_at?->toIso8601String(),
             'expires_at' => $guestAccess?->expires_at?->toIso8601String(),
         ];
+    }
+
+    public function countActiveVerifiedGuests(TableSession $session): int
+    {
+        $cutoff = now()->subMinutes(TableSession::ACTIVE_GUEST_WINDOW_MINUTES);
+
+        return $session->guestAccesses()
+            ->whereNull('revoked_at')
+            ->where(function ($query) {
+                $query->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            })
+            ->where(function ($query) use ($cutoff) {
+                $query->where('last_seen_at', '>=', $cutoff)
+                    ->orWhere(function ($joinedQuery) use ($cutoff) {
+                        $joinedQuery->whereNull('last_seen_at')
+                            ->where('joined_at', '>=', $cutoff);
+                    });
+            })
+            ->count();
     }
 
     public function currentPlainPin(TableSession $session): ?string

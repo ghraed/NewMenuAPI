@@ -12,6 +12,7 @@ class TableSession extends Model
     public const STATUS_CLOSED = 'closed';
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_SUSPENDED = 'suspended';
+    public const ACTIVE_GUEST_WINDOW_MINUTES = 30;
 
     protected $fillable = [
         'uuid',

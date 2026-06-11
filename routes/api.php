@@ -77,6 +77,8 @@ Route::get('/reservations/room-plans/{roomPlan}', [PublicReservationController::
 Route::get('/reservations/availability', [PublicReservationController::class, 'availability'])->middleware('feature:table_reservations');
 Route::post('/reservations', [PublicReservationController::class, 'store'])->middleware('feature:table_reservations');
 Route::middleware('guest.table.access')->group(function () {
+    Route::post('/table-session/{tableSession}/heartbeat', [TableSessionController::class, 'heartbeat'])
+        ->middleware('feature:qr_menu');
     Route::get('/table-session/{tableSession}/orders', [OrderController::class, 'indexForSession'])
         ->middleware('feature:table_ordering');
     Route::get('/table-session/{tableSession}/invoice-split', [TableSessionController::class, 'guestInvoiceSplit'])

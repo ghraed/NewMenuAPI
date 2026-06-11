@@ -44,6 +44,9 @@ class TableSessionController extends Controller
             ], 403);
         }
 
+        $this->applyActiveGuestSplitDefaultForBillRequest($session);
+        $session = $session->fresh(['restaurant', 'restaurantTable']);
+
         $wave = $waveController->createGuestWaveForSession($session, TableWave::REQUEST_TYPE_REQUEST_BILL);
 
         return response()->json([
@@ -51,6 +54,17 @@ class TableSessionController extends Controller
             'wave' => $waveController->formatGuestWave($wave),
             'invoice_preview' => $this->buildInvoicePreviewPayload($session),
         ], 201);
+    }
+
+    public function heartbeat(Request $request, TableSession $tableSession): JsonResponse
+    {
+        $session = $this->guestMenuSessionService->resolveActiveSession($tableSession->id);
+        $access = $request->attributes->get('guest_table_access');
+
+        return response()->json([
+            'table_session' => $this->guestMenuSessionService->formatSession($session->fresh(['restaurantTable'])),
+            'guest_access' => $this->guestMenuSessionService->formatGuestAccess($access),
+        ]);
     }
 
     public function guestInvoiceSplit(TableSession $tableSession): JsonResponse
@@ -352,6 +366,34 @@ class TableSessionController extends Controller
                 feature_enabled('invoice_splitting', $session->restaurant)
             ),
         ];
+    }
+
+    private function applyActiveGuestSplitDefaultForBillRequest(TableSession $session): void
+    {
+        if (! feature_enabled('invoice_splitting', $session->restaurant)) {
+            return;
+        }
+
+        $orders = $this->loadInvoiceOrdersForSession($session);
+        $activeGuestCount = max($this->guestMenuSessionService->countActiveVerifiedGuests($session), 1);
+
+        if ($activeGuestCount > 1) {
+            $this->invoiceSplitService->applySplitSettings(
+                $session,
+                $orders,
+                InvoiceSplitService::MODE_EQUAL,
+                $activeGuestCount,
+                null
+            );
+
+            return;
+        }
+
+        $session->update([
+            'invoice_split_mode' => InvoiceSplitService::MODE_NONE,
+            'invoice_split_count' => 1,
+            'invoice_split_allocations' => null,
+        ]);
     }
 
     private function loadInvoiceOrdersForSession(TableSession $session)

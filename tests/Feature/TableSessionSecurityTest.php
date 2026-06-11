@@ -4,8 +4,12 @@ namespace Tests\Feature;
 
 use App\Events\TableWaveCreated;
 use App\Models\Dish;
+use App\Models\Feature;
 use App\Models\Order;
 use App\Models\Restaurant;
+use App\Models\RestaurantFeature;
+use App\Models\RestaurantTable;
+use App\Models\TableGuestAccess;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
@@ -188,6 +192,86 @@ class TableSessionSecurityTest extends TestCase
         });
     }
 
+    public function test_request_bill_uses_active_verified_guest_count_for_shared_invoice_split(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'invoice_splitting');
+
+        $session = $this->openGuestTable(1);
+        $pin = $this->activeSessionPin();
+        $firstToken = $this->verifyCurrentTablePin(1, $pin, 'device-a');
+        $this->verifyCurrentTablePin(1, $pin, 'device-b');
+
+        $response = $this->postJson(
+            "/api/table-session/{$session->id}/request-bill",
+            [],
+            $this->guestHeaders($firstToken, 'device-a')
+        );
+
+        $response->assertCreated()
+            ->assertJsonPath('invoice_preview.invoice_split.mode', 'equal')
+            ->assertJsonPath('invoice_preview.invoice_split.split_count', 2);
+
+        $menuResponse = $this->getJson(
+            '/api/menu/table/1',
+            $this->guestHeaders($firstToken, 'device-a')
+        );
+
+        $menuResponse->assertOk()
+            ->assertJsonPath('table_session.active_guest_count', 2)
+            ->assertJsonPath('table_session.invoice_split_mode', 'equal')
+            ->assertJsonPath('table_session.invoice_split_count', 2);
+
+        $this->assertDatabaseHas('table_sessions', [
+            'id' => $session->id,
+            'invoice_split_mode' => 'equal',
+            'invoice_split_count' => 2,
+        ]);
+    }
+
+    public function test_request_bill_falls_back_to_single_guest_split_when_other_accesses_are_stale(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'invoice_splitting');
+
+        $session = $this->openGuestTable(1);
+        $pin = $this->activeSessionPin();
+        $firstToken = $this->verifyCurrentTablePin(1, $pin, 'device-a');
+        $secondToken = $this->verifyCurrentTablePin(1, $pin, 'device-b');
+
+        TableGuestAccess::query()
+            ->where('token_hash', hash('sha256', $secondToken))
+            ->update([
+                'last_seen_at' => now()->subMinutes(TableSession::ACTIVE_GUEST_WINDOW_MINUTES + 1),
+            ]);
+
+        $response = $this->postJson(
+            "/api/table-session/{$session->id}/request-bill",
+            [],
+            $this->guestHeaders($firstToken, 'device-a')
+        );
+
+        $response->assertCreated()
+            ->assertJsonPath('invoice_preview.invoice_split.mode', 'none')
+            ->assertJsonPath('invoice_preview.invoice_split.split_count', null);
+
+        $menuResponse = $this->getJson(
+            '/api/menu/table/1',
+            $this->guestHeaders($firstToken, 'device-a')
+        );
+
+        $menuResponse->assertOk()
+            ->assertJsonPath('table_session.active_guest_count', 1)
+            ->assertJsonPath('table_session.invoice_split_mode', 'none')
+            ->assertJsonPath('table_session.invoice_split_count', 1);
+
+        $this->assertDatabaseHas('table_sessions', [
+            'id' => $session->id,
+            'invoice_split_mode' => 'none',
+            'invoice_split_count' => 1,
+        ]);
+    }
+
     public function test_staff_can_activate_a_table_and_receive_the_live_pin(): void
     {
         $restaurant = $this->createRestaurant();
@@ -326,6 +410,19 @@ class TableSessionSecurityTest extends TestCase
             'address' => 'Beirut',
         ]);
 
+        foreach (range(1, 10) as $number) {
+            RestaurantTable::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'name' => sprintf('T%02d', $number),
+                'is_active' => true,
+                'seats' => 4,
+            ]);
+        }
+
+        foreach (['qr_menu', 'table_ordering', 'waiter_call', 'request_bill'] as $featureKey) {
+            $this->enableFeature($restaurant, $featureKey);
+        }
+
         config(['app.guest_restaurant_slug' => $restaurant->slug]);
 
         return $restaurant->fresh('tables', 'user');
@@ -375,22 +472,45 @@ class TableSessionSecurityTest extends TestCase
         return $pin;
     }
 
-    private function verifyCurrentTablePin(int $tableNumber, string $pin): string
+    private function verifyCurrentTablePin(int $tableNumber, string $pin, string $deviceId = 'test-device-1'): string
     {
         $response = $this->postJson("/api/menu/table/{$tableNumber}/verify-pin", [
             'pin' => $pin,
-        ], $this->guestHeaders());
+        ], $this->guestHeaders(null, $deviceId));
 
         $response->assertOk();
 
         return (string) $response->json('guest_access.token');
     }
 
-    private function guestHeaders(?string $token = null): array
+    private function guestHeaders(?string $token = null, string $deviceId = 'test-device-1'): array
     {
         return array_filter([
-            'X-Guest-Device-Id' => 'test-device-1',
+            'X-Guest-Device-Id' => $deviceId,
             'X-Guest-Access-Token' => $token,
         ]);
+    }
+
+    private function enableFeature(Restaurant $restaurant, string $key): void
+    {
+        $feature = Feature::query()->updateOrCreate(
+            ['key' => $key],
+            [
+                'name' => Str::title(str_replace('_', ' ', $key)),
+                'description' => 'Test feature',
+                'category' => 'Tests',
+                'is_active_by_default' => false,
+            ]
+        );
+
+        RestaurantFeature::query()->updateOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'feature_id' => $feature->id,
+            ],
+            [
+                'enabled' => true,
+            ]
+        );
     }
 }
