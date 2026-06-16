@@ -62,6 +62,9 @@ class DatabaseSeeder extends Seeder
         // Optional demo ingredient image linking for pizza/demo ingredients:
         // php artisan db:seed --class=Database\\Seeders\\DemoIngredientImageLinkSeeder
 
+        // Optional global ingredient catalog extension for missing demo ingredients:
+        // php artisan db:seed --class=Database\\Seeders\\GlobalIngredientCatalogExtensionSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
