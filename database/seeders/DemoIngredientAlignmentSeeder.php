@@ -9,9 +9,9 @@ class DemoIngredientAlignmentSeeder extends Seeder
 {
     public function run(): void
     {
-        $sqlPath = dirname(base_path()) . '/Menu_React/backups/demo_ingredient_fix.sql';
+        $sqlPath = $this->resolveSqlPath();
 
-        if (! is_file($sqlPath)) {
+        if ($sqlPath === null) {
             $this->command?->error("Demo ingredient SQL not found at: {$sqlPath}");
             return;
         }
@@ -25,5 +25,23 @@ class DemoIngredientAlignmentSeeder extends Seeder
         DB::unprepared($sql);
 
         $this->command?->info('DemoIngredientAlignmentSeeder applied successfully.');
+    }
+
+    private function resolveSqlPath(): ?string
+    {
+        $configured = env('DEMO_INGREDIENT_SQL_PATH');
+        $candidates = array_filter([
+            is_string($configured) && trim($configured) !== '' ? trim($configured) : null,
+            dirname(base_path()) . '/Menu_React/backups/demo_ingredient_fix.sql',
+            dirname(base_path()) . '/NewMenuReact/backups/demo_ingredient_fix.sql',
+        ]);
+
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 }
