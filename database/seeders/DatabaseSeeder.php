@@ -56,6 +56,9 @@ class DatabaseSeeder extends Seeder
         // Optional Alpha-only finance demo (last 4 months, realistic invoices + expenses):
         // php artisan db:seed --class=Database\\Seeders\\AlphaFinanceDemoSeeder
 
+        // Optional exact demo ingredient cleanup synced from Menu_React/backups/demo_ingredient_fix.sql:
+        // php artisan db:seed --class=Database\\Seeders\\DemoIngredientAlignmentSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }

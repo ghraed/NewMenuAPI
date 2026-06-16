@@ -28,6 +28,11 @@ class TenantRestaurantResolver
         }
 
         if ($request !== null) {
+            $restaurantFromLocalSubdomain = $this->resolveFromLocalSubdomain($request->getHost());
+            if ($restaurantFromLocalSubdomain) {
+                return $restaurantFromLocalSubdomain;
+            }
+
             $restaurantFromHost = $this->resolveFromRequestHost($request);
             if ($restaurantFromHost) {
                 return $restaurantFromHost;
@@ -107,7 +112,33 @@ class TenantRestaurantResolver
 
     private function isLocalHost(string $host): bool
     {
-        return in_array($this->normalizeDomain($host), self::LOCAL_HOSTS, true);
+        $normalized = $this->normalizeDomain($host);
+
+        if (in_array($normalized, self::LOCAL_HOSTS, true)) {
+            return true;
+        }
+
+        return str_ends_with($normalized, '.localhost');
+    }
+
+    private function resolveFromLocalSubdomain(string $host): ?Restaurant
+    {
+        $normalized = $this->normalizeDomain($host);
+
+        if (! str_ends_with($normalized, '.localhost')) {
+            return null;
+        }
+
+        $slug = substr($normalized, 0, -strlen('.localhost'));
+        $slug = $this->normalizeSlug($slug);
+
+        if ($slug === null) {
+            return null;
+        }
+
+        return Restaurant::query()
+            ->where('slug', $slug)
+            ->first();
     }
 
     private function isCustomDomainEnabledForRestaurant(int $restaurantId): bool
