@@ -15,6 +15,7 @@ use App\Http\Controllers\GlobalIngredientController;
 use App\Http\Controllers\InventoryIngredientController;
 use App\Http\Controllers\InventoryStockHistoryController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\FinanceExpenseCategoryController;
 use App\Http\Controllers\FinanceExpenseController;
 use App\Http\Controllers\FinancePayrollController;
@@ -299,6 +300,16 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::patch('/dishes/{dish}/unpublish', [DishController::class, 'unpublish']);
         Route::post('/dishes/{dish}/restore', [DishController::class, 'restore']);
         Route::delete('/dishes/{dish}/force', [DishController::class, 'forceDelete']);
+
+        // Ingredient library
+        Route::get('/ingredients', [IngredientLibraryController::class, 'index']);
+        Route::post('/ingredients', [IngredientLibraryController::class, 'store']);
+        Route::post('/ingredients/bulk-upload', [IngredientLibraryController::class, 'bulkUpload']);
+        Route::delete('/ingredients', [IngredientLibraryController::class, 'destroyAll']);
+        Route::patch('/ingredients/{ingredient}', [IngredientLibraryController::class, 'update']);
+        Route::delete('/ingredients/{ingredient}', [IngredientLibraryController::class, 'destroy']);
+        Route::post('/ingredients/{ingredient}/generate-image', [IngredientLibraryController::class, 'generateImage']);
+        Route::post('/ingredients/generate-missing-images', [IngredientLibraryController::class, 'generateMissingImages']);
     });
 
     Route::middleware(['role:admin,stock_manager', 'feature:inventory'])->group(function () {
