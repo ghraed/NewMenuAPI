@@ -59,6 +59,9 @@ class DatabaseSeeder extends Seeder
         // Optional exact demo ingredient cleanup synced from Menu_React/backups/demo_ingredient_fix.sql:
         // php artisan db:seed --class=Database\\Seeders\\DemoIngredientAlignmentSeeder
 
+        // Optional demo ingredient image linking for pizza/demo ingredients:
+        // php artisan db:seed --class=Database\\Seeders\\DemoIngredientImageLinkSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
