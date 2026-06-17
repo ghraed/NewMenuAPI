@@ -93,7 +93,9 @@ class GlobalIngredientArabicRepairSeeder extends Seeder
 
     private function resolveIngredientsPath(): ?string
     {
+        // path
         $paths = [
+            '/var/NewMenuReact/src/i18n/ingredients.ts',
             base_path('../Menu_React/src/i18n/ingredients.ts'),
             base_path('../NewMenuReact/src/i18n/ingredients.ts'),
             base_path('resources/seed/ingredients.ts'),
@@ -156,7 +158,7 @@ class GlobalIngredientArabicRepairSeeder extends Seeder
             ->replaceMatches('/\s+/', ' ')
             ->trim()
             ->explode(' ')
-            ->map(fn (string $token) => Str::singular($token))
+            ->map(fn(string $token) => Str::singular($token))
             ->implode(' ');
 
         return trim((string) $singularized);
