@@ -71,6 +71,9 @@ class DatabaseSeeder extends Seeder
         // Optional Arabic repair for mojibake/empty ingredient translations from ingredients.ts:
         // php artisan db:seed --class=Database\\Seeders\\GlobalIngredientArabicRepairSeeder
 
+        // Optional essential global ingredient expansion + ingredient linking:
+        // php artisan db:seed --class=Database\\Seeders\\EssentialGlobalIngredientSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
