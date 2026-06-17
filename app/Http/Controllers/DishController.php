@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
@@ -67,7 +68,7 @@ class DishController extends Controller
             'price' => 'required|numeric|min:0',
             'currency' => 'nullable|in:USD,LBP,SYP,SAR,AED,EUR,QAR',
             'calories' => 'nullable|integer|min:0',
-            'category' => 'required|string|max:100',
+            'category' => ['required', 'string', 'max:100'],
             'category_ar' => 'nullable|string|max:100',
             'status' => 'nullable|in:draft,published',
             'item_type' => 'nullable|in:prepared_dish,prepared_drink,packaged_drink,other_product',
@@ -115,6 +116,7 @@ class DishController extends Controller
         ]);
 
         $restaurant = $this->getRestaurantForRequest($request);
+        $this->validateCategoryForRestaurant($request, $restaurant);
 
         $validated['uuid'] = (string) Str::uuid();
         $status = $validated['status'] ?? 'published';
@@ -191,6 +193,8 @@ class DishController extends Controller
             'target_languages' => ['required', 'array', 'min:1'],
             'target_languages.*' => ['required', 'string', 'in:en,ar'],
         ]);
+
+        $this->validateCategoryForRestaurant($request, $restaurant);
 
         $rows = $validated['recipe_ingredients'];
         $ingredientIds = array_values(array_unique(array_map(
@@ -275,6 +279,8 @@ class DishController extends Controller
             ]);
         }
 
+        $this->assertCategoryEnabledForRestaurant($restaurant, (string) $template['category']);
+
         $payload = [
             'uuid' => (string) Str::uuid(),
             'name' => $validated['name'] ?? $template['name'],
@@ -295,6 +301,42 @@ class DishController extends Controller
             'message' => 'Predefined menu item activated.',
             'dish' => $dish->fresh(['assets', 'dishIngredients.ingredient']),
         ], 201);
+    }
+
+    private function validateCategoryForRestaurant(Request $request, Restaurant $restaurant): void
+    {
+        $allowedCategories = array_values(array_filter(
+            (is_array($restaurant->profile) ? ($restaurant->profile['menu_categories'] ?? []) : []),
+            fn ($value): bool => is_string($value) && trim($value) !== ''
+        ));
+
+        if ($allowedCategories === []) {
+            return;
+        }
+
+        $request->validate([
+            'category' => ['required', 'string', Rule::in($allowedCategories)],
+        ], [
+            'category.in' => 'This category is not enabled for the current restaurant.',
+        ]);
+    }
+
+    private function assertCategoryEnabledForRestaurant(Restaurant $restaurant, string $category): void
+    {
+        $allowedCategories = array_values(array_filter(
+            (is_array($restaurant->profile) ? ($restaurant->profile['menu_categories'] ?? []) : []),
+            fn ($value): bool => is_string($value) && trim($value) !== ''
+        ));
+
+        if ($allowedCategories === []) {
+            return;
+        }
+
+        if (! in_array(trim($category), $allowedCategories, true)) {
+            throw ValidationException::withMessages([
+                'category' => 'This category is not enabled for the current restaurant.',
+            ]);
+        }
     }
 
     public function copyModel(Request $request, Dish $dish): JsonResponse
@@ -398,6 +440,10 @@ class DishController extends Controller
             'recipe_ingredients.*.order_index' => 'nullable|integer|min:0',
             'recipe_ingredients.*.show_in_animation' => 'nullable|boolean',
         ]);
+
+        if (array_key_exists('category', $validated)) {
+            $this->assertCategoryEnabledForRestaurant($restaurant, (string) $validated['category']);
+        }
 
         $suggestedDishIds = null;
         if (array_key_exists('suggested_dish_ids', $validated)) {

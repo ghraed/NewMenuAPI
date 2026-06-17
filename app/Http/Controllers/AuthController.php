@@ -113,6 +113,11 @@ class AuthController extends Controller
                 'currency' => $restaurant->currency,
                 'other_currency' => $restaurant->other_currency,
                 'dollar_rate' => $restaurant->dollar_rate,
+                'custom_domain' => $restaurant->domains()->where('kind', 'custom')->orderByDesc('is_primary')->value('domain'),
+                'menu_categories' => array_values(array_filter(
+                    (is_array($restaurant->profile) ? ($restaurant->profile['menu_categories'] ?? []) : []),
+                    fn ($value): bool => is_string($value) && trim($value) !== ''
+                )),
                 'feature_flags' => $this->featureFlagService->flagsForRestaurant($restaurant),
                 'profile' => $restaurant->profile,
             ] : null,

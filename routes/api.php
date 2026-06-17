@@ -24,6 +24,7 @@ use App\Http\Controllers\MenuController;
 use App\Http\Controllers\SuperAdmin\SuperAdminAuthController;
 use App\Http\Controllers\SuperAdmin\SuperAdminContactLeadController;
 use App\Http\Controllers\SuperAdmin\SuperAdminFeatureFlagController;
+use App\Http\Controllers\SuperAdmin\SuperAdminRestaurantManagementController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\PublicReservationController;
@@ -117,6 +118,9 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::get('/restaurants/{restaurant}/features', [SuperAdminFeatureFlagController::class, 'restaurantFeatures']);
         Route::patch('/restaurants/{restaurant}/features/bulk', [SuperAdminFeatureFlagController::class, 'bulkUpdate']);
         Route::patch('/restaurants/{restaurant}/features/{feature}', [SuperAdminFeatureFlagController::class, 'updateFeature']);
+        Route::get('/restaurant-setup/options', [SuperAdminRestaurantManagementController::class, 'options']);
+        Route::post('/users', [SuperAdminRestaurantManagementController::class, 'storeUser']);
+        Route::post('/restaurants', [SuperAdminRestaurantManagementController::class, 'storeRestaurant']);
         Route::get('/contact-requests', [SuperAdminContactLeadController::class, 'index']);
         Route::get('/contact-requests/{contactLead}', [SuperAdminContactLeadController::class, 'show']);
     });

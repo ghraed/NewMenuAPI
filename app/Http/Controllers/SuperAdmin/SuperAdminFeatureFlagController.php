@@ -26,20 +26,33 @@ class SuperAdminFeatureFlagController extends Controller
             ->get();
 
         $restaurants = Restaurant::query()
-            ->with(['restaurantFeatures' => function ($query): void {
-                $query->select(['id', 'restaurant_id', 'feature_id', 'enabled']);
-            }])
+            ->with([
+                'domains',
+                'restaurantFeatures' => function ($query): void {
+                    $query->select(['id', 'restaurant_id', 'feature_id', 'enabled']);
+                },
+            ])
             ->orderBy('name')
             ->get();
 
         $restaurantsPayload = $restaurants->map(function (Restaurant $restaurant) use ($features): array {
             $overridesByFeatureId = $restaurant->restaurantFeatures->keyBy('feature_id');
+            $profile = is_array($restaurant->profile) ? $restaurant->profile : [];
+            $customDomain = $restaurant->domains
+                ->where('kind', 'custom')
+                ->sortByDesc('is_primary')
+                ->first();
 
             return [
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
                 'status' => $restaurant->status,
+                'custom_domain' => $customDomain?->domain,
+                'menu_categories' => array_values(array_filter(
+                    $profile['menu_categories'] ?? [],
+                    fn ($value): bool => is_string($value) && trim($value) !== ''
+                )),
                 'features' => $this->formatFeatureStateList($features, $overridesByFeatureId),
             ];
         })->values();
@@ -90,6 +103,11 @@ class SuperAdminFeatureFlagController extends Controller
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
                 'status' => $restaurant->status,
+                'custom_domain' => $restaurant->domains()->where('kind', 'custom')->orderByDesc('is_primary')->value('domain'),
+                'menu_categories' => array_values(array_filter(
+                    (is_array($restaurant->profile) ? ($restaurant->profile['menu_categories'] ?? []) : []),
+                    fn ($value): bool => is_string($value) && trim($value) !== ''
+                )),
             ],
             'features' => $this->formatFeatureStateList($features, $overridesByFeatureId),
         ]);

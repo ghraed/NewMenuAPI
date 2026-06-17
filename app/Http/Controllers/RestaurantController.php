@@ -76,6 +76,7 @@ class RestaurantController extends Controller
         ]);
 
         $restaurant = $this->getOwnedRestaurant($request);
+        $existingProfile = is_array($restaurant->profile) ? $restaurant->profile : [];
 
         $profile = [
             'legal_business_name' => $this->normalizeOptionalString($validated['legal_business_name'] ?? null),
@@ -94,6 +95,10 @@ class RestaurantController extends Controller
             'vat_registration_number' => $this->normalizeOptionalString($validated['vat_registration_number'] ?? null),
             'service_hours' => $this->normalizeOptionalString($validated['service_hours'] ?? null),
             'short_description' => $this->normalizeOptionalString($validated['short_description'] ?? null),
+            'menu_categories' => array_values(array_filter(
+                $existingProfile['menu_categories'] ?? [],
+                fn ($value): bool => is_string($value) && trim($value) !== ''
+            )),
         ];
 
         $restaurant->update([
@@ -403,6 +408,11 @@ class RestaurantController extends Controller
             'currency' => $restaurant->currency,
             'other_currency' => $restaurant->other_currency,
             'dollar_rate' => $restaurant->dollar_rate,
+            'custom_domain' => $restaurant->domains()->where('kind', 'custom')->orderByDesc('is_primary')->value('domain'),
+            'menu_categories' => array_values(array_filter(
+                (is_array($restaurant->profile) ? ($restaurant->profile['menu_categories'] ?? []) : []),
+                fn ($value): bool => is_string($value) && trim($value) !== ''
+            )),
             'manual_table_count' => $restaurant->manual_table_count,
             'profile' => $restaurant->profile,
         ];
