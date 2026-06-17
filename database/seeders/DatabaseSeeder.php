@@ -65,6 +65,12 @@ class DatabaseSeeder extends Seeder
         // Optional global ingredient catalog extension for missing demo ingredients:
         // php artisan db:seed --class=Database\\Seeders\\GlobalIngredientCatalogExtensionSeeder
 
+        // Optional global ingredient image path backfill from storage/app/public/global-ingredients:
+        // php artisan db:seed --class=Database\\Seeders\\GlobalIngredientImagePathBackfillSeeder
+
+        // Optional Arabic repair for mojibake/empty ingredient translations from ingredients.ts:
+        // php artisan db:seed --class=Database\\Seeders\\GlobalIngredientArabicRepairSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
