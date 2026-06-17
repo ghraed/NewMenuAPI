@@ -7,6 +7,7 @@ use App\Models\Restaurant;
 use App\Models\RestaurantDomain;
 use App\Models\User;
 use App\Services\FeatureFlagService;
+use App\Services\GlobalIngredientProvisioningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -96,6 +97,7 @@ class SuperAdminRestaurantManagementController extends Controller
 
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,
+        private readonly GlobalIngredientProvisioningService $globalIngredientProvisioningService,
     ) {
     }
 
@@ -226,6 +228,7 @@ class SuperAdminRestaurantManagementController extends Controller
             ]);
 
             $this->featureFlagService->enable($restaurant, 'custom_domain');
+            $this->globalIngredientProvisioningService->provisionForRestaurant($restaurant);
 
             return $restaurant->fresh(['domains']);
         });

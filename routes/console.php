@@ -8,6 +8,7 @@ use App\Models\Ingredient;
 use App\Models\PayrollPeriod;
 use App\Models\Restaurant;
 use App\Models\User;
+use App\Services\GlobalIngredientProvisioningService;
 use Database\Seeders\DummyDishesSeeder;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -58,6 +59,8 @@ Artisan::command('seed:prod', function () {
             'address' => $restaurantAddress,
         ]);
     }
+
+    app(GlobalIngredientProvisioningService::class)->provisionForRestaurant($restaurant);
 
     $this->info('Admin user ready: ' . $user->email);
     $this->info('Restaurant: ' . $restaurant->name . ' (' . $restaurant->slug . ')');

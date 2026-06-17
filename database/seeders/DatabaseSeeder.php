@@ -74,6 +74,9 @@ class DatabaseSeeder extends Seeder
         // Optional essential global ingredient expansion + ingredient linking:
         // php artisan db:seed --class=Database\\Seeders\\EssentialGlobalIngredientSeeder
 
+        // Optional backfill to give the rozer.pro tenant access to the full global ingredient catalog:
+        // php artisan db:seed --class=Database\\Seeders\\RozerProIngredientAccessSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
