@@ -38,17 +38,16 @@ class SuperAdminFeatureFlagController extends Controller
         $restaurantsPayload = $restaurants->map(function (Restaurant $restaurant) use ($features): array {
             $overridesByFeatureId = $restaurant->restaurantFeatures->keyBy('feature_id');
             $profile = is_array($restaurant->profile) ? $restaurant->profile : [];
-            $customDomain = $restaurant->domains
-                ->where('kind', 'custom')
-                ->sortByDesc('is_primary')
-                ->first();
 
             return [
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
                 'status' => $restaurant->status,
-                'custom_domain' => $customDomain?->domain,
+                'custom_domain' => $restaurant->primaryCustomDomain(),
+                'custom_domain_status' => $restaurant->custom_domain_status,
+                'custom_domain_error' => $restaurant->custom_domain_error,
+                'ssl_issued_at' => $restaurant->ssl_issued_at?->toIso8601String(),
                 'menu_categories' => array_values(array_filter(
                     $profile['menu_categories'] ?? [],
                     fn ($value): bool => is_string($value) && trim($value) !== ''
@@ -103,7 +102,10 @@ class SuperAdminFeatureFlagController extends Controller
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
                 'status' => $restaurant->status,
-                'custom_domain' => $restaurant->domains()->where('kind', 'custom')->orderByDesc('is_primary')->value('domain'),
+                'custom_domain' => $restaurant->primaryCustomDomain(),
+                'custom_domain_status' => $restaurant->custom_domain_status,
+                'custom_domain_error' => $restaurant->custom_domain_error,
+                'ssl_issued_at' => $restaurant->ssl_issued_at?->toIso8601String(),
                 'menu_categories' => array_values(array_filter(
                     (is_array($restaurant->profile) ? ($restaurant->profile['menu_categories'] ?? []) : []),
                     fn ($value): bool => is_string($value) && trim($value) !== ''

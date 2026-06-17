@@ -6,6 +6,7 @@ use App\Models\Feature;
 use App\Models\Restaurant;
 use App\Models\RestaurantDomain;
 use App\Models\RestaurantFeature;
+use App\Support\DomainName;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 
@@ -54,8 +55,34 @@ class TenantRestaurantResolver
             return null;
         }
 
+        $hostWithoutWww = DomainName::stripWww($host);
+
+        $restaurant = Restaurant::query()
+            ->where(function ($query) use ($host, $hostWithoutWww): void {
+                $query->where('custom_domain', $host);
+
+                if ($hostWithoutWww !== '' && $hostWithoutWww !== $host) {
+                    $query->orWhere('custom_domain', $hostWithoutWww);
+                }
+            })
+            ->first();
+
+        if ($restaurant) {
+            if (! $this->isCustomDomainEnabledForRestaurant((int) $restaurant->id)) {
+                return null;
+            }
+
+            return $restaurant;
+        }
+
         $domain = RestaurantDomain::query()
-            ->where('domain', $host)
+            ->where(function ($query) use ($host, $hostWithoutWww): void {
+                $query->where('domain', $host);
+
+                if ($hostWithoutWww !== '' && $hostWithoutWww !== $host) {
+                    $query->orWhere('domain', $hostWithoutWww);
+                }
+            })
             ->with('restaurant')
             ->first();
 
@@ -105,9 +132,7 @@ class TenantRestaurantResolver
 
     private function normalizeDomain(string $domain): string
     {
-        $normalized = strtolower(trim($domain));
-
-        return rtrim($normalized, '.');
+        return DomainName::normalizeHost($domain);
     }
 
     private function isLocalHost(string $host): bool

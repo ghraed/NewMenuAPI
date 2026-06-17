@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Dish;
+use App\Models\Feature;
 use App\Models\Restaurant;
 use App\Models\RestaurantDomain;
+use App\Models\RestaurantFeature;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
@@ -118,11 +120,43 @@ class TenantDomainRoutingTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_host_based_guest_menu_resolves_to_restaurant_custom_domain_column(): void
+    {
+        $restaurant = $this->createRestaurant('custom-domain-kitchen');
+        $restaurant->update([
+            'custom_domain' => 'custom.example.com',
+        ]);
+        $this->createDish($restaurant, 'Custom Domain Dish');
+
+        $response = $this->withHeaders(['Host' => 'custom.example.com'])
+            ->getJson('/api/menu/dishes');
+
+        $response->assertOk()
+            ->assertJsonPath('restaurant.id', $restaurant->id)
+            ->assertJsonPath('restaurant.slug', $restaurant->slug);
+    }
+
+    public function test_host_based_guest_menu_resolves_www_variant_of_restaurant_custom_domain(): void
+    {
+        $restaurant = $this->createRestaurant('custom-www-kitchen');
+        $restaurant->update([
+            'custom_domain' => 'custom-www.example.com',
+        ]);
+        $this->createDish($restaurant, 'Custom WWW Dish');
+
+        $response = $this->withHeaders(['Host' => 'www.custom-www.example.com'])
+            ->getJson('/api/menu/dishes');
+
+        $response->assertOk()
+            ->assertJsonPath('restaurant.id', $restaurant->id)
+            ->assertJsonPath('restaurant.slug', $restaurant->slug);
+    }
+
     private function createRestaurant(string $slug): Restaurant
     {
         $owner = User::factory()->admin()->create();
 
-        return Restaurant::query()->create([
+        $restaurant = Restaurant::query()->create([
             'uuid' => (string) Str::uuid(),
             'user_id' => $owner->id,
             'name' => Str::headline($slug),
@@ -130,6 +164,12 @@ class TenantDomainRoutingTest extends TestCase
             'description' => 'Tenant routing test restaurant',
             'address' => 'Beirut',
         ]);
+
+        foreach (['qr_menu', 'table_ordering', 'waiter_call', 'custom_domain'] as $featureKey) {
+            $this->enableFeature($restaurant, $featureKey);
+        }
+
+        return $restaurant;
     }
 
     private function attachDomain(Restaurant $restaurant, string $domain, string $kind = 'subdomain'): void
@@ -164,5 +204,28 @@ class TenantDomainRoutingTest extends TestCase
         $this->assertIsString($pin);
 
         return $pin;
+    }
+
+    private function enableFeature(Restaurant $restaurant, string $key): void
+    {
+        $feature = Feature::query()->updateOrCreate(
+            ['key' => $key],
+            [
+                'name' => Str::title(str_replace('_', ' ', $key)),
+                'description' => 'Tenant routing test feature',
+                'category' => 'Tests',
+                'is_active_by_default' => false,
+            ]
+        );
+
+        RestaurantFeature::query()->updateOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'feature_id' => $feature->id,
+            ],
+            [
+                'enabled' => true,
+            ]
+        );
     }
 }

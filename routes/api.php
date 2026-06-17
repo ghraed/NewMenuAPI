@@ -121,6 +121,7 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::get('/restaurant-setup/options', [SuperAdminRestaurantManagementController::class, 'options']);
         Route::post('/users', [SuperAdminRestaurantManagementController::class, 'storeUser']);
         Route::post('/restaurants', [SuperAdminRestaurantManagementController::class, 'storeRestaurant']);
+        Route::patch('/restaurants/{restaurant}', [SuperAdminRestaurantManagementController::class, 'updateRestaurant']);
         Route::get('/contact-requests', [SuperAdminContactLeadController::class, 'index']);
         Route::get('/contact-requests/{contactLead}', [SuperAdminContactLeadController::class, 'show']);
     });

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\DomainName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -27,8 +28,7 @@ class RestaurantDomain extends Model
 
     public function setDomainAttribute(string $value): void
     {
-        $normalized = strtolower(trim($value));
-        $normalized = rtrim($normalized, '.');
+        $normalized = DomainName::normalize($value) ?? strtolower(trim($value));
 
         $this->attributes['domain'] = $normalized;
     }

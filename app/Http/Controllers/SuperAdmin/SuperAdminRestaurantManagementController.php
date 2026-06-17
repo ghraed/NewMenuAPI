@@ -3,14 +3,16 @@
 namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProvisionRestaurantDomainJob;
 use App\Models\Restaurant;
-use App\Models\RestaurantDomain;
 use App\Models\User;
 use App\Services\FeatureFlagService;
 use App\Services\GlobalIngredientProvisioningService;
+use App\Services\RestaurantCustomDomainService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -98,6 +100,7 @@ class SuperAdminRestaurantManagementController extends Controller
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,
         private readonly GlobalIngredientProvisioningService $globalIngredientProvisioningService,
+        private readonly RestaurantCustomDomainService $customDomainService,
     ) {
     }
 
@@ -162,6 +165,10 @@ class SuperAdminRestaurantManagementController extends Controller
 
     public function storeRestaurant(Request $request): JsonResponse
     {
+        $request->merge([
+            'slug' => strtolower(trim((string) $request->input('slug', ''))),
+        ]);
+
         $categoryValues = collect($this->menuCategoryDefinitions())
             ->pluck('value')
             ->filter(fn ($value): bool => is_string($value) && trim($value) !== '')
@@ -183,12 +190,14 @@ class SuperAdminRestaurantManagementController extends Controller
             'admin_user.phone' => ['nullable', 'string', 'max:40', 'unique:users,phone'],
             'status' => ['required', 'string', Rule::in(['active', 'inactive'])],
             'currency' => ['required', Rule::in(['USD', 'LBP', 'SYP', 'SAR', 'AED', 'EUR', 'QAR'])],
-            'custom_domain' => ['required', 'string', 'max:255', 'unique:restaurant_domains,domain'],
+            'custom_domain' => ['nullable', 'string', 'max:255'],
             'menu_categories' => ['required', 'array', 'min:1'],
             'menu_categories.*' => ['required', 'string', Rule::in($categoryValues)],
         ]);
 
-        $restaurant = DB::transaction(function () use ($validated): Restaurant {
+        $customDomain = $this->customDomainService->validateOrFail($validated['custom_domain'] ?? null);
+
+        $restaurant = DB::transaction(function () use ($validated, $customDomain): Restaurant {
             $userId = isset($validated['user_id']) ? (int) $validated['user_id'] : null;
 
             if ($userId === null) {
@@ -208,6 +217,10 @@ class SuperAdminRestaurantManagementController extends Controller
                 'user_id' => $userId,
                 'name' => trim((string) $validated['name']),
                 'slug' => strtolower(trim((string) $validated['slug'])),
+                'custom_domain' => $customDomain,
+                'custom_domain_status' => $customDomain !== null ? 'pending_dns' : null,
+                'custom_domain_error' => null,
+                'ssl_issued_at' => null,
                 'status' => trim((string) $validated['status']),
                 'currency' => trim((string) $validated['currency']),
                 'dollar_rate' => 1,
@@ -219,24 +232,88 @@ class SuperAdminRestaurantManagementController extends Controller
                 ],
             ]);
 
-            RestaurantDomain::query()->create([
-                'restaurant_id' => $restaurant->id,
-                'domain' => $validated['custom_domain'],
-                'kind' => 'custom',
-                'is_primary' => true,
-                'verified_at' => null,
-            ]);
+            if ($customDomain !== null) {
+                $this->customDomainService->syncCustomDomain($restaurant, $customDomain);
+                $this->featureFlagService->enable($restaurant, 'custom_domain');
+            }
 
-            $this->featureFlagService->enable($restaurant, 'custom_domain');
             $this->globalIngredientProvisioningService->provisionForRestaurant($restaurant);
 
             return $restaurant->fresh(['domains']);
         });
 
+        $this->dispatchProvisioningJobSafely($restaurant, $customDomain !== null);
+
         return response()->json([
             'message' => 'Restaurant created successfully.',
             'restaurant' => $this->formatRestaurant($restaurant),
         ], 201);
+    }
+
+    public function updateRestaurant(Request $request, Restaurant $restaurant): JsonResponse
+    {
+        $request->merge([
+            'slug' => strtolower(trim((string) $request->input('slug', $restaurant->slug))),
+        ]);
+
+        $categoryValues = collect($this->menuCategoryDefinitions())
+            ->pluck('value')
+            ->filter(fn ($value): bool => is_string($value) && trim($value) !== '')
+            ->values()
+            ->all();
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'slug' => ['required', 'string', 'max:255', 'alpha_dash', Rule::unique('restaurants', 'slug')->ignore($restaurant->id)],
+            'status' => ['required', 'string', Rule::in(['active', 'inactive'])],
+            'currency' => ['required', Rule::in(['USD', 'LBP', 'SYP', 'SAR', 'AED', 'EUR', 'QAR'])],
+            'custom_domain' => ['nullable', 'string', 'max:255'],
+            'menu_categories' => ['required', 'array', 'min:1'],
+            'menu_categories.*' => ['required', 'string', Rule::in($categoryValues)],
+        ]);
+
+        $customDomain = $this->customDomainService->validateOrFail($validated['custom_domain'] ?? null, $restaurant);
+        $domainChanged = $customDomain !== $restaurant->primaryCustomDomain();
+
+        $restaurant = DB::transaction(function () use ($restaurant, $validated, $customDomain, $domainChanged): Restaurant {
+            $attributes = [
+                'name' => trim((string) $validated['name']),
+                'slug' => strtolower(trim((string) $validated['slug'])),
+                'status' => trim((string) $validated['status']),
+                'currency' => trim((string) $validated['currency']),
+                'custom_domain' => $customDomain,
+                'profile' => [
+                    ...(is_array($restaurant->profile) ? $restaurant->profile : []),
+                    'menu_categories' => array_values(array_unique(array_map(
+                        fn (string $value): string => trim($value),
+                        $validated['menu_categories']
+                    ))),
+                ],
+            ];
+
+            if ($domainChanged) {
+                $attributes['custom_domain_status'] = $customDomain !== null ? 'pending_dns' : null;
+                $attributes['custom_domain_error'] = null;
+                $attributes['ssl_issued_at'] = null;
+            }
+
+            $restaurant->update($attributes);
+            $restaurant->refresh();
+            $this->customDomainService->syncCustomDomain($restaurant, $customDomain);
+
+            if ($customDomain !== null) {
+                $this->featureFlagService->enable($restaurant, 'custom_domain');
+            }
+
+            return $restaurant->fresh(['domains']);
+        });
+
+        $this->dispatchProvisioningJobSafely($restaurant, $domainChanged && $customDomain !== null);
+
+        return response()->json([
+            'message' => 'Restaurant updated successfully.',
+            'restaurant' => $this->formatRestaurant($restaurant),
+        ]);
     }
 
     private function formatRestaurant(Restaurant $restaurant): array
@@ -252,7 +329,10 @@ class SuperAdminRestaurantManagementController extends Controller
             'slug' => $restaurant->slug,
             'status' => $restaurant->status,
             'currency' => $restaurant->currency,
-            'custom_domain' => $customDomain?->domain,
+            'custom_domain' => $restaurant->primaryCustomDomain() ?? $customDomain?->domain,
+            'custom_domain_status' => $restaurant->custom_domain_status,
+            'custom_domain_error' => $restaurant->custom_domain_error,
+            'ssl_issued_at' => $restaurant->ssl_issued_at?->toIso8601String(),
             'menu_categories' => array_values(array_filter(
                 $profile['menu_categories'] ?? [],
                 fn ($value): bool => is_string($value) && trim($value) !== ''
@@ -269,5 +349,22 @@ class SuperAdminRestaurantManagementController extends Controller
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function dispatchProvisioningJobSafely(Restaurant $restaurant, bool $shouldDispatch): void
+    {
+        if (! $shouldDispatch) {
+            return;
+        }
+
+        try {
+            ProvisionRestaurantDomainJob::dispatch((int) $restaurant->id);
+        } catch (\Throwable $exception) {
+            Log::warning('Restaurant was created or updated, but custom-domain provisioning could not be queued.', [
+                'restaurant_id' => $restaurant->id,
+                'domain' => $restaurant->primaryCustomDomain(),
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 }

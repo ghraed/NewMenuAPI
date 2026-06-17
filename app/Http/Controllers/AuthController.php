@@ -113,7 +113,10 @@ class AuthController extends Controller
                 'currency' => $restaurant->currency,
                 'other_currency' => $restaurant->other_currency,
                 'dollar_rate' => $restaurant->dollar_rate,
-                'custom_domain' => $restaurant->domains()->where('kind', 'custom')->orderByDesc('is_primary')->value('domain'),
+                'custom_domain' => $restaurant->primaryCustomDomain(),
+                'custom_domain_status' => $restaurant->custom_domain_status,
+                'custom_domain_error' => $restaurant->custom_domain_error,
+                'ssl_issued_at' => $restaurant->ssl_issued_at?->toIso8601String(),
                 'menu_categories' => array_values(array_filter(
                     (is_array($restaurant->profile) ? ($restaurant->profile['menu_categories'] ?? []) : []),
                     fn ($value): bool => is_string($value) && trim($value) !== ''

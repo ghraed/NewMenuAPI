@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\DomainName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -15,6 +16,10 @@ class Restaurant extends Model
         'user_id',
         'name',
         'slug',
+        'custom_domain',
+        'custom_domain_status',
+        'custom_domain_error',
+        'ssl_issued_at',
         'status',
         'description',
         'address',
@@ -32,6 +37,10 @@ class Restaurant extends Model
         'uuid' => 'string',
         'status' => 'string',
         'profile' => 'array',
+        'custom_domain' => 'string',
+        'custom_domain_status' => 'string',
+        'custom_domain_error' => 'string',
+        'ssl_issued_at' => 'datetime',
         'created_at' => 'datetime',
         'dollar_rate' => 'decimal:2',
         'manual_table_count' => 'integer',
@@ -164,6 +173,29 @@ class Restaurant extends Model
         }
 
         return Storage::disk('public')->url($path);
+    }
+
+    public function primaryCustomDomain(): ?string
+    {
+        $customDomain = DomainName::normalize($this->custom_domain);
+
+        if ($customDomain !== null) {
+            return $customDomain;
+        }
+
+        if ($this->relationLoaded('domains')) {
+            $domain = $this->domains
+                ->where('kind', 'custom')
+                ->sortByDesc('is_primary')
+                ->first();
+
+            return is_string($domain?->domain) ? $domain->domain : null;
+        }
+
+        return $this->domains()
+            ->where('kind', 'custom')
+            ->orderByDesc('is_primary')
+            ->value('domain');
     }
 
 }
