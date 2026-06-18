@@ -26,6 +26,7 @@ class InventoryIngredientController extends Controller
     public function index(Request $request): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
+        $this->globalIngredientProvisioningService->provisionForRestaurant($restaurant);
 
         $ingredients = Ingredient::query()
             ->where('restaurant_id', $restaurant->id)
