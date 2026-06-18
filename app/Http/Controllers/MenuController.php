@@ -9,8 +9,10 @@ use App\Services\DishAlternativeSuggestionService;
 use App\Services\FeatureFlagService;
 use App\Services\GuestMenuSessionService;
 use App\Services\TableSessionAccessService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class MenuController extends Controller
 {
@@ -204,7 +206,7 @@ class MenuController extends Controller
         })->values()->all();
     }
 
-    public function showTableDish(int $table_id, int $dish_id, Request $request): JsonResponse
+    public function showTableDish(int $table_id, string $dish_id, Request $request): JsonResponse
     {
         $context = $this->guestMenuSessionService->resolveTableContext($table_id, $request);
         $restaurant = $context['restaurant'];
@@ -219,12 +221,13 @@ class MenuController extends Controller
         $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
         $tableOrderingEnabled = $this->featureFlagService->isEnabled($restaurant, 'table_ordering');
 
-        $dish = Dish::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->where('id', $dish_id)
-            ->where('status', 'published')
-            ->with(['assets', 'dishIngredients.ingredient'])
-            ->firstOrFail();
+        $dish = $this->resolvePublishedDishReference(
+            Dish::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('status', 'published')
+                ->with(['assets', 'dishIngredients.ingredient']),
+            $dish_id
+        );
 
         AnalyticsEvent::create([
             'uuid' => (string) \Illuminate\Support\Str::uuid(),
@@ -278,6 +281,30 @@ class MenuController extends Controller
             ],
             'dish' => $this->localizeDish($dish, $ar3dEnabled, $animatedIngredientsEnabled),
         ]);
+    }
+
+    private function resolvePublishedDishReference(Builder $query, string $dishReference): Dish
+    {
+        $normalizedReference = trim($dishReference);
+
+        if ($normalizedReference !== '' && ctype_digit($normalizedReference)) {
+            $byId = (clone $query)->where('id', (int) $normalizedReference)->first();
+            if ($byId instanceof Dish) {
+                return $byId;
+            }
+        }
+
+        $normalizedSlug = Str::slug($normalizedReference);
+        $dish = (clone $query)
+            ->orderBy('name')
+            ->get()
+            ->first(fn (Dish $candidate): bool => Str::slug((string) $candidate->name) === $normalizedSlug);
+
+        if ($dish instanceof Dish) {
+            return $dish;
+        }
+
+        abort(404);
     }
 
     private function getDeviceType(Request $request): string

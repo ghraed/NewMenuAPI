@@ -9,8 +9,10 @@ use App\Services\DishAlternativeSuggestionService;
 use App\Services\FeatureFlagService;
 use App\Services\TenantRestaurantResolver;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class GuestController extends Controller
 {
@@ -33,12 +35,12 @@ class GuestController extends Controller
         return $this->listDishesForRestaurant($request, $restaurant_slug);
     }
 
-    public function showDish(Request $request, int $dish_id): JsonResponse
+    public function showDish(Request $request, string $dish_id): JsonResponse
     {
         return $this->showDishForRestaurant($request, null, $dish_id);
     }
 
-    public function showDishBySlug(Request $request, string $restaurant_slug, int $dish_id): JsonResponse
+    public function showDishBySlug(Request $request, string $restaurant_slug, string $dish_id): JsonResponse
     {
         return $this->showDishForRestaurant($request, $restaurant_slug, $dish_id);
     }
@@ -215,18 +217,19 @@ class GuestController extends Controller
         })->values()->all();
     }
 
-    private function showDishForRestaurant(Request $request, ?string $restaurantSlug, int $dishId): JsonResponse
+    private function showDishForRestaurant(Request $request, ?string $restaurantSlug, string $dishId): JsonResponse
     {
         $restaurant = $this->tenantRestaurantResolver->resolveFromSlugOrHost($restaurantSlug, $request);
         $ar3dEnabled = $this->featureFlagService->isEnabled($restaurant, 'ar_3d_dishes');
         $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
 
-        $dish = Dish::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->where('id', $dishId)
-            ->where('status', 'published')
-            ->with(['assets', 'dishIngredients.ingredient'])
-            ->firstOrFail();
+        $dish = $this->resolvePublishedDishReference(
+            Dish::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('status', 'published')
+                ->with(['assets', 'dishIngredients.ingredient']),
+            $dishId
+        );
 
         AnalyticsEvent::create([
             'uuid' => (string) \Illuminate\Support\Str::uuid(),
@@ -271,6 +274,30 @@ class GuestController extends Controller
         $payload['restaurant'] = $this->formatGuestRestaurant($restaurant);
 
         return response()->json($payload);
+    }
+
+    private function resolvePublishedDishReference(Builder $query, string $dishReference): Dish
+    {
+        $normalizedReference = trim($dishReference);
+
+        if ($normalizedReference !== '' && ctype_digit($normalizedReference)) {
+            $byId = (clone $query)->where('id', (int) $normalizedReference)->first();
+            if ($byId instanceof Dish) {
+                return $byId;
+            }
+        }
+
+        $normalizedSlug = Str::slug($normalizedReference);
+        $dish = (clone $query)
+            ->orderBy('name')
+            ->get()
+            ->first(fn (Dish $candidate): bool => Str::slug((string) $candidate->name) === $normalizedSlug);
+
+        if ($dish instanceof Dish) {
+            return $dish;
+        }
+
+        abort(404);
     }
 
     private function listTablesForRestaurant(Request $request, ?string $restaurantSlug): JsonResponse
