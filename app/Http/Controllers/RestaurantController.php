@@ -301,8 +301,9 @@ class RestaurantController extends Controller
         return response()->json([
             'mode' => $mode,
             'manual_table_count' => $restaurant->manual_table_count ? (int) $restaurant->manual_table_count : null,
-            'active_tables' => $tables->map(fn (RestaurantTable $table) => [
+            'active_tables' => $tables->values()->map(fn (RestaurantTable $table, int $index) => [
                 'id' => $table->id,
+                'number' => $index + 1,
                 'name' => $table->name,
             ])->values(),
         ]);
@@ -336,8 +337,9 @@ class RestaurantController extends Controller
             'message' => 'Manual tables updated successfully.',
             'mode' => $mode,
             'manual_table_count' => $count,
-            'active_tables' => $tables->map(fn (RestaurantTable $table) => [
+            'active_tables' => $tables->values()->map(fn (RestaurantTable $table, int $index) => [
                 'id' => $table->id,
+                'number' => $index + 1,
                 'name' => $table->name,
             ])->values(),
         ]);

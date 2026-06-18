@@ -97,18 +97,26 @@ class QRCodeController extends Controller
 
     private function buildTableUrl(RestaurantTable $restaurantTable): string
     {
-        $tableNumber = $this->extractTableNumber($restaurantTable->name) ?: $restaurantTable->id;
+        $tableNumber = $this->resolveRestaurantScopedTableNumber($restaurantTable);
         $frontendUrl = rtrim((string) config('app.frontend_url', config('app.url')), '/');
 
         return $frontendUrl . "/menu/table/{$tableNumber}";
     }
 
-    private function extractTableNumber(string $name): ?int
+    private function resolveRestaurantScopedTableNumber(RestaurantTable $restaurantTable): int
     {
-        if (! preg_match('/(\d+)/', $name, $matches)) {
-            return null;
+        $tables = RestaurantTable::query()
+            ->where('restaurant_id', $restaurantTable->restaurant_id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id']);
+
+        $position = $tables->values()->search(fn (RestaurantTable $candidate) => $candidate->id === $restaurantTable->id);
+
+        if ($position === false) {
+            return 1;
         }
 
-        return (int) $matches[1];
+        return $position + 1;
     }
 }

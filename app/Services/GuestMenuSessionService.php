@@ -81,11 +81,6 @@ class GuestMenuSessionService
                 ->orderBy('name')
                 ->get();
 
-        $tableById = $tables->first(fn (RestaurantTable $table) => (int) $table->id === $tableReference);
-        if ($tableById) {
-            return $tableById;
-        }
-
         $maxTables = $tables->count();
 
         if ($tableReference > $maxTables) {
@@ -228,8 +223,9 @@ class GuestMenuSessionService
     public function formatTable(RestaurantTable $table, int $tableNumber): array
     {
         return [
-            'id' => $table->id,
+            'id' => $tableNumber,
             'number' => $tableNumber,
+            'restaurant_table_id' => $table->id,
             'name' => $table->name,
         ];
     }
