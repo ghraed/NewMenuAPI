@@ -228,6 +228,14 @@ class Dish extends Model
             return $this->cachedOrderable;
         }
 
+        if ($this->isStandalonePackagedItem()) {
+            $requiredQuantity = 1.0;
+            $availableQuantity = round((float) ($this->packaged_stock_quantity ?? 0), 3);
+            $this->cachedOrderable = $availableQuantity >= $requiredQuantity;
+
+            return $this->cachedOrderable;
+        }
+
         $dishIngredients = $this->dishIngredientsWithIngredients();
 
         foreach ($dishIngredients as $dishIngredient) {
@@ -279,6 +287,12 @@ class Dish extends Model
     {
         return in_array($this->item_type, [self::ITEM_TYPE_PACKAGED_DRINK, self::ITEM_TYPE_OTHER_PRODUCT], true)
             && $this->direct_stock_ingredient_id !== null;
+    }
+
+    public function isStandalonePackagedItem(): bool
+    {
+        return in_array($this->item_type, [self::ITEM_TYPE_PACKAGED_DRINK, self::ITEM_TYPE_OTHER_PRODUCT], true)
+            && $this->direct_stock_ingredient_id === null;
     }
 
     private function dishIngredientsWithIngredients(): EloquentCollection

@@ -107,6 +107,26 @@ class OrderInventoryDeductionService
                     continue;
                 }
 
+                if ($orderItem->dish->isStandalonePackagedItem()) {
+                    $availableQuantity = round((float) ($orderItem->dish->packaged_stock_quantity ?? 0), 3);
+                    $consumedQuantity = round((float) $orderItemQuantity, 3);
+
+                    if ($consumedQuantity <= 0) {
+                        continue;
+                    }
+
+                    if ($availableQuantity < $consumedQuantity) {
+                        throw ValidationException::withMessages([
+                            'inventory' => 'Packaged item does not have enough stock quantity.',
+                        ]);
+                    }
+
+                    $orderItem->dish->decrement('packaged_stock_quantity', $consumedQuantity);
+                    $orderItem->dish->refresh();
+
+                    continue;
+                }
+
                 foreach ($orderItem->dish->dishIngredients as $dishIngredient) {
                     $ingredient = $dishIngredient->ingredient;
 

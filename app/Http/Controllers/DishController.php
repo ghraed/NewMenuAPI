@@ -266,8 +266,9 @@ class DishController extends Controller
             'price' => 'nullable|numeric|min:0',
             'status' => 'nullable|in:draft,published',
             'image_url' => 'nullable|url',
-            'direct_stock_ingredient_id' => 'required|integer|exists:ingredients,id',
+            'direct_stock_ingredient_id' => 'nullable|integer|exists:ingredients,id',
             'direct_stock_quantity_per_sale' => 'nullable|numeric|gt:0',
+            'packaged_stock_quantity' => 'nullable|numeric|min:0',
         ]);
 
         $template = collect(self::PREDEFINED_MENU_ITEM_TEMPLATES)
@@ -290,8 +291,11 @@ class DishController extends Controller
             'status' => $validated['status'] ?? 'published',
             'item_type' => $template['item_type'],
             'packaged_unit' => $template['packaged_unit'] ?? null,
-            'direct_stock_ingredient_id' => (int) $validated['direct_stock_ingredient_id'],
-            'direct_stock_quantity_per_sale' => $validated['direct_stock_quantity_per_sale'] ?? $template['direct_stock_quantity_per_sale'] ?? 1,
+            'direct_stock_ingredient_id' => isset($validated['direct_stock_ingredient_id']) ? (int) $validated['direct_stock_ingredient_id'] : null,
+            'direct_stock_quantity_per_sale' => isset($validated['direct_stock_ingredient_id'])
+                ? ($validated['direct_stock_quantity_per_sale'] ?? $template['direct_stock_quantity_per_sale'] ?? 1)
+                : null,
+            'packaged_stock_quantity' => $validated['packaged_stock_quantity'] ?? null,
             'image_url' => $validated['image_url'] ?? null,
         ];
 
@@ -505,9 +509,13 @@ class DishController extends Controller
             }
 
             $effectiveDirectStockIngredientId = $validated['direct_stock_ingredient_id'] ?? $existingDish?->direct_stock_ingredient_id;
-            if (empty($effectiveDirectStockIngredientId)) {
+            $effectivePackagedStockQuantity = array_key_exists('packaged_stock_quantity', $validated)
+                ? $validated['packaged_stock_quantity']
+                : $existingDish?->packaged_stock_quantity;
+
+            if (empty($effectiveDirectStockIngredientId) && $effectivePackagedStockQuantity === null) {
                 throw ValidationException::withMessages([
-                    'direct_stock_ingredient_id' => 'Packaged drink/product requires a direct stock ingredient link.',
+                    'packaged_stock_quantity' => 'Packaged drink/product requires either packaged stock quantity or a direct stock ingredient link.',
                 ]);
             }
         }
