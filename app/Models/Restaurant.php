@@ -7,10 +7,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 
 class Restaurant extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'uuid',
         'user_id',
@@ -44,6 +47,7 @@ class Restaurant extends Model
         'created_at' => 'datetime',
         'dollar_rate' => 'decimal:2',
         'manual_table_count' => 'integer',
+        'deleted_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
 

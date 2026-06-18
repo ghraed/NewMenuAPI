@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -313,6 +314,36 @@ class SuperAdminRestaurantManagementController extends Controller
         return response()->json([
             'message' => 'Restaurant updated successfully.',
             'restaurant' => $this->formatRestaurant($restaurant),
+        ]);
+    }
+
+    public function destroyRestaurant(Restaurant $restaurant): JsonResponse
+    {
+        if (! Schema::hasColumn('restaurants', 'deleted_at')) {
+            abort(500, 'Restaurants soft delete support is not available until the latest migration is applied.');
+        }
+
+        if ($restaurant->trashed()) {
+            return response()->json([
+                'message' => 'Restaurant is already soft deleted.',
+            ]);
+        }
+
+        $restaurant->delete();
+
+        return response()->json([
+            'message' => 'Restaurant soft deleted successfully.',
+        ]);
+    }
+
+    public function forceDeleteRestaurant(Restaurant $restaurant): JsonResponse
+    {
+        DB::transaction(function () use ($restaurant): void {
+            $restaurant->forceDelete();
+        });
+
+        return response()->json([
+            'message' => 'Restaurant and related records deleted permanently.',
         ]);
     }
 
