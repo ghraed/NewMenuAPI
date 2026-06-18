@@ -339,11 +339,32 @@ class SuperAdminRestaurantManagementController extends Controller
     public function forceDeleteRestaurant(Restaurant $restaurant): JsonResponse
     {
         DB::transaction(function () use ($restaurant): void {
+            $restaurant->loadMissing(['staffUsers', 'user']);
+
+            $ownedAdminUser = $restaurant->user;
+            $staffUsersToDelete = $restaurant->staffUsers
+                ->filter(function (User $user) use ($restaurant): bool {
+                    $staffRestaurantCount = $user->staffRestaurants()->count();
+                    $ownedRestaurantId = $user->restaurant()->value('id');
+
+                    return $staffRestaurantCount <= 1
+                        && ($ownedRestaurantId === null || (int) $ownedRestaurantId === (int) $restaurant->id);
+                })
+                ->keyBy('id');
+
             $restaurant->forceDelete();
+
+            $staffUsersToDelete->each(function (User $user): void {
+                $user->delete();
+            });
+
+            if ($ownedAdminUser instanceof User) {
+                $ownedAdminUser->delete();
+            }
         });
 
         return response()->json([
-            'message' => 'Restaurant and related records deleted permanently.',
+            'message' => 'Restaurant, related records, and restaurant users deleted permanently.',
         ]);
     }
 
