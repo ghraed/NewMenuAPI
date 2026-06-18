@@ -186,7 +186,8 @@ class RestaurantController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255|required_without:phone|unique:users,email',
             'phone' => 'nullable|string|max:40|required_without:email|unique:users,phone',
-            'role' => 'nullable|in:staff,chef',
+            'password' => 'nullable|string|min:8|max:255',
+            'role' => 'nullable|in:staff,chef,stock_manager,accountant',
             'table_ids' => 'nullable|array',
             'table_ids.*' => 'integer|distinct',
         ]);
@@ -207,7 +208,10 @@ class RestaurantController extends Controller
 
         $tableIds = $this->resolveAssignedTableIds($restaurant, $validated['table_ids'] ?? []);
 
-        $temporaryPassword = Str::random(12);
+        $providedPassword = isset($validated['password']) && is_string($validated['password']) && trim($validated['password']) !== ''
+            ? (string) $validated['password']
+            : null;
+        $temporaryPassword = $providedPassword ?? Str::random(12);
 
         $staff = DB::transaction(function () use ($restaurant, $validated, $temporaryPassword, $tableIds) {
             $staff = User::query()->create([
@@ -227,7 +231,7 @@ class RestaurantController extends Controller
         return response()->json([
             'message' => 'Staff member created successfully.',
             'staff' => $this->formatStaffMember($staff),
-            'temporary_password' => $temporaryPassword,
+            'temporary_password' => $providedPassword === null ? $temporaryPassword : null,
         ], 201);
     }
 
