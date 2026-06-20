@@ -77,6 +77,10 @@ class DatabaseSeeder extends Seeder
         // Optional backfill to give the rozer.pro tenant access to the full global ingredient catalog:
         // php artisan db:seed --class=Database\\Seeders\\RozerProIngredientAccessSeeder
 
+        // Optional tenant clone to copy Alpha's restaurant-scoped data into rozer.pro,
+        // remapping Alpha users to @rozer.pro accounts and updating them on reruns:
+        // php artisan db:seed --class=Database\\Seeders\\CloneAlphaToRozerProSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
