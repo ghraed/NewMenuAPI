@@ -182,10 +182,26 @@ class RestaurantController extends Controller
             'phone' => $this->normalizeOptionalString($request->input('phone')),
         ]);
 
+        $email = $this->normalizeOptionalString($request->input('email'));
+        $phone = $this->normalizeOptionalString($request->input('phone'));
+        $reusableStaff = $this->findReusableStaffUser($email, $phone);
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255|required_without:phone|unique:users,email',
-            'phone' => 'nullable|string|max:40|required_without:email|unique:users,phone',
+            'email' => [
+                'nullable',
+                'email',
+                'max:255',
+                'required_without:phone',
+                Rule::unique('users', 'email')->ignore($reusableStaff?->id),
+            ],
+            'phone' => [
+                'nullable',
+                'string',
+                'max:40',
+                'required_without:email',
+                Rule::unique('users', 'phone')->ignore($reusableStaff?->id),
+            ],
             'password' => 'nullable|string|min:8|max:255',
             'role' => 'nullable|in:staff,chef,stock_manager,accountant',
             'table_ids' => 'nullable|array',
@@ -213,14 +229,31 @@ class RestaurantController extends Controller
             : null;
         $temporaryPassword = $providedPassword ?? Str::random(12);
 
-        $staff = DB::transaction(function () use ($restaurant, $validated, $temporaryPassword, $tableIds) {
-            $staff = User::query()->create([
-                'name' => $validated['name'],
-                'email' => $validated['email'] ?? null,
-                'phone' => $validated['phone'] ?? null,
-                'role' => $validated['role'] ?? User::ROLE_STAFF,
-                'password' => $temporaryPassword,
-            ]);
+        $staff = DB::transaction(function () use ($restaurant, $validated, $temporaryPassword, $tableIds, $reusableStaff, $providedPassword) {
+            $staff = $reusableStaff;
+
+            if ($staff) {
+                $staff->fill([
+                    'name' => $validated['name'],
+                    'email' => $validated['email'] ?? null,
+                    'phone' => $validated['phone'] ?? null,
+                    'role' => $validated['role'] ?? User::ROLE_STAFF,
+                ]);
+
+                if ($providedPassword !== null) {
+                    $staff->password = $temporaryPassword;
+                }
+
+                $staff->save();
+            } else {
+                $staff = User::query()->create([
+                    'name' => $validated['name'],
+                    'email' => $validated['email'] ?? null,
+                    'phone' => $validated['phone'] ?? null,
+                    'role' => $validated['role'] ?? User::ROLE_STAFF,
+                    'password' => $temporaryPassword,
+                ]);
+            }
 
             $restaurant->staffUsers()->syncWithoutDetaching([$staff->id]);
             $staff->assignedTables()->sync($tableIds);
@@ -436,5 +469,38 @@ class RestaurantController extends Controller
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function findReusableStaffUser(?string $email, ?string $phone): ?User
+    {
+        if ($email === null && $phone === null) {
+            return null;
+        }
+
+        $user = User::query()
+            ->where(function ($query) use ($email, $phone): void {
+                if ($email !== null) {
+                    $query->orWhere('email', $email);
+                }
+
+                if ($phone !== null) {
+                    $query->orWhere('phone', $phone);
+                }
+            })
+            ->first();
+
+        if (! $user) {
+            return null;
+        }
+
+        if (Restaurant::query()->where('user_id', $user->id)->exists()) {
+            return null;
+        }
+
+        if ($user->staffRestaurants()->exists()) {
+            return null;
+        }
+
+        return $user;
     }
 }
