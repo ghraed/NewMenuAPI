@@ -81,6 +81,10 @@ class DatabaseSeeder extends Seeder
         // remapping Alpha users to @rozer.pro accounts and updating them on reruns:
         // php artisan db:seed --class=Database\\Seeders\\CloneAlphaToRozerProSeeder
 
+        // Optional targeted rozer.pro ingredient restock to bring menu availability
+        // to roughly 60% of the active published catalog:
+        // php artisan db:seed --class=Database\\Seeders\\RozerProRestock60PercentSeeder
+
         // Optional large dummy dataset:
         // php artisan db:seed --class=Database\\Seeders\\DummyDishesSeeder
     }
