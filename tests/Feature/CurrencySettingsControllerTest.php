@@ -43,12 +43,12 @@ class CurrencySettingsControllerTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('currency', 'USD')
             ->assertJsonPath('other_currency', 'LBP')
-            ->assertJsonPath('dollar_rate', '1.00');
+            ->assertJsonPath('dollar_rate', '89500.00');
 
         $restaurant->refresh();
 
         $this->assertSame('USD', $restaurant->currency);
         $this->assertSame('LBP', $restaurant->other_currency);
-        $this->assertSame('1.00', (string) $restaurant->dollar_rate);
+        $this->assertSame('89500.00', (string) $restaurant->dollar_rate);
     }
 }

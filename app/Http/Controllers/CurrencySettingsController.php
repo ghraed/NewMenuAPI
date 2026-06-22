@@ -38,9 +38,7 @@ class CurrencySettingsController extends Controller
         $restaurant = $this->getOwnedRestaurant($request);
         $payload = [
             'currency' => $validated['currency'],
-            'dollar_rate' => $validated['currency'] === 'USD'
-                ? 1
-                : (float) $validated['dollar_rate'],
+            'dollar_rate' => (float) $validated['dollar_rate'],
         ];
 
         if ($hasOtherCurrencyColumn && isset($validated['other_currency'])) {
