@@ -183,6 +183,8 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
     Route::middleware('role:admin,accountant')->group(function () {
         Route::get('/orders/accounting', [OrderController::class, 'accounting'])
             ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
+        Route::patch('/orders/{order}/accounting-draft', [OrderController::class, 'saveAccountingDraft'])
+            ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
         Route::post('/orders/{order}/account', [OrderController::class, 'account'])
             ->middleware(['feature:finance_dashboard', 'feature:dish_profitability']);
 
