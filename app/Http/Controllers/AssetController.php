@@ -173,7 +173,8 @@ class AssetController extends Controller
     private function assertDishBelongsToCurrentUser(Request $request, Dish $dish): void
     {
         $dish->loadMissing('restaurant');
-        $ownerRestaurantId = $request->user()?->restaurant?->id;
+        $request->user()?->loadMissing('restaurant', 'staffRestaurants');
+        $ownerRestaurantId = $request->user()?->currentRestaurant()?->id;
 
         if (!$ownerRestaurantId || $dish->restaurant_id !== $ownerRestaurantId) {
             abort(404);
@@ -183,7 +184,8 @@ class AssetController extends Controller
     private function assertAssetBelongsToCurrentUser(Request $request, DishAsset $asset): void
     {
         $asset->loadMissing('dish.restaurant');
-        $ownerRestaurantId = $request->user()?->restaurant?->id;
+        $request->user()?->loadMissing('restaurant', 'staffRestaurants');
+        $ownerRestaurantId = $request->user()?->currentRestaurant()?->id;
 
         if (!$ownerRestaurantId || $asset->dish->restaurant_id !== $ownerRestaurantId) {
             abort(404);

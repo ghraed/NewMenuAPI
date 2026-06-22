@@ -66,6 +66,39 @@ class PreviewImageAssetUploadTest extends TestCase
         Storage::disk('public')->assertExists($newAsset->file_path);
     }
 
+    public function test_authenticated_restaurant_member_admin_can_upload_a_preview_image(): void
+    {
+        Storage::fake('public');
+
+        $owner = User::factory()->create();
+        $memberAdmin = User::factory()->create([
+            'role' => User::ROLE_ADMIN,
+        ]);
+
+        $restaurant = $this->createRestaurant($owner);
+        $restaurant->staffRestaurants()->attach($memberAdmin->id);
+
+        $dish = $this->createDish($restaurant, 'Member Admin Preview Dish');
+
+        Sanctum::actingAs($memberAdmin);
+
+        $response = $this->post('/api/dishes/'.$dish->id.'/assets', [
+            'type' => 'preview_image',
+            'file' => UploadedFile::fake()->image('member-admin-preview.jpg', 900, 900),
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('asset_type', 'preview_image');
+
+        $newAsset = DishAsset::query()
+            ->where('dish_id', $dish->id)
+            ->where('asset_type', 'preview_image')
+            ->first();
+
+        $this->assertNotNull($newAsset);
+        Storage::disk('public')->assertExists($newAsset->file_path);
+    }
+
     private function createRestaurant(User $user): Restaurant
     {
         return Restaurant::query()->create([
