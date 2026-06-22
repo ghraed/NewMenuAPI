@@ -76,7 +76,7 @@ class PreviewImageAssetUploadTest extends TestCase
         ]);
 
         $restaurant = $this->createRestaurant($owner);
-        $restaurant->staffRestaurants()->attach($memberAdmin->id);
+        $restaurant->staffUsers()->attach($memberAdmin->id);
 
         $dish = $this->createDish($restaurant, 'Member Admin Preview Dish');
 

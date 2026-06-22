@@ -60,12 +60,13 @@ class CurrencySettingsController extends Controller
     private function getOwnedRestaurant(Request $request): Restaurant
     {
         $user = $request->user();
-        $user->loadMissing('restaurant');
+        $user->loadMissing('restaurant', 'staffRestaurants');
+        $restaurant = $user->currentRestaurant();
 
-        if (! $user->restaurant) {
+        if (! $restaurant) {
             abort(403, 'No restaurant is linked to this account');
         }
 
-        return $user->restaurant;
+        return $restaurant;
     }
 }
