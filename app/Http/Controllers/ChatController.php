@@ -188,6 +188,14 @@ class ChatController extends Controller
         return 'en';
     }
 
+    private function normalizeComparableText(string $value): string
+    {
+        $normalized = Str::lower(trim($value));
+        $normalized = preg_replace('/\s+/', ' ', $normalized);
+
+        return is_string($normalized) ? $normalized : '';
+    }
+
     private function sanitizeConversationId(string $conversationId): string
     {
         $normalized = trim($conversationId);
@@ -216,12 +224,18 @@ class ChatController extends Controller
      *   restaurant_slug?:string,
      *   table_id?:int,
      *   menu_items?:array<int,array{
+     *     id?:int,
      *     name:string,
      *     category:string,
      *     price:string,
      *     description:string,
      *     ingredients:array<int,string>,
-     *     recommendation_priority?:string
+     *     recommendation_priority?:string,
+     *     related_items?:array<int,array{
+     *       name:string,
+     *       category:string,
+     *       recommendation_priority?:string
+     *     }>
      *   }>
      * } $chatContext
      */
@@ -237,6 +251,8 @@ class ChatController extends Controller
             return $reply;
         }
 
+        $dishMentionRecommendation = $this->resolveMentionedDishRecommendation($messageLower, $chatContext);
+        $directPreferredRecommendation = $this->resolveDirectPreferredRecommendation($messageLower, $chatContext);
         $categoryRecommendation = $this->resolveCategoryRecommendation($messageLower, $chatContext);
         $preferredCategoryRecommendation = $this->resolvePreferredCategoryDish($messageLower, $chatContext);
         $preferredKeywordRecommendation = $this->resolvePreferredKeywordDish($messageLower, $chatContext);
@@ -246,15 +262,19 @@ class ChatController extends Controller
         ) === 1;
 
         if (
-            $categoryRecommendation === null
+            $dishMentionRecommendation === null
+            && $categoryRecommendation === null
             && $preferredCategoryRecommendation === null
             && $preferredKeywordRecommendation === null
+            && $directPreferredRecommendation === null
             && ! $isRecommendationIntent
         ) {
             return $reply;
         }
 
-        $candidate = $preferredKeywordRecommendation['dish']
+        $candidate = $dishMentionRecommendation['dish']
+            ?? $directPreferredRecommendation['dish']
+            ?? $preferredKeywordRecommendation['dish']
             ?? $preferredCategoryRecommendation['dish']
             ?? $categoryRecommendation['dish']
             ?? $this->resolveGlobalPreferredDish($chatContext);
@@ -279,25 +299,32 @@ class ChatController extends Controller
             return $reply;
         }
 
-        $secondary = $preferredKeywordRecommendation['secondary']
+        $secondary = $dishMentionRecommendation['secondary']
+            ?? $directPreferredRecommendation['secondary']
+            ?? $preferredKeywordRecommendation['secondary']
             ?? $preferredCategoryRecommendation['secondary']
             ?? $categoryRecommendation['secondary']
             ?? null;
-        $categoryLabel = is_array($preferredKeywordRecommendation)
+        $categoryLabel = is_array($dishMentionRecommendation)
+            ? trim((string) ($dishMentionRecommendation['category'] ?? ''))
+            : (is_array($directPreferredRecommendation)
+            ? trim((string) ($directPreferredRecommendation['category'] ?? ''))
+            : (is_array($preferredKeywordRecommendation)
             ? trim((string) ($preferredKeywordRecommendation['category'] ?? ''))
             : (is_array($preferredCategoryRecommendation)
             ? trim((string) ($preferredCategoryRecommendation['category'] ?? ''))
-            : (is_array($categoryRecommendation) ? trim((string) ($categoryRecommendation['category'] ?? '')) : ''));
+            : (is_array($categoryRecommendation) ? trim((string) ($categoryRecommendation['category'] ?? '')) : ''))));
 
         if (
             str_contains($messageLower, 'pizza')
-            && is_array($preferredKeywordRecommendation)
-            && is_array($preferredKeywordRecommendation['dish'] ?? null)
+            && is_array($dishMentionRecommendation ?: $directPreferredRecommendation)
+            && is_array(($dishMentionRecommendation ?: $directPreferredRecommendation)['dish'] ?? null)
         ) {
-            $preferredDish = $preferredKeywordRecommendation['dish'];
+            $preferredSource = $dishMentionRecommendation ?: $directPreferredRecommendation;
+            $preferredDish = $preferredSource['dish'];
             $preferredName = trim((string) ($preferredDish['name'] ?? ''));
-            $preferredSecondary = is_array($preferredKeywordRecommendation['secondary'] ?? null)
-                ? trim((string) (($preferredKeywordRecommendation['secondary']['name'] ?? '')))
+            $preferredSecondary = is_array($preferredSource['secondary'] ?? null)
+                ? trim((string) (($preferredSource['secondary']['name'] ?? '')))
                 : '';
 
             if ($preferredName !== '') {
@@ -324,6 +351,102 @@ class ChatController extends Controller
         }
 
         return $trimmedReply."\n\nIf you want my honest pick, I'd start with **{$candidateName}**.";
+    }
+
+    /**
+     * When a guest mentions a specific dish, prefer profitable related dishes first,
+     * then profitable dishes in the same category, then any same-category fallback.
+     *
+     * @param array<string,mixed> $chatContext
+     * @return array{category:string,dish:array<string,mixed>,secondary?:array<string,mixed>}|null
+     */
+    private function resolveMentionedDishRecommendation(string $messageLower, array $chatContext): ?array
+    {
+        $menuItems = is_array($chatContext['menu_items'] ?? null) ? $chatContext['menu_items'] : [];
+        $mentionedDish = $this->resolveMentionedMenuItem($messageLower, $menuItems);
+        if (! is_array($mentionedDish)) {
+            return null;
+        }
+
+        $relatedItems = array_values(array_filter(
+            is_array($mentionedDish['related_items'] ?? null) ? $mentionedDish['related_items'] : [],
+            fn ($item): bool => is_array($item) && trim((string) ($item['name'] ?? '')) !== ''
+        ));
+
+        $sameCategoryItems = array_values(array_filter($menuItems, function (array $item) use ($mentionedDish): bool {
+            return trim((string) ($item['category'] ?? '')) === trim((string) ($mentionedDish['category'] ?? ''))
+                && trim((string) ($item['name'] ?? '')) !== trim((string) ($mentionedDish['name'] ?? ''));
+        }));
+
+        $preferredRelated = array_values(array_filter(
+            $relatedItems,
+            fn (array $item): bool => trim((string) ($item['recommendation_priority'] ?? '')) === 'preferred'
+        ));
+        $preferredSameCategory = array_values(array_filter(
+            $sameCategoryItems,
+            fn (array $item): bool => trim((string) ($item['recommendation_priority'] ?? '')) === 'preferred'
+        ));
+
+        $candidatePool = $preferredRelated !== []
+            ? $preferredRelated
+            : ($preferredSameCategory !== []
+                ? $preferredSameCategory
+                : ($relatedItems !== [] ? $relatedItems : $sameCategoryItems));
+
+        $primary = $candidatePool[0] ?? null;
+        if (! is_array($primary)) {
+            return null;
+        }
+
+        $secondaryPool = array_values(array_filter($candidatePool, function (array $item) use ($primary): bool {
+            return trim((string) ($item['name'] ?? '')) !== trim((string) ($primary['name'] ?? ''));
+        }));
+
+        if ($secondaryPool === []) {
+            $fallbackSecondaryPool = $preferredSameCategory !== []
+                ? $preferredSameCategory
+                : ($relatedItems !== [] ? $relatedItems : $sameCategoryItems);
+
+            $secondaryPool = array_values(array_filter($fallbackSecondaryPool, function (array $item) use ($primary): bool {
+                return trim((string) ($item['name'] ?? '')) !== trim((string) ($primary['name'] ?? ''));
+            }));
+        }
+
+        return [
+            'category' => trim((string) ($mentionedDish['category'] ?? '')),
+            'dish' => $primary,
+            ...(($secondaryPool[0] ?? null) && is_array($secondaryPool[0]) ? ['secondary' => $secondaryPool[0]] : []),
+        ];
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $menuItems
+     * @return array<string,mixed>|null
+     */
+    private function resolveMentionedMenuItem(string $messageLower, array $menuItems): ?array
+    {
+        $bestMatch = null;
+        $bestLength = 0;
+
+        foreach ($menuItems as $item) {
+            $name = trim((string) ($item['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $normalizedName = $this->normalizeComparableText($name);
+            if ($normalizedName === '' || ! str_contains($messageLower, $normalizedName)) {
+                continue;
+            }
+
+            $nameLength = mb_strlen($normalizedName);
+            if ($bestMatch === null || $nameLength > $bestLength) {
+                $bestMatch = $item;
+                $bestLength = $nameLength;
+            }
+        }
+
+        return is_array($bestMatch) ? $bestMatch : null;
     }
 
     /**
@@ -438,6 +561,73 @@ class ChatController extends Controller
                 if (
                     trim((string) ($candidate['category'] ?? '')) === $category
                     && trim((string) ($candidate['name'] ?? '')) !== trim((string) ($item['name'] ?? ''))
+                ) {
+                    $secondary = $candidate;
+                    break;
+                }
+            }
+
+            return [
+                'category' => $category,
+                'dish' => $item,
+                ...($secondary && is_array($secondary) ? ['secondary' => $secondary] : []),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Match profitable dishes directly against request keywords so a broad prompt like
+     * "what pizza do you have?" still prefers the profitable pizza.
+     *
+     * @param array<string,mixed> $chatContext
+     * @return array{category:string,dish:array<string,mixed>,secondary?:array<string,mixed>}|null
+     */
+    private function resolveDirectPreferredRecommendation(string $messageLower, array $chatContext): ?array
+    {
+        $menuItems = is_array($chatContext['menu_items'] ?? null) ? $chatContext['menu_items'] : [];
+        $preferredItems = array_values(array_filter(
+            $menuItems,
+            fn (array $item): bool => trim((string) ($item['recommendation_priority'] ?? '')) === 'preferred'
+        ));
+
+        $requestKeywords = array_values(array_unique(array_filter(
+            preg_split('/\s+/', $messageLower) ?: [],
+            fn ($token): bool => is_string($token) && strlen($token) >= 3
+        )));
+
+        foreach ($preferredItems as $item) {
+            $category = trim((string) ($item['category'] ?? ''));
+            $name = trim((string) ($item['name'] ?? ''));
+            if ($category === '' || $name === '') {
+                continue;
+            }
+
+            $haystacks = [
+                Str::lower($category),
+                Str::lower($name),
+            ];
+
+            $matched = false;
+            foreach ($requestKeywords as $keyword) {
+                foreach ($haystacks as $haystack) {
+                    if ($haystack !== '' && str_contains($haystack, $keyword)) {
+                        $matched = true;
+                        break 2;
+                    }
+                }
+            }
+
+            if (! $matched) {
+                continue;
+            }
+
+            $secondary = null;
+            foreach ($menuItems as $candidate) {
+                if (
+                    trim((string) ($candidate['category'] ?? '')) === $category
+                    && trim((string) ($candidate['name'] ?? '')) !== $name
                 ) {
                     $secondary = $candidate;
                     break;
@@ -591,11 +781,18 @@ class ChatController extends Controller
      *   restaurant_slug:string,
      *   table_id?:int,
      *   menu_items:array<int,array{
+     *     id:int,
      *     name:string,
      *     category:string,
      *     price:string,
      *     description:string,
-     *     ingredients:array<int,string>
+     *     ingredients:array<int,string>,
+     *     recommendation_priority?:string,
+     *     related_items?:array<int,array{
+     *       name:string,
+     *       category:string,
+     *       recommendation_priority?:string
+     *     }>
      *   }>
      * }
      */
@@ -682,11 +879,18 @@ class ChatController extends Controller
 
     /**
      * @return array<int,array{
+     *   id:int,
      *   name:string,
      *   category:string,
      *   price:string,
      *   description:string,
-     *   ingredients:array<int,string>
+     *   ingredients:array<int,string>,
+     *   recommendation_priority?:string,
+     *   related_items?:array<int,array{
+     *     name:string,
+     *     category:string,
+     *     recommendation_priority?:string
+     *   }>
      * }>
      */
     private function buildMenuItems(int $restaurantId): array
@@ -694,7 +898,15 @@ class ChatController extends Controller
         return Dish::query()
             ->where('restaurant_id', $restaurantId)
             ->where('status', 'published')
-            ->with(['dishIngredients.ingredient'])
+            ->with([
+                'dishIngredients.ingredient',
+                'relatedDishes' => fn ($query) => $query
+                    ->where('status', 'published')
+                    ->select('dishes.id', 'dishes.name', 'dishes.category', 'dishes.is_profitable'),
+                'suggestedDishes' => fn ($query) => $query
+                    ->where('status', 'published')
+                    ->select('dishes.id', 'dishes.name', 'dishes.category', 'dishes.is_profitable'),
+            ])
             ->orderBy('category')
             ->orderBy('name')
             ->limit(200)
@@ -708,13 +920,28 @@ class ChatController extends Controller
                     ->values()
                     ->all();
 
+                $relatedItems = collect()
+                    ->concat($dish->relatedDishes)
+                    ->concat($dish->suggestedDishes)
+                    ->filter(fn ($candidate): bool => $candidate instanceof Dish && trim((string) $candidate->name) !== '')
+                    ->map(fn (Dish $candidate): array => [
+                        'name' => trim((string) $candidate->name),
+                        'category' => trim((string) ($candidate->category ?? 'Uncategorized')),
+                        'recommendation_priority' => $candidate->is_profitable ? 'preferred' : 'standard',
+                    ])
+                    ->unique(fn (array $candidate): string => Str::lower(trim((string) $candidate['name'])))
+                    ->values()
+                    ->all();
+
                 return [
+                    'id' => (int) $dish->id,
                     'name' => trim((string) $dish->name),
                     'category' => trim((string) ($dish->category ?? 'Uncategorized')),
                     'price' => number_format((float) $dish->price, 2, '.', ''),
                     'description' => trim((string) ($dish->description ?? '')),
                     'ingredients' => $ingredients,
                     'recommendation_priority' => $dish->is_profitable ? 'preferred' : 'standard',
+                    'related_items' => $relatedItems,
                 ];
             })
             ->values()

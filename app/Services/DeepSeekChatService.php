@@ -48,12 +48,18 @@ PROMPT;
      *   restaurant_slug?:string,
      *   table_id?:int,
      *   menu_items?:array<int,array{
+     *     id?:int,
      *     name:string,
      *     category:string,
      *     price:string,
      *     description:string,
      *     ingredients:array<int,string>,
-     *     recommendation_priority?:string
+     *     recommendation_priority?:string,
+     *     related_items?:array<int,array{
+     *       name:string,
+     *       category:string,
+     *       recommendation_priority?:string
+     *     }>
      *   }>
      * }|null $chatContext
      * @return array{reply:string, order_data?:array<string,mixed>}
@@ -138,12 +144,18 @@ PROMPT;
      *   restaurant_slug?:string,
      *   table_id?:int,
      *   menu_items?:array<int,array{
+     *     id?:int,
      *     name:string,
      *     category:string,
      *     price:string,
      *     description:string,
      *     ingredients:array<int,string>,
-     *     recommendation_priority?:string
+     *     recommendation_priority?:string,
+     *     related_items?:array<int,array{
+     *       name:string,
+     *       category:string,
+     *       recommendation_priority?:string
+     *     }>
      *   }>
      * }|null $chatContext
      */
@@ -153,7 +165,7 @@ PROMPT;
         $restaurantName = trim((string) ($chatContext['restaurant_name'] ?? ''));
         $restaurantSlug = trim((string) ($chatContext['restaurant_slug'] ?? ''));
         $tableId = isset($chatContext['table_id']) ? (int) $chatContext['table_id'] : null;
-        /** @var array<int,array{name:string,category:string,price:string,description:string,ingredients:array<int,string>,recommendation_priority?:string}> $menuItems */
+        /** @var array<int,array{id?:int,name:string,category:string,price:string,description:string,ingredients:array<int,string>,recommendation_priority?:string,related_items?:array<int,array{name:string,category:string,recommendation_priority?:string}>}> $menuItems */
         $menuItems = is_array($chatContext['menu_items'] ?? null) ? $chatContext['menu_items'] : [];
 
         $restaurantScopeLines = [];
@@ -188,18 +200,34 @@ PROMPT;
                 ));
 
                 $recommendationPriority = trim((string) ($item['recommendation_priority'] ?? 'standard'));
+                $relatedItems = array_values(array_filter(
+                    is_array($item['related_items'] ?? null) ? $item['related_items'] : [],
+                    fn ($related): bool => is_array($related) && trim((string) ($related['name'] ?? '')) !== ''
+                ));
 
                 $ingredientText = $ingredients === []
                     ? 'unknown'
                     : implode(', ', array_slice($ingredients, 0, 12));
 
+                $relatedText = $relatedItems === []
+                    ? 'none'
+                    : implode(', ', array_map(
+                        fn (array $related): string => sprintf(
+                            '%s (%s)',
+                            trim((string) $related['name']),
+                            trim((string) ($related['recommendation_priority'] ?? 'standard'))
+                        ),
+                        array_slice($relatedItems, 0, 6)
+                    ));
+
                 $line = sprintf(
-                    '- %s | category: %s | price: %s | ingredients: %s | recommendation_priority: %s',
+                    '- %s | category: %s | price: %s | ingredients: %s | recommendation_priority: %s | related_recommendations: %s',
                     $name !== '' ? $name : 'Unnamed dish',
                     $category,
                     $price,
                     $ingredientText,
-                    $recommendationPriority !== '' ? $recommendationPriority : 'standard'
+                    $recommendationPriority !== '' ? $recommendationPriority : 'standard',
+                    $relatedText
                 );
 
                 if ($description !== '') {
@@ -217,12 +245,13 @@ PROMPT;
             '2) Explain ingredients and highlight common allergens when relevant.',
             '3) Suggest complete meals and upsell suitable drinks/sides naturally.',
             '4) When the guest asks what exists in a category or asks for a recommendation, do not only list items. After the list, add one short natural recommendation.',
-            '5) Prefer items marked with recommendation_priority: preferred when they fit the request, but never mention profitability, internal ranking, marketing, or margins.',
-            '6) Keep recommendations honest and human. Example tone: "If you want my honest pick, I would start with..."',
-            '7) Support Arabic, English, and French. Use language: '.$lang.'. If auto, infer from user message.',
-            '8) Allergy safety: if the guest mentions an allergy, acknowledge it, avoid unsafe suggestions, and suggest safer alternatives.',
-            '9) Before finalizing any order, explicitly confirm the items and quantities with the guest.',
-            '10) Never invent dishes or prices that are not in the provided menu data.',
+            '5) If the guest asks about a specific dish, recommend profitable items from that dish\'s related_recommendations first. If no profitable related item exists, recommend a profitable item from the same category. If none exists, recommend another item from the same category.',
+            '6) Prefer items marked with recommendation_priority: preferred when they fit the request, but never mention profitability, internal ranking, marketing, or margins.',
+            '7) Keep recommendations honest and human. Example tone: "If you want my honest pick, I would start with..."',
+            '8) Support Arabic, English, and French. Use language: '.$lang.'. If auto, infer from user message.',
+            '9) Allergy safety: if the guest mentions an allergy, acknowledge it, avoid unsafe suggestions, and suggest safer alternatives.',
+            '10) Before finalizing any order, explicitly confirm the items and quantities with the guest.',
+            '11) Never invent dishes or prices that are not in the provided menu data.',
             ...$restaurantScopeLines,
             ...$menuLines,
             'Output rules:',
