@@ -168,18 +168,26 @@ class AdminEventReservationController extends Controller
      */
     private function validateEventPayload(Request $request, bool $isCreate): array
     {
-        $prefix = $isCreate ? 'required' : 'sometimes|required';
+        $requiredRules = $isCreate ? ['required'] : ['sometimes', 'required'];
+        $restaurant = $this->getRestaurantForRequest($request);
 
         return $request->validate([
-            'title' => [$prefix, 'string', 'max:160'],
-            'customer_name' => [$prefix, 'string', 'max:120'],
-            'customer_phone' => [$prefix, 'string', 'max:40'],
+            'title' => [...$requiredRules, 'string', 'max:160'],
+            'customer_name' => [...$requiredRules, 'string', 'max:120'],
+            'customer_phone' => [...$requiredRules, 'string', 'max:40'],
             'customer_email' => ['sometimes', 'nullable', 'email', 'max:255'],
-            'room_plan_id' => ['sometimes', 'nullable', 'integer'],
+            'room_plan_id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                Rule::exists('room_plans', 'id')->where(
+                    fn ($query) => $query->where('restaurant_id', $restaurant->id)
+                ),
+            ],
             'invoice_id' => ['sometimes', 'nullable', 'integer'],
-            'event_date' => [$prefix, 'date_format:Y-m-d'],
-            'start_time' => [$prefix, 'date_format:H:i'],
-            'end_time' => [$prefix, 'date_format:H:i'],
+            'event_date' => [...$requiredRules, 'date_format:Y-m-d'],
+            'start_time' => [...$requiredRules, 'date_format:H:i'],
+            'end_time' => [...$requiredRules, 'date_format:H:i'],
             'status' => ['sometimes', Rule::in(EventReservation::supportedStatuses())],
             'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
@@ -279,4 +287,3 @@ class AdminEventReservationController extends Controller
         return $restaurant;
     }
 }
-
