@@ -239,16 +239,23 @@ class ChatController extends Controller
 
         $categoryRecommendation = $this->resolveCategoryRecommendation($messageLower, $chatContext);
         $preferredCategoryRecommendation = $this->resolvePreferredCategoryDish($messageLower, $chatContext);
+        $preferredKeywordRecommendation = $this->resolvePreferredKeywordDish($messageLower, $chatContext);
         $isRecommendationIntent = preg_match(
             '/\b(recommend|suggest|best|popular|top|pairing)\b|what should i order|what do you recommend|chef\'?s pick|رشح|اقترح|شو بتنصح|شو أطلب|شو الاقوى|recommande|suggestion/ui',
             $message
         ) === 1;
 
-        if ($categoryRecommendation === null && $preferredCategoryRecommendation === null && ! $isRecommendationIntent) {
+        if (
+            $categoryRecommendation === null
+            && $preferredCategoryRecommendation === null
+            && $preferredKeywordRecommendation === null
+            && ! $isRecommendationIntent
+        ) {
             return $reply;
         }
 
-        $candidate = $preferredCategoryRecommendation['dish']
+        $candidate = $preferredKeywordRecommendation['dish']
+            ?? $preferredCategoryRecommendation['dish']
             ?? $categoryRecommendation['dish']
             ?? $this->resolveGlobalPreferredDish($chatContext);
         if (! is_array($candidate) || trim((string) ($candidate['name'] ?? '')) === '') {
@@ -272,22 +279,25 @@ class ChatController extends Controller
             return $reply;
         }
 
-        $secondary = $preferredCategoryRecommendation['secondary']
+        $secondary = $preferredKeywordRecommendation['secondary']
+            ?? $preferredCategoryRecommendation['secondary']
             ?? $categoryRecommendation['secondary']
             ?? null;
-        $categoryLabel = is_array($preferredCategoryRecommendation)
+        $categoryLabel = is_array($preferredKeywordRecommendation)
+            ? trim((string) ($preferredKeywordRecommendation['category'] ?? ''))
+            : (is_array($preferredCategoryRecommendation)
             ? trim((string) ($preferredCategoryRecommendation['category'] ?? ''))
-            : (is_array($categoryRecommendation) ? trim((string) ($categoryRecommendation['category'] ?? '')) : '');
+            : (is_array($categoryRecommendation) ? trim((string) ($categoryRecommendation['category'] ?? '')) : ''));
 
         if (
             str_contains($messageLower, 'pizza')
-            && is_array($preferredCategoryRecommendation)
-            && is_array($preferredCategoryRecommendation['dish'] ?? null)
+            && is_array($preferredKeywordRecommendation)
+            && is_array($preferredKeywordRecommendation['dish'] ?? null)
         ) {
-            $preferredDish = $preferredCategoryRecommendation['dish'];
+            $preferredDish = $preferredKeywordRecommendation['dish'];
             $preferredName = trim((string) ($preferredDish['name'] ?? ''));
-            $preferredSecondary = is_array($preferredCategoryRecommendation['secondary'] ?? null)
-                ? trim((string) (($preferredCategoryRecommendation['secondary']['name'] ?? '')))
+            $preferredSecondary = is_array($preferredKeywordRecommendation['secondary'] ?? null)
+                ? trim((string) (($preferredKeywordRecommendation['secondary']['name'] ?? '')))
                 : '';
 
             if ($preferredName !== '') {
@@ -365,6 +375,77 @@ class ChatController extends Controller
 
             return [
                 'category' => (string) ($item['category'] ?? ''),
+                'dish' => $item,
+                ...($secondary && is_array($secondary) ? ['secondary' => $secondary] : []),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string,mixed> $chatContext
+     * @return array{category:string,dish:array<string,mixed>,secondary?:array<string,mixed>}|null
+     */
+    private function resolvePreferredKeywordDish(string $messageLower, array $chatContext): ?array
+    {
+        $menuItems = is_array($chatContext['menu_items'] ?? null) ? $chatContext['menu_items'] : [];
+        $preferredItems = array_values(array_filter(
+            $menuItems,
+            fn (array $item): bool => trim((string) ($item['recommendation_priority'] ?? '')) === 'preferred'
+        ));
+
+        foreach ($preferredItems as $item) {
+            $category = trim((string) ($item['category'] ?? ''));
+            if ($category === '') {
+                continue;
+            }
+
+            $normalizedCategory = Str::lower(preg_replace('/\s+/', ' ', $category));
+            if (! is_string($normalizedCategory) || $normalizedCategory === '') {
+                continue;
+            }
+
+            $tokens = array_values(array_filter(explode(' ', $normalizedCategory)));
+            $aliases = [$normalizedCategory];
+
+            if ($tokens !== []) {
+                $aliases[] = end($tokens);
+            }
+
+            foreach ($tokens as $token) {
+                if (strlen($token) > 2) {
+                    $aliases[] = $token;
+                }
+            }
+
+            $aliases = array_values(array_unique(array_filter($aliases, fn ($alias): bool => is_string($alias) && $alias !== '')));
+
+            $matches = false;
+            foreach ($aliases as $alias) {
+                if (str_contains($messageLower, $alias)) {
+                    $matches = true;
+                    break;
+                }
+            }
+
+            if (! $matches) {
+                continue;
+            }
+
+            $secondary = null;
+            foreach ($menuItems as $candidate) {
+                if (
+                    trim((string) ($candidate['category'] ?? '')) === $category
+                    && trim((string) ($candidate['name'] ?? '')) !== trim((string) ($item['name'] ?? ''))
+                ) {
+                    $secondary = $candidate;
+                    break;
+                }
+            }
+
+            return [
+                'category' => $category,
                 'dish' => $item,
                 ...($secondary && is_array($secondary) ? ['secondary' => $secondary] : []),
             ];
