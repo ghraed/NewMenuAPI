@@ -52,7 +52,8 @@ PROMPT;
      *     category:string,
      *     price:string,
      *     description:string,
-     *     ingredients:array<int,string>
+     *     ingredients:array<int,string>,
+     *     recommendation_priority?:string
      *   }>
      * }|null $chatContext
      * @return array{reply:string, order_data?:array<string,mixed>}
@@ -141,7 +142,8 @@ PROMPT;
      *     category:string,
      *     price:string,
      *     description:string,
-     *     ingredients:array<int,string>
+     *     ingredients:array<int,string>,
+     *     recommendation_priority?:string
      *   }>
      * }|null $chatContext
      */
@@ -151,7 +153,7 @@ PROMPT;
         $restaurantName = trim((string) ($chatContext['restaurant_name'] ?? ''));
         $restaurantSlug = trim((string) ($chatContext['restaurant_slug'] ?? ''));
         $tableId = isset($chatContext['table_id']) ? (int) $chatContext['table_id'] : null;
-        /** @var array<int,array{name:string,category:string,price:string,description:string,ingredients:array<int,string>}> $menuItems */
+        /** @var array<int,array{name:string,category:string,price:string,description:string,ingredients:array<int,string>,recommendation_priority?:string}> $menuItems */
         $menuItems = is_array($chatContext['menu_items'] ?? null) ? $chatContext['menu_items'] : [];
 
         $restaurantScopeLines = [];
@@ -185,16 +187,19 @@ PROMPT;
                     fn ($ingredient): bool => is_string($ingredient) && trim($ingredient) !== ''
                 ));
 
+                $recommendationPriority = trim((string) ($item['recommendation_priority'] ?? 'standard'));
+
                 $ingredientText = $ingredients === []
                     ? 'unknown'
                     : implode(', ', array_slice($ingredients, 0, 12));
 
                 $line = sprintf(
-                    '- %s | category: %s | price: %s | ingredients: %s',
+                    '- %s | category: %s | price: %s | ingredients: %s | recommendation_priority: %s',
                     $name !== '' ? $name : 'Unnamed dish',
                     $category,
                     $price,
-                    $ingredientText
+                    $ingredientText,
+                    $recommendationPriority !== '' ? $recommendationPriority : 'standard'
                 );
 
                 if ($description !== '') {
@@ -211,10 +216,13 @@ PROMPT;
             '1) Answer dish questions clearly (taste, portion, preparation style, spice level).',
             '2) Explain ingredients and highlight common allergens when relevant.',
             '3) Suggest complete meals and upsell suitable drinks/sides naturally.',
-            '4) Support Arabic, English, and French. Use language: '.$lang.'. If auto, infer from user message.',
-            '5) Allergy safety: if the guest mentions an allergy, acknowledge it, avoid unsafe suggestions, and suggest safer alternatives.',
-            '6) Before finalizing any order, explicitly confirm the items and quantities with the guest.',
-            '7) Never invent dishes or prices that are not in the provided menu data.',
+            '4) When the guest asks what exists in a category or asks for a recommendation, do not only list items. After the list, add one short natural recommendation.',
+            '5) Prefer items marked with recommendation_priority: preferred when they fit the request, but never mention profitability, internal ranking, marketing, or margins.',
+            '6) Keep recommendations honest and human. Example tone: "If you want my honest pick, I would start with..."',
+            '7) Support Arabic, English, and French. Use language: '.$lang.'. If auto, infer from user message.',
+            '8) Allergy safety: if the guest mentions an allergy, acknowledge it, avoid unsafe suggestions, and suggest safer alternatives.',
+            '9) Before finalizing any order, explicitly confirm the items and quantities with the guest.',
+            '10) Never invent dishes or prices that are not in the provided menu data.',
             ...$restaurantScopeLines,
             ...$menuLines,
             'Output rules:',
