@@ -21,6 +21,15 @@ cd Menu_API
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+- Production compose now expects a shared host bridge directory for custom-domain provisioning:
+  - `./bridge:/var/www/bridge`
+- Keep the backend containers on the same bridge path:
+  - `DOMAIN_PROVISIONING_BRIDGE_DIR=/var/www/bridge/domain-provisioner`
+- The production stack includes:
+  - `app`
+  - `worker`
+  - `scheduler`
+
 ## 4) Seed admin user (safe)
 
 Set in `.env.production` (example):
@@ -77,7 +86,7 @@ sudo certbot --apache -d your-domain -d www.your-domain --redirect
   - `*.rozer.fun -> your server IP`
 - For custom domains:
   - Point customer DNS (`A` or `CNAME`) to your server.
-  - Issue and attach SSL certificate manually for that custom domain.
+  - Make sure the host-side provisioner watches the shared bridge directory and applies Apache + Certbot changes from requests written to `bridge/domain-provisioner/requests`.
 - Keep reverse proxy host forwarding enabled:
   - Apache: `ProxyPreserveHost On`
 - Add domain mapping in DB (`restaurant_domains`):

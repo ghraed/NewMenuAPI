@@ -13,10 +13,49 @@ services:
     ports:
       - "127.0.0.1:8000:80"
     volumes:
+      - ./bridge:/var/www/bridge
       - storage_data:/var/www/storage
     depends_on:
       - db
       - reverb
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: menu_worker
+    env_file:
+      - .env.production
+    environment:
+      RUN_MIGRATIONS: "false"
+      RUN_STORAGE_LINK: "false"
+      RUN_CONFIG_CACHE: "false"
+    command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=300", "--sleep=3"]
+    volumes:
+      - ./bridge:/var/www/bridge
+      - storage_data:/var/www/storage
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: menu_api_scheduler
+    env_file:
+      - .env.production
+    environment:
+      RUN_MIGRATIONS: "false"
+      RUN_STORAGE_LINK: "false"
+      RUN_CONFIG_CACHE: "false"
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - ./bridge:/var/www/bridge
+      - storage_data:/var/www/storage
+    depends_on:
+      - db
     restart: unless-stopped
 
   db:
