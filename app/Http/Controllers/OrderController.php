@@ -275,6 +275,50 @@ class OrderController extends Controller
         ]);
     }
 
+    public function kitchenOrderHistory(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $restaurant = $this->getRestaurantForRequest($request);
+
+        $ordersQuery = Order::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('status', Order::STATUS_STAFF_CONFIRMED)
+            ->whereNotNull('kitchen_status')
+            ->whereIn('kitchen_status', [
+                Order::KITCHEN_STATUS_SERVED,
+                Order::KITCHEN_STATUS_READY,
+                Order::KITCHEN_STATUS_IN_PROGRESS,
+                Order::KITCHEN_STATUS_NEW,
+            ])
+            ->with(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy'])
+            ->orderBy('kitchen_completed_at', 'desc')
+            ->orderBy('kitchen_ready_at', 'desc')
+            ->orderBy('kitchen_started_at', 'desc')
+            ->orderBy('confirmed_at', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->limit(100);
+
+        if ($user->isStaff()) {
+            $assignedTableIds = $this->staffCapabilityService->assignedTableIds($user, $restaurant);
+            $ordersQuery->where(function (Builder $query) use ($assignedTableIds): void {
+                if ($assignedTableIds !== []) {
+                    $query->whereIn('restaurant_table_id', $assignedTableIds);
+                }
+
+                $query->orWhere(function (Builder $eventQuery): void {
+                    $eventQuery->whereNull('restaurant_table_id')
+                        ->where('table_reference', 'like', 'EVENT-%');
+                });
+            });
+        }
+
+        $orders = $ordersQuery->get();
+
+        return response()->json([
+            'orders' => $orders->map(fn (Order $order) => $this->formatKitchenOrder($order))->values(),
+        ]);
+    }
+
     public function startKitchenPreparation(Request $request, Order $order): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -684,6 +728,93 @@ class OrderController extends Controller
         return response()->json([
             'message' => 'Order marked as served.',
             'order' => $this->formatOrder($order->fresh()),
+        ]);
+    }
+
+    public function undoKitchenStart(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+
+        if (
+            $order->status !== Order::STATUS_STAFF_CONFIRMED
+            || $order->kitchen_status !== Order::KITCHEN_STATUS_IN_PROGRESS
+        ) {
+            return response()->json([
+                'message' => 'Only in-progress orders can be sent back to New.',
+            ], 422);
+        }
+
+        $order->update([
+            'kitchen_status' => Order::KITCHEN_STATUS_NEW,
+            'kitchen_started_at' => null,
+            'kitchen_updated_by' => $request->user()->id,
+        ]);
+
+        $order->load(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy']);
+        $this->broadcastKitchenOrderUpdated($order);
+
+        return response()->json([
+            'message' => 'Order sent back to New.',
+            'order' => $this->formatKitchenOrder($order),
+        ]);
+    }
+
+    public function undoKitchenReady(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+
+        if (
+            $order->status !== Order::STATUS_STAFF_CONFIRMED
+            || $order->kitchen_status !== Order::KITCHEN_STATUS_READY
+        ) {
+            return response()->json([
+                'message' => 'Only ready orders can be sent back to In Progress.',
+            ], 422);
+        }
+
+        $order->update([
+            'kitchen_status' => Order::KITCHEN_STATUS_IN_PROGRESS,
+            'kitchen_ready_at' => null,
+            'kitchen_updated_by' => $request->user()->id,
+        ]);
+
+        $order->load(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy']);
+        $this->broadcastKitchenOrderUpdated($order);
+
+        return response()->json([
+            'message' => 'Order sent back to In Progress.',
+            'order' => $this->formatKitchenOrder($order),
+        ]);
+    }
+
+    public function undoMarkServed(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+
+        if (
+            $order->status !== Order::STATUS_STAFF_CONFIRMED
+            || $order->kitchen_status !== Order::KITCHEN_STATUS_SERVED
+        ) {
+            return response()->json([
+                'message' => 'Only served orders can be sent back to Ready.',
+            ], 422);
+        }
+
+        $order->update([
+            'kitchen_status' => Order::KITCHEN_STATUS_READY,
+            'kitchen_completed_at' => null,
+            'kitchen_updated_by' => $request->user()->id,
+        ]);
+
+        $order->load(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy']);
+        $this->broadcastKitchenOrderUpdated($order);
+
+        return response()->json([
+            'message' => 'Order sent back to Ready.',
+            'order' => $this->formatKitchenOrder($order),
         ]);
     }
 

@@ -139,6 +139,7 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
                 Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
                 Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
                 Route::post('/orders/{order}/served', [OrderController::class, 'markServed']);
+                Route::post('/orders/{order}/undo-served', [OrderController::class, 'undoMarkServed']);
                 Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
                 Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
                 Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
@@ -347,10 +348,13 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::get('/admin/finance/vendors', [FinanceVendorController::class, 'index']);
     });
 
-    Route::middleware(['role:chef', 'feature:realtime_staff_orders'])->group(function () {
+    Route::middleware(['role:admin,chef', 'feature:realtime_staff_orders'])->group(function () {
         Route::get('/kitchen/orders', [OrderController::class, 'kitchenActiveOrders']);
+        Route::get('/kitchen/orders/history', [OrderController::class, 'kitchenOrderHistory']);
         Route::get('/kitchen/orders/{order}', [OrderController::class, 'kitchenOrderDetails']);
         Route::post('/kitchen/orders/{order}/start', [OrderController::class, 'startKitchenPreparation']);
         Route::post('/kitchen/orders/{order}/ready', [OrderController::class, 'markKitchenReady']);
+        Route::post('/kitchen/orders/{order}/undo-start', [OrderController::class, 'undoKitchenStart']);
+        Route::post('/kitchen/orders/{order}/undo-ready', [OrderController::class, 'undoKitchenReady']);
     });
 });

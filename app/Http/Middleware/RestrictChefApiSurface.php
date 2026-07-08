@@ -20,6 +20,11 @@ class RestrictChefApiSurface
             return $next($request);
         }
 
+        // Admin always has full access to all endpoints
+        if ($user->isAdmin()) {
+            return $next($request);
+        }
+
         if ($request->is('api/auth/me') || $request->is('api/auth/logout')) {
             return $next($request);
         }
@@ -34,6 +39,8 @@ class RestrictChefApiSurface
                 || $request->is('api/room-plans')
                 || $request->is('api/room-plans/*')
                 || $request->is('api/admin/dishes/generate-description')
+                || $request->is('api/orders/*/served')
+                || $request->is('api/orders/*/undo-served')
             )
         ) {
             return $next($request);
