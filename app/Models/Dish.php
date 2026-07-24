@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Ingredient;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Dish extends Model
 {
+    use HasFactory;
     use SoftDeletes;
     public const ITEM_TYPE_PREPARED_DISH = 'prepared_dish';
     public const ITEM_TYPE_PREPARED_DRINK = 'prepared_drink';

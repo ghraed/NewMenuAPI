@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -10,6 +11,8 @@ use Illuminate\Support\Facades\Storage;
 
 class Ingredient extends Model
 {
+    use HasFactory;
+
     public const UNIT_GRAM = 'g';
     public const UNIT_MILLILITER = 'ml';
     public const UNIT_PIECE = 'piece';

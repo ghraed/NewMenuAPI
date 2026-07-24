@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Order extends Model
 {
+    use HasFactory;
+
     public const STATUS_PENDING_STAFF_CONFIRMATION = 'pending_staff_confirmation';
     public const STATUS_STAFF_CONFIRMED = 'staff_confirmed';
     public const STATUS_STAFF_CANCELLED = 'staff_cancelled';

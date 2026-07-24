@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Restaurant;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -63,5 +64,40 @@ class UserFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'role' => User::ROLE_CHEF,
         ]);
+    }
+
+    public function stockManager(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => User::ROLE_STOCK_MANAGER,
+        ]);
+    }
+
+    public function accountant(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => User::ROLE_ACCOUNTANT,
+        ]);
+    }
+
+    public function restaurantAdmin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => User::ROLE_RESTAURANT_ADMIN,
+        ]);
+    }
+
+    public function saasOwner(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => User::ROLE_SAAS_OWNER,
+        ]);
+    }
+
+    public function attachedToRestaurant(Restaurant $restaurant): static
+    {
+        return $this->afterCreating(function (User $user) use ($restaurant): void {
+            $restaurant->staffUsers()->syncWithoutDetaching([$user->id]);
+        });
     }
 }

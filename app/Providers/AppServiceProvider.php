@@ -18,6 +18,10 @@ class AppServiceProvider extends ServiceProvider
         if (is_file($helpersPath)) {
             require_once $helpersPath;
         }
+
+        if ($this->app->environment('testing') || $this->app->runningUnitTests()) {
+            $this->app->register(TestingSafetyServiceProvider::class);
+        }
     }
 
     /**
