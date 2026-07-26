@@ -98,6 +98,67 @@ class SuperAdminCustomDomainProvisioningTest extends TestCase
             ->assertJsonValidationErrors(['custom_domain']);
     }
 
+    public function test_super_admin_restaurant_creation_rejects_duplicate_slug(): void
+    {
+        Queue::fake();
+        $this->mockRestaurantSetupDependencies();
+
+        Restaurant::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'user_id' => User::factory()->admin()->create()->id,
+            'name' => 'Existing Slug',
+            'slug' => 'duplicate-slug',
+            'status' => 'active',
+            'currency' => 'USD',
+            'profile' => ['menu_categories' => ['Main Courses']],
+        ]);
+
+        Sanctum::actingAs($this->createSaasOwner());
+
+        $response = $this->postJson('/api/super-admin/restaurants', $this->restaurantPayload([
+            'slug' => 'duplicate-slug',
+            'custom_domain' => 'fresh.example.com',
+            'admin_user' => [
+                'name' => 'Slug Admin',
+                'email' => 'slug-admin@example.com',
+                'password' => 'password123',
+                'phone' => '+96171111111',
+            ],
+        ]));
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['slug']);
+    }
+
+    public function test_super_admin_restaurant_creation_deduplicates_menu_categories_while_preserving_order(): void
+    {
+        Queue::fake();
+        $this->mockRestaurantSetupDependencies();
+
+        Sanctum::actingAs($this->createSaasOwner());
+
+        $response = $this->postJson('/api/super-admin/restaurants', $this->restaurantPayload([
+            'slug' => 'dedupe-categories',
+            'custom_domain' => null,
+            'menu_categories' => ['Desserts', 'Desserts', 'Main Courses'],
+            'admin_user' => [
+                'name' => 'Categories Admin',
+                'email' => 'categories-admin@example.com',
+                'password' => 'password123',
+                'phone' => '+96172222222',
+            ],
+        ]));
+
+        $response->assertCreated()
+            ->assertJsonPath('restaurant.menu_categories.0', 'Desserts')
+            ->assertJsonPath('restaurant.menu_categories.1', 'Main Courses');
+
+        $this->assertSame(
+            ['Desserts', 'Main Courses'],
+            Restaurant::query()->where('slug', 'dedupe-categories')->firstOrFail()->profile['menu_categories']
+        );
+    }
+
     public function test_super_admin_restaurant_update_requeues_when_custom_domain_changes(): void
     {
         Queue::fake();
