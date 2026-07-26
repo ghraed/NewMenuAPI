@@ -82,9 +82,18 @@ class EnsureRestaurantFeatureEnabled
 
         $tableIdParam = $request->route('table_id');
         if (is_numeric($tableIdParam)) {
-            $table = RestaurantTable::query()->find((int) $tableIdParam);
-            if ($table) {
-                return $table->restaurant()->first();
+            try {
+                return $this->tenantRestaurantResolver->resolveFromSlugOrHost(null, $request);
+            } catch (ModelNotFoundException) {
+                $table = RestaurantTable::query()->find((int) $tableIdParam);
+                if ($table) {
+                    return $table->restaurant()->first();
+                }
+            } catch (\Throwable) {
+                $table = RestaurantTable::query()->find((int) $tableIdParam);
+                if ($table) {
+                    return $table->restaurant()->first();
+                }
             }
         }
 

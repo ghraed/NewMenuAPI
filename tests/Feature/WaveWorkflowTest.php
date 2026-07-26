@@ -3,9 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\Restaurant;
+use App\Models\RestaurantFeature;
+use App\Models\RestaurantTable;
 use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
+use App\Models\Feature;
 use App\Services\GuestMenuSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -94,11 +97,37 @@ class WaveWorkflowTest extends TestCase
         ]);
     }
 
+    public function test_expired_guest_sessions_cannot_create_new_waiter_calls(): void
+    {
+        $this->createRestaurant();
+        $session = $this->openGuestTable(2);
+        $token = $this->verifyCurrentTablePin(2, $this->activeSessionPin());
+
+        $session->update([
+            'expires_at' => now()->subMinute(),
+        ]);
+
+        $this->postJson("/api/table-session/{$session->id}/call-waiter", [], $this->guestHeaders($token))
+            ->assertStatus(409);
+    }
+
+    public function test_resolving_the_same_wave_twice_returns_a_validation_error_after_the_first_acknowledgement(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T03']);
+        $wave = $this->createPendingWave($restaurant, 'T03');
+
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/waves/{$wave->id}/resolve")->assertOk();
+        $this->postJson("/api/waves/{$wave->id}/resolve")->assertStatus(422);
+    }
+
     private function createRestaurant(?User $user = null): Restaurant
     {
         $owner = $user ?? User::factory()->admin()->create();
 
-        return Restaurant::query()->create([
+        $restaurant = Restaurant::query()->create([
             'uuid' => (string) Str::uuid(),
             'user_id' => $owner->id,
             'name' => 'Wave Workflow Restaurant '.Str::upper(Str::random(3)),
@@ -106,6 +135,23 @@ class WaveWorkflowTest extends TestCase
             'description' => 'Restaurant for wave workflow tests',
             'address' => 'Beirut',
         ]);
+
+        foreach (range(1, 10) as $number) {
+            RestaurantTable::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'name' => sprintf('T%02d', $number),
+                'is_active' => true,
+                'seats' => 4,
+            ]);
+        }
+
+        foreach (['qr_menu', 'table_ordering', 'waiter_call', 'request_bill', 'realtime_staff_orders'] as $featureKey) {
+            $this->enableFeature($restaurant, $featureKey);
+        }
+
+        config(['app.guest_restaurant_slug' => $restaurant->slug]);
+
+        return $restaurant->fresh('tables', 'user');
     }
 
     private function createStaffUser(Restaurant $restaurant, array $tableNames = []): User
@@ -186,5 +232,28 @@ class WaveWorkflowTest extends TestCase
             'X-Guest-Device-Id' => 'wave-workflow-device',
             'X-Guest-Access-Token' => $token,
         ]);
+    }
+
+    private function enableFeature(Restaurant $restaurant, string $key): void
+    {
+        $feature = Feature::query()->updateOrCreate(
+            ['key' => $key],
+            [
+                'name' => Str::title(str_replace('_', ' ', $key)),
+                'description' => 'Wave workflow test feature',
+                'category' => 'Tests',
+                'is_active_by_default' => false,
+            ]
+        );
+
+        RestaurantFeature::query()->updateOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'feature_id' => $feature->id,
+            ],
+            [
+                'enabled' => true,
+            ]
+        );
     }
 }

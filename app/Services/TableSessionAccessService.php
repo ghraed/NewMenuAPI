@@ -41,7 +41,7 @@ class TableSessionAccessService
 
         $sessionId = $sessionFromContext->id;
 
-        return DB::transaction(function () use ($request, $context, $sessionId, $pin) {
+        $result = DB::transaction(function () use ($request, $context, $sessionId, $pin) {
             /** @var TableSession $session */
             $session = TableSession::query()
                 ->with(['restaurant', 'restaurantTable'])
@@ -62,12 +62,14 @@ class TableSessionAccessService
                     'pin_locked_until' => $lockedUntil,
                 ]);
 
-                throw new HttpResponseException(response()->json([
-                    'message' => $lockedUntil
-                        ? __('messages.table_sessions.pin_locked')
-                        : __('messages.table_sessions.invalid_pin'),
-                    'table_session' => $this->guestMenuSessionService->formatSession($session->fresh(['restaurantTable'])),
-                ], $lockedUntil ? 423 : 422));
+                return [
+                    'error_response' => response()->json([
+                        'message' => $lockedUntil
+                            ? __('messages.table_sessions.pin_locked')
+                            : __('messages.table_sessions.invalid_pin'),
+                        'table_session' => $this->guestMenuSessionService->formatSession($session->fresh(['restaurantTable'])),
+                    ], $lockedUntil ? 423 : 422),
+                ];
             }
 
             $token = Str::random(80);
@@ -97,6 +99,12 @@ class TableSessionAccessService
                 'token' => $token,
             ];
         });
+
+        if (isset($result['error_response']) && $result['error_response'] instanceof \Symfony\Component\HttpFoundation\Response) {
+            throw new HttpResponseException($result['error_response']);
+        }
+
+        return $result;
     }
 
     public function findRequestGuestAccess(Request $request, TableSession $expectedSession, bool $touch = true): ?TableGuestAccess
@@ -107,7 +115,7 @@ class TableSessionAccessService
             return null;
         }
 
-        return $this->resolveValidAccess($token, $expectedSession, $touch);
+        return $this->resolveValidAccess($request, $token, $expectedSession, $touch);
     }
 
     public function authorizeRequestForSession(Request $request, TableSession $expectedSession): TableGuestAccess
@@ -118,7 +126,7 @@ class TableSessionAccessService
             throw $this->authorizationException();
         }
 
-        $access = $this->resolveValidAccess($token, $expectedSession, true);
+        $access = $this->resolveValidAccess($request, $token, $expectedSession, true);
 
         if (! $access) {
             throw $this->authorizationException();
@@ -144,6 +152,10 @@ class TableSessionAccessService
             ->first();
 
         if (! $access || ! $access->tableSession || $access->tableSession->restaurant_id !== $restaurant->id) {
+            throw $this->authorizationException();
+        }
+
+        if (! $this->matchesRequestDeviceFingerprint($request, $access)) {
             throw $this->authorizationException();
         }
 
@@ -432,7 +444,7 @@ class TableSessionAccessService
         ];
     }
 
-    private function resolveValidAccess(string $token, TableSession $expectedSession, bool $touch): ?TableGuestAccess
+    private function resolveValidAccess(Request $request, string $token, TableSession $expectedSession, bool $touch): ?TableGuestAccess
     {
         $access = TableGuestAccess::query()
             ->with(['tableSession.restaurantTable'])
@@ -440,6 +452,10 @@ class TableSessionAccessService
             ->first();
 
         if (! $access || ! $access->tableSession || $access->table_session_id !== $expectedSession->id) {
+            return null;
+        }
+
+        if (! $this->matchesRequestDeviceFingerprint($request, $access)) {
             return null;
         }
 
@@ -455,6 +471,17 @@ class TableSessionAccessService
         }
 
         return $access;
+    }
+
+    private function matchesRequestDeviceFingerprint(Request $request, TableGuestAccess $access): bool
+    {
+        if (! is_string($access->device_fingerprint) || trim($access->device_fingerprint) === '') {
+            return true;
+        }
+
+        $requestFingerprint = $this->resolveDeviceFingerprint($request);
+
+        return $requestFingerprint !== null && hash_equals($access->device_fingerprint, $requestFingerprint);
     }
 
     private function assertSessionCanBeUnlocked(TableSession $session): void

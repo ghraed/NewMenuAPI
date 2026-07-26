@@ -161,6 +161,7 @@ class TableSessionController extends Controller
 
         $table = RestaurantTable::query()
             ->where('restaurant_id', $restaurant->id)
+            ->where('is_active', true)
             ->whereKey($validated['table_id'])
             ->firstOrFail();
 

@@ -42,6 +42,20 @@ class TenantRestaurantResolverCustomDomainTest extends TestCase
         $this->assertSame($restaurant->id, $resolved->id);
     }
 
+    public function test_resolver_uses_configured_guest_slug_for_testing_local_host(): void
+    {
+        $restaurant = $this->createRestaurant('testing-local-fallback', 'brand.example.com');
+
+        config(['app.guest_restaurant_slug' => $restaurant->slug]);
+
+        $resolved = app(TenantRestaurantResolver::class)->resolveFromSlugOrHost(
+            null,
+            $this->requestForHost('http://testing.local/api/menu/table/1', 'testing.local')
+        );
+
+        $this->assertSame($restaurant->id, $resolved->id);
+    }
+
     private function createRestaurant(string $slug, string $customDomain): Restaurant
     {
         $owner = User::factory()->admin()->create();

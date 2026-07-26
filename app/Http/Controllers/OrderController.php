@@ -26,6 +26,7 @@ use App\Services\TableSessionAccessService;
 use App\Services\WebPushNotificationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -36,6 +37,8 @@ use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
+    private const IDEMPOTENCY_HEADER = 'X-Idempotency-Key';
+
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService,
         private readonly TableSessionAccessService $tableSessionAccessService,
@@ -70,19 +73,23 @@ class OrderController extends Controller
         );
         $session = $this->guestMenuSessionService->resolveActiveSession($access->table_session_id);
 
-        $order = $this->createOrderForTableContext(
+        $result = $this->createOrderForTableContextWithIdempotency(
+            $request,
             $session->restaurant,
             $session->restaurantTable,
             $session,
             $validated,
             $invoiceCalculator
         );
-        $this->dispatchPendingOrderCreatedAlerts($order);
+
+        if (! $result['replayed']) {
+            $this->dispatchPendingOrderCreatedAlerts($result['order']);
+        }
 
         return response()->json([
             'message' => __('messages.orders.created'),
-            'order' => $this->formatOrder($order),
-        ], 201);
+            'order' => $this->formatOrder($result['order']),
+        ], $result['replayed'] ? 200 : 201);
     }
 
     public function storeForSession(
@@ -99,19 +106,23 @@ class OrderController extends Controller
             'items.*.quantity' => 'required|integer|min:1|max:99',
         ]);
 
-        $order = $this->createOrderForTableContext(
+        $result = $this->createOrderForTableContextWithIdempotency(
+            $request,
             $session->restaurant,
             $session->restaurantTable,
             $session,
             $validated,
             $invoiceCalculator
         );
-        $this->dispatchPendingOrderCreatedAlerts($order);
+
+        if (! $result['replayed']) {
+            $this->dispatchPendingOrderCreatedAlerts($result['order']);
+        }
 
         return response()->json([
             'message' => __('messages.orders.created'),
-            'order' => $this->formatOrder($order),
-        ], 201);
+            'order' => $this->formatOrder($result['order']),
+        ], $result['replayed'] ? 200 : 201);
     }
 
     public function storeChatOrder(Request $request): JsonResponse
@@ -1999,5 +2010,122 @@ class OrderController extends Controller
 
             return $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']);
         });
+    }
+
+    /**
+     * @return array{order:Order,replayed:bool}
+     */
+    private function createOrderForTableContextWithIdempotency(
+        Request $request,
+        Restaurant $restaurant,
+        RestaurantTable $restaurantTable,
+        ?TableSession $tableSession,
+        array $validated,
+        OrderInvoiceCalculator $invoiceCalculator
+    ): array {
+        $idempotencyKey = $this->extractIdempotencyKey($request);
+
+        if (! $tableSession || $idempotencyKey === null) {
+            return [
+                'order' => $this->createOrderForTableContext(
+                    $restaurant,
+                    $restaurantTable,
+                    $tableSession,
+                    $validated,
+                    $invoiceCalculator
+                ),
+                'replayed' => false,
+            ];
+        }
+
+        $payloadHash = hash(
+            'sha256',
+            json_encode($this->normalizeOrderIdempotencyPayload($validated), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+        $scope = sprintf(
+            'guest-order:idempotency:%d:%s',
+            $tableSession->id,
+            hash('sha256', $idempotencyKey)
+        );
+        $lock = Cache::lock($scope.':lock', 10);
+
+        $result = $lock->get(function () use (
+            $scope,
+            $payloadHash,
+            $restaurant,
+            $restaurantTable,
+            $tableSession,
+            $validated,
+            $invoiceCalculator
+        ): array {
+            $cached = Cache::get($scope);
+
+            if (is_array($cached) && isset($cached['payload_hash'], $cached['order_id'])) {
+                if (! hash_equals((string) $cached['payload_hash'], $payloadHash)) {
+                    throw new HttpResponseException(response()->json([
+                        'message' => 'The idempotency key was already used for a different guest order payload.',
+                    ], 409));
+                }
+
+                $order = Order::query()->findOrFail((int) $cached['order_id']);
+
+                return [
+                    'order' => $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']),
+                    'replayed' => true,
+                ];
+            }
+
+            $order = $this->createOrderForTableContext(
+                $restaurant,
+                $restaurantTable,
+                $tableSession,
+                $validated,
+                $invoiceCalculator
+            );
+
+            Cache::put($scope, [
+                'order_id' => $order->id,
+                'payload_hash' => $payloadHash,
+            ], now()->addDay());
+
+            return [
+                'order' => $order,
+                'replayed' => false,
+            ];
+        });
+
+        if ($result === false) {
+            throw new HttpResponseException(response()->json([
+                'message' => 'Another guest order with the same idempotency key is already being processed.',
+            ], 409));
+        }
+
+        return $result;
+    }
+
+    private function extractIdempotencyKey(Request $request): ?string
+    {
+        $key = trim((string) $request->header(self::IDEMPOTENCY_HEADER, ''));
+
+        return $key === '' ? null : $key;
+    }
+
+    /**
+     * @param array{notes?:string|null,items:array<int,array{dish_id:int,quantity:int}>} $validated
+     * @return array{notes:?string,items:array<int,array{dish_id:int,quantity:int}>}
+     */
+    private function normalizeOrderIdempotencyPayload(array $validated): array
+    {
+        $items = array_map(static fn (array $item): array => [
+            'dish_id' => (int) $item['dish_id'],
+            'quantity' => (int) $item['quantity'],
+        ], $validated['items'] ?? []);
+
+        usort($items, static fn (array $left, array $right): int => [$left['dish_id'], $left['quantity']] <=> [$right['dish_id'], $right['quantity']]);
+
+        return [
+            'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
+            'items' => $items,
+        ];
     }
 }

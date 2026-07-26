@@ -16,6 +16,7 @@ class TenantRestaurantResolver
         'localhost',
         '127.0.0.1',
         '::1',
+        'testing.local',
     ];
 
     public function resolveFromSlugOrHost(?string $restaurantSlug = null, ?Request $request = null): Restaurant
@@ -143,7 +144,8 @@ class TenantRestaurantResolver
             return true;
         }
 
-        return str_ends_with($normalized, '.localhost');
+        return str_ends_with($normalized, '.localhost')
+            || str_ends_with($normalized, '.local');
     }
 
     private function resolveFromLocalSubdomain(string $host): ?Restaurant

@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
+use App\Models\RestaurantTable;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\GuestMenuSessionService;
@@ -82,6 +83,98 @@ class OrderWorkflowTest extends TestCase
         ]);
 
         $response->assertForbidden();
+    }
+
+    public function test_guest_order_uses_server_side_pricing_and_preserves_multilingual_notes(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $dish = $this->createDish($restaurant, 'Server Priced Bowl', 13.75, 'published');
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+        $notes = '<script>alert("x")</script> بدون بصل 😋';
+
+        $response = $this->postJson("/api/table-session/{$session->id}/order", [
+            'notes' => $notes,
+            'subtotal' => '0.01',
+            'total' => '0.01',
+            'items' => [
+                [
+                    'dish_id' => $dish->id,
+                    'quantity' => 2,
+                    'unit_price' => '0.01',
+                    'line_subtotal' => '0.01',
+                ],
+            ],
+        ], $this->guestHeaders($token));
+
+        $response->assertCreated()
+            ->assertJsonPath('order.notes', $notes)
+            ->assertJsonPath('order.items.0.unit_price', '13.75')
+            ->assertJsonPath('order.items.0.line_subtotal', '27.50')
+            ->assertJsonPath('order.invoice.subtotal', '27.50')
+            ->assertJsonPath('order.invoice.total', '27.50');
+
+        $this->assertDatabaseHas('orders', [
+            'table_session_id' => $session->id,
+            'subtotal' => '27.50',
+            'total' => '27.50',
+            'notes' => $notes,
+        ]);
+    }
+
+    public function test_same_guest_order_idempotency_key_replays_the_original_order_without_creating_duplicates(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $dish = $this->createDish($restaurant, 'Idempotent Pasta', 11.25, 'published');
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+        $payload = [
+            'notes' => 'One replay-safe order',
+            'items' => [
+                ['dish_id' => $dish->id, 'quantity' => 2],
+            ],
+        ];
+        $headers = array_merge($this->guestHeaders($token), [
+            'X-Idempotency-Key' => 'guest-order-key-1',
+        ]);
+
+        $firstResponse = $this->postJson("/api/table-session/{$session->id}/order", $payload, $headers);
+        $secondResponse = $this->postJson("/api/table-session/{$session->id}/order", $payload, $headers);
+
+        $firstResponse->assertCreated();
+        $secondResponse->assertOk()
+            ->assertJsonPath('order.id', $firstResponse->json('order.id'))
+            ->assertJsonPath('order.order_number', $firstResponse->json('order.order_number'));
+
+        $this->assertSame(1, Order::query()->where('table_session_id', $session->id)->count());
+    }
+
+    public function test_different_guest_order_idempotency_keys_create_distinct_orders(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $dish = $this->createDish($restaurant, 'Fresh Wrap', 9.50, 'published');
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin());
+        $payload = [
+            'items' => [
+                ['dish_id' => $dish->id, 'quantity' => 1],
+            ],
+        ];
+
+        $firstResponse = $this->postJson("/api/table-session/{$session->id}/order", $payload, array_merge(
+            $this->guestHeaders($token),
+            ['X-Idempotency-Key' => 'guest-order-key-a']
+        ));
+        $secondResponse = $this->postJson("/api/table-session/{$session->id}/order", $payload, array_merge(
+            $this->guestHeaders($token),
+            ['X-Idempotency-Key' => 'guest-order-key-b']
+        ));
+
+        $firstResponse->assertCreated();
+        $secondResponse->assertCreated()
+            ->assertJsonPath('order.id', Order::query()->where('table_session_id', $session->id)->latest('id')->value('id'));
+
+        $this->assertSame(2, Order::query()->where('table_session_id', $session->id)->count());
     }
 
     public function test_staff_can_list_pending_confirmation_orders_for_their_restaurant(): void
@@ -673,7 +766,7 @@ class OrderWorkflowTest extends TestCase
     {
         $owner = $user ?? User::factory()->admin()->create();
 
-        return Restaurant::query()->create([
+        $restaurant = Restaurant::query()->create([
             'uuid' => (string) Str::uuid(),
             'user_id' => $owner->id,
             'name' => 'Order Workflow Restaurant '.Str::upper(Str::random(3)),
@@ -681,6 +774,31 @@ class OrderWorkflowTest extends TestCase
             'description' => 'Restaurant for order workflow tests',
             'address' => 'Beirut',
         ]);
+
+        foreach (range(1, 10) as $number) {
+            RestaurantTable::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'name' => sprintf('T%02d', $number),
+                'is_active' => true,
+                'seats' => 4,
+            ]);
+        }
+
+        foreach ([
+            'qr_menu',
+            'table_ordering',
+            'waiter_call',
+            'request_bill',
+            'realtime_staff_orders',
+            'finance_dashboard',
+            'dish_profitability',
+        ] as $featureKey) {
+            $this->enableFeature($restaurant, $featureKey);
+        }
+
+        config(['app.guest_restaurant_slug' => $restaurant->slug]);
+
+        return $restaurant->fresh('tables', 'user');
     }
 
     private function createDish(Restaurant $restaurant, string $name, float $price, string $status): Dish

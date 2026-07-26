@@ -113,6 +113,20 @@ class TableSessionSecurityTest extends TestCase
             ->assertJsonPath('guest_access.verified', true);
     }
 
+    public function test_inactive_tables_are_hidden_from_guest_access_and_staff_activation(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $inactiveTable = $restaurant->tables()->where('name', 'T02')->firstOrFail();
+        $inactiveTable->update(['is_active' => false]);
+
+        $this->getJson('/api/menu/table/2')->assertNotFound();
+
+        Sanctum::actingAs($restaurant->user);
+        $this->postJson('/api/table-sessions/activate', [
+            'table_id' => $inactiveTable->id,
+        ])->assertNotFound();
+    }
+
     public function test_protected_endpoint_without_authorization_fails(): void
     {
         $restaurant = $this->createRestaurant();
@@ -124,6 +138,49 @@ class TableSessionSecurityTest extends TestCase
                 ['dish_id' => $dish->id, 'quantity' => 1],
             ],
         ])->assertForbidden();
+    }
+
+    public function test_guest_access_token_is_bound_to_the_original_device_fingerprint(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $dish = $this->createDish($restaurant, 'Device Burger', 10.50);
+        $session = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin(), 'device-a');
+
+        $this->postJson("/api/table-session/{$session->id}/order", [
+            'items' => [
+                ['dish_id' => $dish->id, 'quantity' => 1],
+            ],
+        ], $this->guestHeaders($token, 'device-b'))->assertForbidden();
+    }
+
+    public function test_guest_access_token_cannot_be_reused_for_another_restaurant_or_another_table(): void
+    {
+        $firstRestaurant = $this->createRestaurant();
+        $firstSession = $this->openGuestTable(1);
+        $token = $this->verifyCurrentTablePin(1, $this->activeSessionPin(), 'device-a');
+
+        $this->getJson("/api/table-session/{$firstSession->id}/orders", $this->guestHeaders($token, 'device-a'))
+            ->assertOk();
+
+        $secondOwner = User::factory()->admin()->create();
+        $secondRestaurant = $this->createRestaurant($secondOwner);
+        $secondSession = $this->openGuestTable(1);
+        $secondToken = $this->verifyCurrentTablePin(1, $this->activeSessionPin(), 'device-z');
+
+        $this->getJson("/api/table-session/{$secondSession->id}/orders", $this->guestHeaders($token, 'device-a'))
+            ->assertForbidden();
+
+        $this->postJson("/api/table-session/{$secondSession->id}/call-waiter", [], $this->guestHeaders($token, 'device-a'))
+            ->assertForbidden();
+
+        $this->getJson("/api/table-session/{$firstSession->id}/orders", $this->guestHeaders($secondToken, 'device-z'))
+            ->assertForbidden();
+
+        $otherTableSession = $this->openGuestTable(2);
+
+        $this->getJson("/api/table-session/{$otherTableSession->id}/orders", $this->guestHeaders($token, 'device-a'))
+            ->assertForbidden();
     }
 
     public function test_finalize_revokes_guest_access_and_blocks_future_actions(): void
@@ -419,7 +476,7 @@ class TableSessionSecurityTest extends TestCase
             ]);
         }
 
-        foreach (['qr_menu', 'table_ordering', 'waiter_call', 'request_bill'] as $featureKey) {
+        foreach (['qr_menu', 'table_ordering', 'waiter_call', 'request_bill', 'realtime_staff_orders'] as $featureKey) {
             $this->enableFeature($restaurant, $featureKey);
         }
 

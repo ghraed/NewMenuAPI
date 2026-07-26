@@ -28,10 +28,7 @@ class GuestMenuSessionService
     {
         return $this->tenantRestaurantResolver
             ->resolveFromSlugOrHost(null, $request)
-            ->load(['tables' => fn ($builder) => $builder
-                ->where('is_active', true)
-                ->orderBy('name'),
-            ]);
+            ->load(['tables' => fn ($builder) => $builder->orderBy('name')]);
     }
 
     public function resolveTableContext(int $tableReference, ?Request $request = null): array
@@ -77,7 +74,6 @@ class GuestMenuSessionService
         $tables = $restaurant->relationLoaded('tables')
             ? $restaurant->tables
             : $restaurant->tables()
-                ->where('is_active', true)
                 ->orderBy('name')
                 ->get();
 
@@ -90,6 +86,10 @@ class GuestMenuSessionService
         $table = $this->matchTableByNumber($tables, $tableReference);
 
         if (! $table) {
+            throw new ModelNotFoundException();
+        }
+
+        if (! $table->is_active) {
             throw new ModelNotFoundException();
         }
 
@@ -169,9 +169,8 @@ class GuestMenuSessionService
     public function resolveTableNumberForTable(Restaurant $restaurant, RestaurantTable $table): int
     {
         $tables = $restaurant->relationLoaded('tables')
-            ? $restaurant->tables
+            ? $restaurant->tables->sortBy('name')->values()
             : $restaurant->tables()
-                ->where('is_active', true)
                 ->orderBy('name')
                 ->get();
 
@@ -200,7 +199,7 @@ class GuestMenuSessionService
     public function formatRestaurant(Restaurant $restaurant): array
     {
         $tables = $restaurant->relationLoaded('tables')
-            ? $restaurant->tables
+            ? $restaurant->tables->where('is_active', true)->values()
             : $restaurant->tables()
                 ->where('is_active', true)
                 ->orderBy('name')
