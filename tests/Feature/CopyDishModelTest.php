@@ -75,8 +75,8 @@ class CopyDishModelTest extends TestCase
 
         $this->assertSame('copied_from_existing_model', $targetAssets['glb']->metadata['source']);
         $this->assertSame($sourceDish->id, $targetAssets['glb']->metadata['source_dish_id']);
-        $this->assertSame(
-            "/api/assets/{$targetAssets['glb']->id}/file",
+        $this->assertStringStartsWith(
+            "/api/assets/{$targetAssets['glb']->id}/file?",
             $targetAssets['glb']->fresh()->file_url
         );
         $this->assertNotSame(
@@ -87,9 +87,13 @@ class CopyDishModelTest extends TestCase
         Storage::disk('public')->assertExists($targetAssets['glb']->file_path);
         Storage::disk('public')->assertExists($targetAssets['usdz']->file_path);
 
-        $response->assertJsonFragment([
-            'file_url' => "/api/assets/{$targetAssets['glb']->id}/file",
-        ]);
+        $responseFileUrls = collect($response->json('assets'))->pluck('file_url')->filter()->values();
+        $this->assertTrue(
+            $responseFileUrls->contains(
+                fn (mixed $url): bool => is_string($url)
+                    && str_starts_with($url, "/api/assets/{$targetAssets['glb']->id}/file?")
+            )
+        );
     }
 
     public function test_copy_model_requires_a_ready_source_dish(): void

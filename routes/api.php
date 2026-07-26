@@ -42,7 +42,8 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
-Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/login', [AuthController::class, 'login'])
+    ->middleware('throttle:login');
 Route::post('/owner/auth/login', [SuperAdminAuthController::class, 'login'])
     ->middleware('throttle:owner-login');
 Route::post('/super-admin/auth/login', [SuperAdminAuthController::class, 'login'])

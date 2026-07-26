@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\URL;
 
 class DishAsset extends Model
 {
@@ -57,6 +58,11 @@ class DishAsset extends Model
             return $value;
         }
 
-        return route('api.assets.show', ['asset' => $this->getKey()], false);
+        return URL::temporarySignedRoute(
+            'api.assets.show',
+            now()->addHours(12),
+            ['asset' => $this->getKey()],
+            false
+        );
     }
 }

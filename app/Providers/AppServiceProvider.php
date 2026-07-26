@@ -29,6 +29,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('login', function (Request $request): array {
+            $identifier = strtolower(trim((string) ($request->input('email') ?: $request->input('phone') ?: 'unknown')));
+            $ip = $request->ip() ?: 'unknown';
+
+            return [
+                Limit::perMinute(5)->by("login:{$identifier}:{$ip}"),
+                Limit::perHour(30)->by("login-hour:{$ip}"),
+            ];
+        });
+
         RateLimiter::for('chat', function (Request $request): array {
             $ip = $request->ip() ?: 'unknown';
             $sessionId = $request->hasSession() ? ($request->session()->getId() ?: 'guest') : 'guest';

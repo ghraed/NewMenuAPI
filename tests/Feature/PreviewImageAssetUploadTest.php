@@ -61,7 +61,7 @@ class PreviewImageAssetUploadTest extends TestCase
             ->first();
 
         $this->assertNotNull($newAsset);
-        $this->assertSame("/api/assets/{$newAsset->id}/file", $newAsset->file_url);
+        $this->assertStringStartsWith("/api/assets/{$newAsset->id}/file?", $newAsset->file_url);
         $this->assertStringStartsWith("dishes/{$dish->id}/", $newAsset->file_path ?? '');
         Storage::disk('public')->assertExists($newAsset->file_path);
     }

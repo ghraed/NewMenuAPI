@@ -4,14 +4,21 @@ namespace App\Http\Controllers;
 
 use App\Models\DishAsset;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AssetFileController extends Controller
 {
-    public function show(DishAsset $asset): StreamedResponse|BinaryFileResponse
+    public function show(Request $request, DishAsset $asset): StreamedResponse|BinaryFileResponse
     {
+        if (! $this->canAccess($request, $asset)) {
+            throw new HttpResponseException(response()->json([
+                'message' => 'Asset file not found.',
+            ], 404));
+        }
+
         $diskName = $asset->storage_disk ?: 'public';
         $path = $asset->file_path;
 
@@ -60,5 +67,26 @@ class AssetFileController extends Controller
         return array_filter([
             'Content-Type' => $asset->mime_type,
         ], static fn (?string $value): bool => $value !== null && $value !== '');
+    }
+
+    private function canAccess(Request $request, DishAsset $asset): bool
+    {
+        if ($request->hasValidSignature()) {
+            return true;
+        }
+
+        $user = $request->user();
+
+        if (! $user) {
+            return false;
+        }
+
+        $asset->loadMissing('dish');
+        $user->loadMissing('restaurant', 'staffRestaurants');
+
+        $restaurantId = $user->currentRestaurant()?->id;
+
+        return $restaurantId !== null
+            && (int) $asset->dish->restaurant_id === (int) $restaurantId;
     }
 }
