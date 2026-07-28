@@ -6,11 +6,16 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Restaurant;
 use App\Models\StockMovement;
+use App\Services\InvoicePdfService;
+use App\Services\OrderInvoiceCalculator;
+use App\Support\Money;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class InvoiceController extends Controller
 {
@@ -67,6 +72,14 @@ class InvoiceController extends Controller
             'invoice_date' => ['required', 'date'],
             'status' => ['nullable', 'in:draft,issued,paid,cancelled'],
             'notes' => ['nullable', 'string'],
+            'vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'service_charge_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'discount_type' => ['nullable', 'in:fixed,percentage'],
+            'discount_value' => ['nullable', 'numeric', 'min:0'],
+            'currency' => ['nullable', 'in:USD,LBP,SYP,SAR,AED,EUR,QAR'],
+            'exchange_rate' => ['nullable', 'numeric', 'gt:0'],
+            'payment_method' => ['nullable', 'in:cash,card,transfer,other,wallet'],
+            'payment_reference' => ['nullable', 'string', 'max:120'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.name' => ['required', 'string', 'max:255'],
             'items.*.quantity' => ['required', 'numeric', 'gt:0'],
@@ -74,17 +87,18 @@ class InvoiceController extends Controller
         ]);
 
         $normalizedItems = $this->normalizeItems($validated['items']);
-        $totals = $this->calculateTotals($normalizedItems);
+        $financialInputs = $this->resolveFinancialInputs($validated, $restaurant);
+        $totals = $this->calculateTotals($normalizedItems, $financialInputs);
         $status = $validated['status'] ?? Invoice::STATUS_ISSUED;
 
-        $invoice = DB::transaction(function () use ($restaurant, $validated, $normalizedItems, $totals, $status): Invoice {
+        $invoice = DB::transaction(function () use ($restaurant, $validated, $normalizedItems, $totals, $status, $financialInputs): Invoice {
             $invoice = $restaurant->invoices()->create([
                 'uuid' => (string) Str::uuid(),
                 'invoice_number' => $this->generateInvoiceNumber($restaurant),
                 'invoice_date' => $validated['invoice_date'],
                 'status' => $status,
-                'subtotal' => $totals['subtotal'],
-                'total' => $totals['total'],
+                ...$totals,
+                ...$financialInputs,
                 'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
                 'paid_at' => $status === Invoice::STATUS_PAID ? now() : null,
             ]);
@@ -111,6 +125,27 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function downloadPdf(Request $request, Invoice $invoice)
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertInvoiceBelongsToRestaurant($invoice, $restaurant);
+
+        $disk = $invoice->pdf_disk;
+        $path = $invoice->pdf_path;
+
+        if (! is_string($disk) || trim($disk) === '' || ! is_string($path) || trim($path) === '' || ! Storage::disk($disk)->exists($path)) {
+            $generated = app(InvoicePdfService::class)->generateAndStore($invoice->fresh(['items', 'restaurant']));
+            $disk = $generated['disk'];
+            $path = $generated['path'];
+        }
+
+        return Storage::disk($disk)->download(
+            $path,
+            sprintf('%s.pdf', $invoice->invoice_number ?: 'invoice-'.$invoice->id),
+            ['Content-Type' => 'application/pdf']
+        );
+    }
+
     public function update(Request $request, Invoice $invoice): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -120,6 +155,14 @@ class InvoiceController extends Controller
             'invoice_date' => ['sometimes', 'date'],
             'status' => ['sometimes', 'in:draft,issued,paid,cancelled'],
             'notes' => ['nullable', 'string'],
+            'vat_rate' => ['sometimes', 'numeric', 'min:0', 'max:100'],
+            'service_charge_rate' => ['sometimes', 'numeric', 'min:0', 'max:100'],
+            'discount_type' => ['nullable', 'in:fixed,percentage'],
+            'discount_value' => ['sometimes', 'numeric', 'min:0'],
+            'currency' => ['sometimes', 'in:USD,LBP,SYP,SAR,AED,EUR,QAR'],
+            'exchange_rate' => ['sometimes', 'numeric', 'gt:0'],
+            'payment_method' => ['nullable', 'in:cash,card,transfer,other,wallet'],
+            'payment_reference' => ['nullable', 'string', 'max:120'],
             'items' => ['sometimes', 'array', 'min:1'],
             'items.*.name' => ['required_with:items', 'string', 'max:255'],
             'items.*.quantity' => ['required_with:items', 'numeric', 'gt:0'],
@@ -128,9 +171,10 @@ class InvoiceController extends Controller
 
         $hasItems = array_key_exists('items', $validated);
         $normalizedItems = $hasItems ? $this->normalizeItems($validated['items']) : [];
-        $totals = $hasItems ? $this->calculateTotals($normalizedItems) : null;
+        $hasFinancialInputs = $this->hasFinancialInputs($validated);
 
-        $invoice = DB::transaction(function () use ($invoice, $validated, $hasItems, $normalizedItems, $totals): Invoice {
+        $invoice = DB::transaction(function () use ($invoice, $validated, $hasItems, $hasFinancialInputs, $normalizedItems): Invoice {
+            $invoice->loadMissing('items', 'restaurant');
             $nextStatus = $validated['status'] ?? $invoice->status;
             $isTransitioningToPaid = $invoice->status !== Invoice::STATUS_PAID && $nextStatus === Invoice::STATUS_PAID;
             $isTransitioningOutOfPaid = $invoice->status === Invoice::STATUS_PAID && $nextStatus !== Invoice::STATUS_PAID;
@@ -149,9 +193,31 @@ class InvoiceController extends Controller
                 $payload['notes'] = $this->normalizeOptionalString($validated['notes']);
             }
 
-            if ($totals !== null) {
-                $payload['subtotal'] = $totals['subtotal'];
-                $payload['total'] = $totals['total'];
+            if ($hasItems || $hasFinancialInputs) {
+                $effectiveItems = $hasItems
+                    ? $normalizedItems
+                    : $invoice->items
+                        ->sortBy('order_index')
+                        ->values()
+                        ->map(fn ($item): array => [
+                            'name' => $item->name,
+                            'quantity' => Money::normalizeDecimal($item->quantity, 3),
+                            'unit_price' => Money::normalizeDecimal($item->unit_price, 2),
+                            'line_total' => Money::normalizeDecimal($item->line_total, 2),
+                            'order_index' => (int) $item->order_index,
+                        ])
+                        ->all();
+                $financialInputs = $this->resolveFinancialInputs($validated, $invoice->restaurant, $invoice);
+                $totals = $this->calculateTotals($effectiveItems, $financialInputs);
+
+                $payload = [
+                    ...$payload,
+                    ...$totals,
+                    ...$financialInputs,
+                    'pdf_disk' => null,
+                    'pdf_path' => null,
+                    'pdf_generated_at' => null,
+                ];
             }
 
             if ($isTransitioningToPaid) {
@@ -394,14 +460,13 @@ class InvoiceController extends Controller
             ->where('restaurant_id', $restaurant->id)
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
             ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
-            ->sum('subtotal'), 2);
+            ->sum('taxable_subtotal'), 2);
 
         $outputVat = round((float) Invoice::query()
             ->where('restaurant_id', $restaurant->id)
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
             ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
-            ->selectRaw('SUM(GREATEST(total - subtotal, 0)) AS output_vat')
-            ->value('output_vat'), 2);
+            ->sum('vat_amount'), 2);
 
         $inputVat = round(((int) DB::table('expenses')
             ->where('restaurant_id', $restaurant->id)
@@ -415,7 +480,7 @@ class InvoiceController extends Controller
             ->where('restaurant_id', $restaurant->id)
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
             ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
-            ->selectRaw("DATE_FORMAT(invoice_date, '%Y-%m') AS bucket, SUM(GREATEST(total - subtotal, 0)) AS output_vat")
+            ->selectRaw("DATE_FORMAT(invoice_date, '%Y-%m') AS bucket, SUM(vat_amount) AS output_vat")
             ->groupBy('bucket')
             ->orderBy('bucket')
             ->get()
@@ -481,15 +546,15 @@ class InvoiceController extends Controller
         $normalized = [];
 
         foreach ($rows as $index => $row) {
-            $quantity = round((float) ($row['quantity'] ?? 0), 3);
-            $unitPrice = round((float) ($row['unit_price'] ?? 0), 2);
-            $lineTotal = round($quantity * $unitPrice, 2);
+            $quantity = Money::normalizeDecimal($row['quantity'] ?? 0, 3);
+            $unitPrice = Money::normalizeDecimal($row['unit_price'] ?? 0, 2);
+            $lineTotal = Money::formatCents(Money::multiplyToCents($quantity, $unitPrice, 3));
 
             $normalized[] = [
                 'name' => trim((string) ($row['name'] ?? '')),
-                'quantity' => number_format($quantity, 3, '.', ''),
-                'unit_price' => number_format($unitPrice, 2, '.', ''),
-                'line_total' => number_format($lineTotal, 2, '.', ''),
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'line_total' => $lineTotal,
                 'order_index' => (int) $index,
             ];
         }
@@ -501,19 +566,33 @@ class InvoiceController extends Controller
      * @param array<int,array{
      *   line_total:string
      * }> $normalizedItems
-     * @return array{subtotal:string,total:string}
+     * @param array{
+     *   discount_type:?string,
+     *   discount_value:string,
+     *   vat_rate:string,
+     *   service_charge_rate:string
+     * } $financialInputs
+     * @return array<string, string|null>
      */
-    private function calculateTotals(array $normalizedItems): array
+    private function calculateTotals(array $normalizedItems, array $financialInputs): array
     {
-        $subtotal = collect($normalizedItems)->reduce(
-            fn (float $carry, array $row): float => $carry + (float) $row['line_total'],
-            0.0
+        $subtotalCents = collect($normalizedItems)->reduce(
+            fn (int $carry, array $row): int => $carry + Money::toCents($row['line_total']),
+            0
         );
 
-        return [
-            'subtotal' => number_format(round($subtotal, 2), 2, '.', ''),
-            'total' => number_format(round($subtotal, 2), 2, '.', ''),
-        ];
+        return array_merge(
+            app(OrderInvoiceCalculator::class)->calculateFromSubtotalCents(
+                $subtotalCents,
+                (float) ($financialInputs['vat_rate'] ?? 0),
+                $financialInputs['discount_type'] ?? null,
+                (float) ($financialInputs['discount_value'] ?? 0),
+                (float) ($financialInputs['service_charge_rate'] ?? 0)
+            ),
+            [
+                'subtotal' => Money::formatCents($subtotalCents),
+            ]
+        );
     }
 
     private function getRestaurantForRequest(Request $request): Restaurant
@@ -798,26 +877,6 @@ class InvoiceController extends Controller
             ->map(fn (Order $order) => $order->confirmedBy)
             ->first(fn ($value): bool => $value !== null);
 
-        $discountTypes = $linkedOrders
-            ->pluck('discount_type')
-            ->filter(fn ($value): bool => is_string($value) && trim($value) !== '')
-            ->unique()
-            ->values();
-        $discountType = $discountTypes->count() === 1 ? (string) $discountTypes->first() : null;
-        $discountValue = $discountType === 'percentage'
-            ? (float) $linkedOrders->max(fn (Order $order): float => (float) ($order->discount_value ?? 0))
-            : (float) $linkedOrders->sum(fn (Order $order): float => (float) ($order->discount_value ?? 0));
-        $discountAmount = (float) $linkedOrders->sum(fn (Order $order): float => (float) ($order->discount_amount ?? 0));
-        $taxableSubtotal = (float) $linkedOrders->sum(fn (Order $order): float => (float) ($order->taxable_subtotal ?? 0));
-        $vatAmount = (float) $linkedOrders->sum(fn (Order $order): float => (float) ($order->vat_amount ?? 0));
-        $vatRates = $linkedOrders
-            ->map(fn (Order $order): float => (float) ($order->vat_rate ?? 0))
-            ->unique()
-            ->values();
-        $vatRate = $vatRates->count() === 1
-            ? (float) $vatRates->first()
-            : (float) ($linkedOrders->first()?->vat_rate ?? 0);
-
         return [
             'id' => $invoice->id,
             'uuid' => $invoice->uuid,
@@ -827,6 +886,10 @@ class InvoiceController extends Controller
             'status' => $invoice->status,
             'subtotal' => $invoice->subtotal,
             'total' => $invoice->total,
+            'currency' => $invoice->currency,
+            'exchange_rate' => Money::formatScaledInt(Money::toScaledInt($invoice->exchange_rate, 4), 4),
+            'payment_method' => $invoice->payment_method,
+            'payment_reference' => $invoice->payment_reference,
             'notes' => $invoice->notes,
             'paid_at' => $invoice->paid_at?->toIso8601String(),
             'table_reference' => $tableReference,
@@ -838,12 +901,19 @@ class InvoiceController extends Controller
                 'phone' => $waiter->phone,
                 'role' => $waiter->role,
             ] : null,
-            'discount_type' => $discountType,
-            'discount_value' => number_format($discountValue, 2, '.', ''),
-            'discount_amount' => number_format($discountAmount, 2, '.', ''),
-            'taxable_subtotal' => number_format($taxableSubtotal, 2, '.', ''),
-            'vat_rate' => number_format($vatRate, 2, '.', ''),
-            'vat_amount' => number_format($vatAmount, 2, '.', ''),
+            'discount_type' => $invoice->discount_type,
+            'discount_value' => Money::normalizeDecimal($invoice->discount_value, 2),
+            'discount_amount' => Money::normalizeDecimal($invoice->discount_amount, 2),
+            'taxable_subtotal' => Money::normalizeDecimal($invoice->taxable_subtotal, 2),
+            'service_charge_rate' => $invoice->service_charge_rate !== null
+                ? Money::normalizeDecimal($invoice->service_charge_rate, 2)
+                : null,
+            'service_charge_amount' => Money::normalizeDecimal($invoice->service_charge_amount, 2),
+            'vat_rate' => $invoice->vat_rate !== null
+                ? Money::normalizeDecimal($invoice->vat_rate, 2)
+                : null,
+            'vat_amount' => Money::normalizeDecimal($invoice->vat_amount, 2),
+            'pdf_available' => is_string($invoice->pdf_path) && trim($invoice->pdf_path) !== '',
             'created_at' => $invoice->created_at?->toIso8601String(),
             'updated_at' => $invoice->updated_at?->toIso8601String(),
             'items' => $invoice->items
@@ -879,6 +949,42 @@ class InvoiceController extends Controller
                     'evidence_photo_url' => $item->evidence_photo_url,
                 ])
                 ->all(),
+        ];
+    }
+
+    private function hasFinancialInputs(array $validated): bool
+    {
+        foreach (['vat_rate', 'service_charge_rate', 'discount_type', 'discount_value', 'currency', 'exchange_rate', 'payment_method', 'payment_reference'] as $key) {
+            if (array_key_exists($key, $validated)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function resolveFinancialInputs(array $validated, Restaurant $restaurant, ?Invoice $invoice = null): array
+    {
+        $discountType = array_key_exists('discount_type', $validated)
+            ? ($validated['discount_type'] ?: null)
+            : $invoice?->discount_type;
+        $discountValue = (float) ($validated['discount_value'] ?? $invoice?->discount_value ?? 0);
+
+        if ($discountType === null && $discountValue > 0) {
+            throw ValidationException::withMessages([
+                'discount_type' => __('messages.orders.discount_type_required'),
+            ]);
+        }
+
+        return [
+            'discount_type' => $discountType,
+            'discount_value' => Money::normalizeDecimal($discountValue, 2),
+            'vat_rate' => Money::normalizeDecimal($validated['vat_rate'] ?? $invoice?->vat_rate ?? 0, 2),
+            'service_charge_rate' => Money::normalizeDecimal($validated['service_charge_rate'] ?? $invoice?->service_charge_rate ?? 0, 2),
+            'currency' => (string) ($validated['currency'] ?? $invoice?->currency ?? $restaurant->currency ?? 'USD'),
+            'exchange_rate' => Money::formatScaledInt(Money::toScaledInt($validated['exchange_rate'] ?? $invoice?->exchange_rate ?? $restaurant->dollar_rate ?? 1, 4), 4),
+            'payment_method' => $this->normalizeOptionalString($validated['payment_method'] ?? $invoice?->payment_method),
+            'payment_reference' => $this->normalizeOptionalString($validated['payment_reference'] ?? $invoice?->payment_reference),
         ];
     }
 }

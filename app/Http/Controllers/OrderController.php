@@ -862,6 +862,7 @@ class OrderController extends Controller
 
         $validated = $request->validate([
             'vat_rate' => 'nullable|numeric|min:0|max:100',
+            'service_charge_rate' => 'nullable|numeric|min:0|max:100',
             'discount_type' => 'nullable|in:fixed,percentage',
             'discount_value' => 'nullable|numeric|min:0',
             'items' => 'nullable|array|min:1',
@@ -921,10 +922,10 @@ class OrderController extends Controller
 
                 foreach ($validated['items'] as $itemInput) {
                     $status = in_array(($itemInput['status'] ?? 'normal'), ['normal', 'problematic', 'cancelled', 'compensated'], true)
-                        ? (string) $itemInput['status']
+                        ? (string) ($itemInput['status'] ?? 'normal')
                         : 'normal';
                     $compensationType = in_array(($itemInput['compensation_type'] ?? 'none'), ['none', 'full_waiver', 'partial_discount', 'complimentary'], true)
-                        ? (string) $itemInput['compensation_type']
+                        ? (string) ($itemInput['compensation_type'] ?? 'none')
                         : 'none';
                     $isComplimentary = (bool) ($itemInput['is_complimentary'] ?? false) || $compensationType === 'complimentary';
 
@@ -1078,10 +1079,15 @@ class OrderController extends Controller
                 ]),
                 (float) ($validated['vat_rate'] ?? 0),
                 $discountType,
-                $discountValue
+                $discountValue,
+                (float) ($validated['service_charge_rate'] ?? 0)
             );
 
-            $lockedOrder->update($invoice);
+            $lockedOrder->update([
+                ...$invoice,
+                'currency' => (string) ($lockedOrder->restaurant->currency ?? 'USD'),
+                'exchange_rate' => (string) ($lockedOrder->restaurant->dollar_rate ?? 1),
+            ]);
 
             return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
         });
@@ -1108,6 +1114,7 @@ class OrderController extends Controller
 
         $validated = $request->validate([
             'vat_rate' => 'nullable|numeric|min:0|max:100',
+            'service_charge_rate' => 'nullable|numeric|min:0|max:100',
             'discount_type' => 'nullable|in:fixed,percentage',
             'discount_value' => 'nullable|numeric|min:0',
             'items' => 'nullable|array|min:1',
@@ -1167,10 +1174,10 @@ class OrderController extends Controller
 
                 foreach ($validated['items'] as $itemInput) {
                     $status = in_array(($itemInput['status'] ?? 'normal'), ['normal', 'problematic', 'cancelled', 'compensated'], true)
-                        ? (string) $itemInput['status']
+                        ? (string) ($itemInput['status'] ?? 'normal')
                         : 'normal';
                     $compensationType = in_array(($itemInput['compensation_type'] ?? 'none'), ['none', 'full_waiver', 'partial_discount', 'complimentary'], true)
-                        ? (string) $itemInput['compensation_type']
+                        ? (string) ($itemInput['compensation_type'] ?? 'none')
                         : 'none';
                     $isComplimentary = (bool) ($itemInput['is_complimentary'] ?? false) || $compensationType === 'complimentary';
 
@@ -1324,7 +1331,8 @@ class OrderController extends Controller
                 ]),
                 (float) ($validated['vat_rate'] ?? 0),
                 $discountType,
-                $discountValue
+                $discountValue,
+                (float) ($validated['service_charge_rate'] ?? 0)
             );
 
             $lockedOrder->update([
@@ -1332,6 +1340,8 @@ class OrderController extends Controller
                 'invoice_number' => $lockedOrder->invoice_number ?: $this->formatInvoiceNumber($lockedOrder),
                 'accounted_by' => $actor->id,
                 'accounted_at' => now(),
+                'currency' => (string) ($lockedOrder->restaurant->currency ?? 'USD'),
+                'exchange_rate' => (string) ($lockedOrder->restaurant->dollar_rate ?? 1),
                 ...$invoice,
             ]);
 
@@ -1357,6 +1367,7 @@ class OrderController extends Controller
             'items.*.dish_id' => 'required|integer|distinct',
             'items.*.quantity' => 'required|integer|min:1|max:99',
             'vat_rate' => 'nullable|numeric|min:0|max:100',
+            'service_charge_rate' => 'nullable|numeric|min:0|max:100',
             'discount_type' => 'nullable|in:fixed,percentage',
             'discount_value' => 'nullable|numeric|min:0',
             'payment_method' => 'required|in:cash,card,wallet',
@@ -1382,7 +1393,8 @@ class OrderController extends Controller
             $preparedItems,
             (float) ($validated['vat_rate'] ?? 0),
             $discountType,
-            $discountValue
+            $discountValue,
+            (float) ($validated['service_charge_rate'] ?? 0)
         );
 
         $paymentMethod = (string) $validated['payment_method'];
@@ -1417,6 +1429,8 @@ class OrderController extends Controller
                     'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
                     'confirmed_by' => $userId,
                     'confirmed_at' => now(),
+                    'currency' => (string) ($restaurant->currency ?? 'USD'),
+                    'exchange_rate' => (string) ($restaurant->dollar_rate ?? 1),
                     ...$invoice,
                 ]);
 
@@ -1444,6 +1458,7 @@ class OrderController extends Controller
                     'invoice_number' => $this->formatInvoiceNumber($order),
                     'accounted_by' => $userId,
                     'accounted_at' => now(),
+                    'payment_method' => $validated['payment_method'],
                 ]);
 
                 return $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
@@ -1696,9 +1711,15 @@ class OrderController extends Controller
                 'discount_value' => $order->discount_value,
                 'discount_amount' => $order->discount_amount,
                 'taxable_subtotal' => $order->taxable_subtotal,
+                'service_charge_rate' => $order->service_charge_rate,
+                'service_charge_amount' => $order->service_charge_amount,
                 'vat_rate' => $order->vat_rate,
                 'vat_amount' => $order->vat_amount,
                 'total' => $order->total,
+                'currency' => $order->currency,
+                'exchange_rate' => $order->exchange_rate,
+                'payment_method' => $order->payment_method,
+                'payment_reference' => $order->payment_reference,
             ],
             'confirmed_by' => $this->formatActor($order->confirmedBy),
             'cancelled_by' => $this->formatActor($order->cancelledBy),
@@ -1990,6 +2011,8 @@ class OrderController extends Controller
                 'guest_name' => $restaurantTable->name,
                 'table_reference' => $restaurantTable->name,
                 'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
+                'currency' => (string) ($restaurant->currency ?? 'USD'),
+                'exchange_rate' => (string) ($restaurant->dollar_rate ?? 1),
                 ...$invoice,
             ]);
 

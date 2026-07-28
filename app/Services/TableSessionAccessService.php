@@ -8,6 +8,7 @@ use App\Models\Restaurant;
 use App\Models\TableGuestAccess;
 use App\Models\TableSession;
 use App\Models\TableWave;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
@@ -317,8 +318,42 @@ class TableSessionAccessService
         }
 
         $status = $this->resolveFinalizedInvoiceStatus($payment);
-        $subtotal = (float) $orders->sum(fn (Order $order) => (float) $order->subtotal);
-        $total = (float) $orders->sum(fn (Order $order) => (float) $order->total);
+        $subtotalCents = $orders->reduce(
+            fn (int $carry, Order $order): int => $carry + Money::toCents($order->subtotal),
+            0
+        );
+        $discountAmountCents = $orders->reduce(
+            fn (int $carry, Order $order): int => $carry + Money::toCents($order->discount_amount),
+            0
+        );
+        $taxableSubtotalCents = $orders->reduce(
+            fn (int $carry, Order $order): int => $carry + Money::toCents($order->taxable_subtotal),
+            0
+        );
+        $serviceChargeAmountCents = $orders->reduce(
+            fn (int $carry, Order $order): int => $carry + Money::toCents($order->service_charge_amount),
+            0
+        );
+        $vatAmountCents = $orders->reduce(
+            fn (int $carry, Order $order): int => $carry + Money::toCents($order->vat_amount),
+            0
+        );
+        $totalCents = $orders->reduce(
+            fn (int $carry, Order $order): int => $carry + Money::toCents($order->total),
+            0
+        );
+        $discountType = $this->resolveAggregatedDiscountType($orders);
+        $discountValue = $discountType === 'percentage'
+            ? Money::formatScaledInt(
+                (int) $orders->map(fn (Order $order): int => Money::toScaledInt($order->discount_value, 2))->max(),
+                2
+            )
+            : Money::formatCents($orders->reduce(
+                fn (int $carry, Order $order): int => $carry + Money::toCents($order->discount_value),
+                0
+            ));
+        $serviceChargeRate = $this->resolveUniformScaledRate($orders, 'service_charge_rate');
+        $vatRate = $this->resolveUniformScaledRate($orders, 'vat_rate');
         $invoiceDate = $orders
             ->pluck('accounted_at')
             ->filter()
@@ -342,8 +377,24 @@ class TableSessionAccessService
             'invoice_number' => $invoiceNumber,
             'invoice_date' => ($invoiceDate instanceof \DateTimeInterface ? $invoiceDate : now())->format('Y-m-d'),
             'status' => $status,
-            'subtotal' => number_format($subtotal, 2, '.', ''),
-            'total' => number_format($total, 2, '.', ''),
+            'subtotal' => Money::formatCents($subtotalCents),
+            'discount_type' => $discountType,
+            'discount_value' => $discountValue,
+            'discount_amount' => Money::formatCents($discountAmountCents),
+            'taxable_subtotal' => Money::formatCents($taxableSubtotalCents),
+            'service_charge_rate' => $serviceChargeRate !== null ? Money::formatScaledInt($serviceChargeRate, 2) : null,
+            'service_charge_amount' => Money::formatCents($serviceChargeAmountCents),
+            'vat_rate' => $vatRate !== null ? Money::formatScaledInt($vatRate, 2) : null,
+            'vat_amount' => Money::formatCents($vatAmountCents),
+            'total' => Money::formatCents($totalCents),
+            'currency' => (string) ($session->restaurant->currency ?? 'USD'),
+            'exchange_rate' => Money::formatScaledInt(Money::toScaledInt($session->restaurant->dollar_rate ?? 1, 4), 4),
+            'payment_method' => isset($payment['payment_method']) && is_string($payment['payment_method'])
+                ? trim($payment['payment_method']) ?: null
+                : null,
+            'payment_reference' => isset($payment['payment_reference']) && is_string($payment['payment_reference'])
+                ? trim($payment['payment_reference']) ?: null
+                : null,
             'notes' => $notes,
             'paid_at' => $status === Invoice::STATUS_PAID ? now() : null,
         ]);
@@ -359,7 +410,7 @@ class TableSessionAccessService
                 $invoiceItems[] = [
                     'name' => $item->dish_name,
                     'quantity' => $item->quantity,
-                    'unit_price' => number_format($finalUnitPrice, 2, '.', ''),
+                    'unit_price' => Money::normalizeDecimal($finalUnitPrice, 2),
                     'line_total' => $item->line_subtotal,
                     'order_index' => $itemOrder,
                     'order_item_id' => $item->id,
@@ -373,9 +424,9 @@ class TableSessionAccessService
                     'approved_by_staff_name' => $item->approved_by_staff_name,
                     'approved_by_staff_role' => $item->approved_by_staff_role,
                     'approved_at' => $item->approved_at,
-                    'original_unit_price' => number_format($originalUnitPrice, 2, '.', ''),
-                    'final_unit_price' => number_format($finalUnitPrice, 2, '.', ''),
-                    'original_line_total' => number_format($originalUnitPrice * $quantity, 2, '.', ''),
+                    'original_unit_price' => Money::normalizeDecimal($originalUnitPrice, 2),
+                    'final_unit_price' => Money::normalizeDecimal($finalUnitPrice, 2),
+                    'original_line_total' => Money::formatCents(Money::multiplyToCents($quantity, $originalUnitPrice, 3)),
                     'partial_discount_percentage' => $item->partial_discount_percentage,
                     'partial_discount_type' => $item->partial_discount_type,
                     'partial_discount_value' => $item->partial_discount_value,
@@ -409,6 +460,27 @@ class TableSessionAccessService
         return $paymentReference !== ''
             ? Invoice::STATUS_PAID
             : Invoice::STATUS_ISSUED;
+    }
+
+    private function resolveAggregatedDiscountType(EloquentCollection $orders): ?string
+    {
+        $types = $orders
+            ->pluck('discount_type')
+            ->filter(fn ($value): bool => is_string($value) && trim($value) !== '')
+            ->unique()
+            ->values();
+
+        return $types->count() === 1 ? (string) $types->first() : null;
+    }
+
+    private function resolveUniformScaledRate(EloquentCollection $orders, string $field): ?int
+    {
+        $rates = $orders
+            ->map(fn (Order $order): int => Money::toScaledInt($order->{$field} ?? 0, 2))
+            ->unique()
+            ->values();
+
+        return $rates->count() === 1 ? (int) $rates->first() : null;
     }
 
     private function generateFinanceInvoiceNumber(Restaurant $restaurant): string

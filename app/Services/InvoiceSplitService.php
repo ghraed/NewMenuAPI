@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\TableSession;
+use App\Support\Money;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Collection;
@@ -73,7 +74,8 @@ class InvoiceSplitService
                 false
             );
 
-            [$people, $remainingItems, $complete] = $this->buildPeopleAndRemaining(
+            [$people, $remainingItems, $remainingSummary, $complete] = $this->buildPeopleAndRemaining(
+                $orders,
                 $editableItems,
                 $normalizedPeople,
                 $effectiveSplitCount
@@ -93,6 +95,7 @@ class InvoiceSplitService
                 'people' => $people,
                 'editable_items' => $editableItems,
                 'remaining_items' => $remainingItems,
+                'remaining_summary' => $remainingSummary,
                 'is_complete' => $complete,
             ];
         }
@@ -111,6 +114,7 @@ class InvoiceSplitService
                     'line_subtotal' => $item['line_subtotal'],
                 ], $editableItems)
                 : [],
+            'remaining_summary' => $this->emptySummary(),
             'is_complete' => false,
         ];
     }
@@ -192,18 +196,19 @@ class InvoiceSplitService
 
     /**
      * @param Collection<int, Order> $orders
-     * @return array<int, array{order_item_id:int,key:string,dish_name:string,quantity:int,unit_price:string,line_subtotal:string}>
+     * @return array<int, array{order_id:int,order_item_id:int,key:string,dish_name:string,quantity:int,unit_price:string,line_subtotal:string}>
      */
     private function buildEditableItems(Collection $orders): array
     {
         return $orders
             ->flatMap(fn (Order $order) => $order->items->map(fn (OrderItem $item): array => [
+                'order_id' => (int) $order->id,
                 'order_item_id' => (int) $item->id,
                 'key' => 'order-item-'.$item->id,
                 'dish_name' => $item->dish_name,
                 'quantity' => (int) $item->quantity,
-                'unit_price' => number_format((float) $item->unit_price, 2, '.', ''),
-                'line_subtotal' => number_format((float) $item->line_subtotal, 2, '.', ''),
+                'unit_price' => Money::normalizeDecimal($item->final_unit_price ?? $item->unit_price, 2),
+                'line_subtotal' => Money::normalizeDecimal($item->line_subtotal, 2),
             ]))
             ->values()
             ->all();
@@ -305,11 +310,12 @@ class InvoiceSplitService
     }
 
     /**
+     * @param Collection<int, Order> $orders
      * @param array<int, array<string,mixed>> $editableItems
      * @param array<int, array{person_index:int,items:array<int,array{order_item_id:int,quantity:int}>}> $normalizedPeople
-     * @return array{0:array<int,array<string,mixed>>,1:array<int,array<string,mixed>>,2:bool}
+     * @return array{0:array<int,array<string,mixed>>,1:array<int,array<string,mixed>>,2:array<string,string>,3:bool}
      */
-    private function buildPeopleAndRemaining(array $editableItems, array $normalizedPeople, int $splitCount): array
+    private function buildPeopleAndRemaining(Collection $orders, array $editableItems, array $normalizedPeople, int $splitCount): array
     {
         $editableByOrderItemId = [];
         foreach ($editableItems as $item) {
@@ -317,11 +323,14 @@ class InvoiceSplitService
         }
 
         $assignedByOrderItemId = [];
+        $personRows = [];
+        $personSubtotalByOrder = [];
         $people = [];
+        $remainingSummaryCents = $this->emptySummaryCents();
 
         foreach ($normalizedPeople as $person) {
-            $personTotalCents = 0;
             $personItems = [];
+            $personIndex = (int) $person['person_index'];
 
             foreach ($person['items'] as $assignment) {
                 $orderItemId = (int) $assignment['order_item_id'];
@@ -331,37 +340,87 @@ class InvoiceSplitService
                     continue;
                 }
 
-                $unitPrice = (float) $editableItem['unit_price'];
-                $lineSubtotalCents = (int) round($unitPrice * $quantity * 100);
-                $personTotalCents += $lineSubtotalCents;
+                $lineSubtotalCents = Money::toCents($editableItem['unit_price']) * $quantity;
+                $orderId = (int) $editableItem['order_id'];
                 $assignedByOrderItemId[$orderItemId] = ($assignedByOrderItemId[$orderItemId] ?? 0) + $quantity;
+                $personSubtotalByOrder[$personIndex][$orderId] = ($personSubtotalByOrder[$personIndex][$orderId] ?? 0) + $lineSubtotalCents;
 
                 $personItems[] = [
                     'order_item_id' => $orderItemId,
                     'dish_name' => $editableItem['dish_name'],
                     'quantity' => $quantity,
                     'unit_price' => $editableItem['unit_price'],
-                    'line_subtotal' => number_format($lineSubtotalCents / 100, 2, '.', ''),
+                    'line_subtotal' => Money::formatCents($lineSubtotalCents),
                 ];
             }
 
-            $people[] = [
-                'person_index' => (int) $person['person_index'],
-                'label' => 'Person '.(int) $person['person_index'],
-                'total' => number_format($personTotalCents / 100, 2, '.', ''),
+            $personRows[$personIndex] = [
+                'person_index' => $personIndex,
+                'label' => 'Person '.$personIndex,
                 'items' => $personItems,
+                'summary_cents' => $this->emptySummaryCents(),
             ];
         }
 
-        if (count($people) < $splitCount) {
-            for ($personIndex = count($people) + 1; $personIndex <= $splitCount; $personIndex++) {
-                $people[] = [
-                    'person_index' => $personIndex,
-                    'label' => 'Person '.$personIndex,
-                    'total' => '0.00',
-                    'items' => [],
-                ];
+        for ($personIndex = 1; $personIndex <= $splitCount; $personIndex++) {
+            $personRows[$personIndex] = $personRows[$personIndex] ?? [
+                'person_index' => $personIndex,
+                'label' => 'Person '.$personIndex,
+                'items' => [],
+                'summary_cents' => $this->emptySummaryCents(),
+            ];
+        }
+
+        foreach ($orders as $order) {
+            $bucketSubtotals = [];
+            for ($personIndex = 1; $personIndex <= $splitCount; $personIndex++) {
+                $bucketSubtotals['person-'.$personIndex] = (int) ($personSubtotalByOrder[$personIndex][(int) $order->id] ?? 0);
             }
+            $bucketSubtotals['unassigned'] = 0;
+
+            foreach ($order->items as $item) {
+                $orderItemId = (int) $item->id;
+                $remainingQuantity = max((int) $item->quantity - (int) ($assignedByOrderItemId[$orderItemId] ?? 0), 0);
+                if ($remainingQuantity <= 0) {
+                    continue;
+                }
+
+                $bucketSubtotals['unassigned'] += Money::toCents($item->final_unit_price ?? $item->unit_price) * $remainingQuantity;
+            }
+
+            $discountAllocations = $this->allocateProportionally(
+                Money::toCents($order->discount_amount),
+                $bucketSubtotals
+            );
+
+            $taxableBuckets = [];
+            foreach ($bucketSubtotals as $bucketKey => $subtotalCents) {
+                $taxableBuckets[$bucketKey] = max($subtotalCents - ($discountAllocations[$bucketKey] ?? 0), 0);
+            }
+
+            $serviceChargeAllocations = $this->allocateProportionally(
+                Money::toCents($order->service_charge_amount),
+                $taxableBuckets
+            );
+            $vatAllocations = $this->allocateProportionally(
+                Money::toCents($order->vat_amount),
+                $taxableBuckets
+            );
+
+            for ($personIndex = 1; $personIndex <= $splitCount; $personIndex++) {
+                $bucketKey = 'person-'.$personIndex;
+                $personRows[$personIndex]['summary_cents']['subtotal'] += $bucketSubtotals[$bucketKey];
+                $personRows[$personIndex]['summary_cents']['discount_amount'] += $discountAllocations[$bucketKey] ?? 0;
+                $personRows[$personIndex]['summary_cents']['taxable_subtotal'] += $taxableBuckets[$bucketKey];
+                $personRows[$personIndex]['summary_cents']['service_charge_amount'] += $serviceChargeAllocations[$bucketKey] ?? 0;
+                $personRows[$personIndex]['summary_cents']['vat_amount'] += $vatAllocations[$bucketKey] ?? 0;
+            }
+
+            $remainingSummaryCents['subtotal'] += $bucketSubtotals['unassigned'];
+            $remainingSummaryCents['discount_amount'] += $discountAllocations['unassigned'] ?? 0;
+            $remainingSummaryCents['taxable_subtotal'] += $taxableBuckets['unassigned'];
+            $remainingSummaryCents['service_charge_amount'] += $serviceChargeAllocations['unassigned'] ?? 0;
+            $remainingSummaryCents['vat_amount'] += $vatAllocations['unassigned'] ?? 0;
         }
 
         $remainingItems = [];
@@ -377,11 +436,23 @@ class InvoiceSplitService
             $remainingItems[] = [
                 ...$item,
                 'remaining_quantity' => $remainingQuantity,
-                'line_subtotal' => number_format(((float) $item['unit_price']) * $remainingQuantity, 2, '.', ''),
+                'line_subtotal' => Money::formatCents(Money::toCents($item['unit_price']) * $remainingQuantity),
             ];
         }
 
-        return [$people, $remainingItems, count($remainingItems) === 0];
+        for ($personIndex = 1; $personIndex <= $splitCount; $personIndex++) {
+            $summaryCents = $personRows[$personIndex]['summary_cents'];
+            $summary = $this->formatSummary($summaryCents);
+            $people[] = [
+                'person_index' => $personIndex,
+                'label' => $personRows[$personIndex]['label'],
+                'total' => $summary['total'],
+                'items' => $personRows[$personIndex]['items'],
+                'summary' => $summary,
+            ];
+        }
+
+        return [$people, $remainingItems, $this->formatSummary($remainingSummaryCents), count($remainingItems) === 0];
     }
 
     /**
@@ -390,7 +461,10 @@ class InvoiceSplitService
      */
     private function equalBreakdown(Collection $orders, int $splitCount): array
     {
-        $totalCents = (int) round($orders->sum(fn (Order $order) => (float) $order->total) * 100);
+        $totalCents = $orders->reduce(
+            fn (int $carry, Order $order): int => $carry + Money::toCents($order->total),
+            0
+        );
         $baseShareCents = intdiv($totalCents, $splitCount);
         $remainderCents = $totalCents % $splitCount;
 
@@ -402,7 +476,7 @@ class InvoiceSplitService
             $shares[] = [
                 'key' => 'equal-'.$index,
                 'label' => 'Person '.$index,
-                'amount' => number_format($shareCents / 100, 2, '.', ''),
+                'amount' => Money::formatCents($shareCents),
             ];
         }
 
@@ -428,5 +502,90 @@ class InvoiceSplitService
                 || str_contains($message, 'invoice_split_count')
                 || str_contains($message, 'invoice_split_allocations')
             );
+    }
+
+    /**
+     * @param array<string,int> $bases
+     * @return array<string,int>
+     */
+    private function allocateProportionally(int $amountCents, array $bases): array
+    {
+        $allocations = array_fill_keys(array_keys($bases), 0);
+        $totalBase = array_sum($bases);
+
+        if ($amountCents <= 0 || $totalBase <= 0) {
+            return $allocations;
+        }
+
+        $remaining = $amountCents;
+        $remainders = [];
+
+        foreach ($bases as $key => $base) {
+            if ($base <= 0) {
+                $remainders[$key] = 0;
+                continue;
+            }
+
+            $numerator = $amountCents * $base;
+            $allocation = intdiv($numerator, $totalBase);
+            $allocations[$key] = $allocation;
+            $remaining -= $allocation;
+            $remainders[$key] = $numerator % $totalBase;
+        }
+
+        uasort($remainders, static function (int $left, int $right): int {
+            return $right <=> $left;
+        });
+
+        foreach (array_keys($remainders) as $key) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $allocations[$key] += 1;
+            $remaining--;
+        }
+
+        return $allocations;
+    }
+
+    /**
+     * @return array{subtotal:int,discount_amount:int,taxable_subtotal:int,service_charge_amount:int,vat_amount:int}
+     */
+    private function emptySummaryCents(): array
+    {
+        return [
+            'subtotal' => 0,
+            'discount_amount' => 0,
+            'taxable_subtotal' => 0,
+            'service_charge_amount' => 0,
+            'vat_amount' => 0,
+        ];
+    }
+
+    /**
+     * @param array{subtotal:int,discount_amount:int,taxable_subtotal:int,service_charge_amount:int,vat_amount:int} $summaryCents
+     * @return array{subtotal:string,discount_amount:string,taxable_subtotal:string,service_charge_amount:string,vat_amount:string,total:string}
+     */
+    private function formatSummary(array $summaryCents): array
+    {
+        $total = $summaryCents['taxable_subtotal'] + $summaryCents['service_charge_amount'] + $summaryCents['vat_amount'];
+
+        return [
+            'subtotal' => Money::formatCents($summaryCents['subtotal']),
+            'discount_amount' => Money::formatCents($summaryCents['discount_amount']),
+            'taxable_subtotal' => Money::formatCents($summaryCents['taxable_subtotal']),
+            'service_charge_amount' => Money::formatCents($summaryCents['service_charge_amount']),
+            'vat_amount' => Money::formatCents($summaryCents['vat_amount']),
+            'total' => Money::formatCents($total),
+        ];
+    }
+
+    /**
+     * @return array{subtotal:string,discount_amount:string,taxable_subtotal:string,service_charge_amount:string,vat_amount:string,total:string}
+     */
+    private function emptySummary(): array
+    {
+        return $this->formatSummary($this->emptySummaryCents());
     }
 }

@@ -32,13 +32,19 @@ class OrderFactory extends Factory
             'table_reference' => 'T'.fake()->numerify('##'),
             'notes' => null,
             'vat_rate' => '0.00',
+            'service_charge_rate' => '0.00',
             'subtotal' => '0.00',
             'discount_type' => null,
             'discount_value' => '0.00',
             'discount_amount' => '0.00',
             'taxable_subtotal' => '0.00',
             'vat_amount' => '0.00',
+            'service_charge_amount' => '0.00',
             'total' => '0.00',
+            'currency' => 'USD',
+            'exchange_rate' => '1.0000',
+            'payment_method' => null,
+            'payment_reference' => null,
             'confirmed_by' => null,
             'confirmed_at' => null,
             'cancelled_by' => null,
@@ -68,4 +74,3 @@ class OrderFactory extends Factory
         ]);
     }
 }
-

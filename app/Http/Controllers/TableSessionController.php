@@ -11,6 +11,7 @@ use App\Models\RoomPlanItem;
 use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
+use App\Support\Money;
 use App\Services\GuestMenuSessionService;
 use App\Services\InvoiceSplitService;
 use App\Services\StaffCapabilityService;
@@ -216,7 +217,7 @@ class TableSessionController extends Controller
         $this->staffCapabilityService->assertCanAccessSession($request->user(), $restaurant, $tableSession);
 
         $validated = $request->validate([
-            'payment_method' => ['nullable', 'in:cash,card,transfer,other'],
+            'payment_method' => ['nullable', 'in:cash,card,transfer,other,wallet'],
             'payment_reference' => ['nullable', 'string', 'max:120'],
         ]);
 
@@ -331,8 +332,8 @@ class TableSessionController extends Controller
                 'dish_name' => $item->dish_name,
                 'dish_name_ar' => $this->resolveArabicDishName($item),
                 'quantity' => $item->quantity,
-                'unit_price' => number_format((float) $item->unit_price, 2, '.', ''),
-                'line_subtotal' => number_format((float) $item->line_subtotal, 2, '.', ''),
+                'unit_price' => Money::normalizeDecimal($item->final_unit_price ?? $item->unit_price, 2),
+                'line_subtotal' => Money::normalizeDecimal($item->line_subtotal, 2),
             ]))
             ->values();
 
@@ -352,14 +353,42 @@ class TableSessionController extends Controller
                 ->map(fn (Order $order) => $order->order_number ?: 'ORD-'.$order->id)
                 ->values(),
             'summary' => [
-                'subtotal' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->subtotal), 2, '.', ''),
+                'subtotal' => Money::formatCents($orders->reduce(
+                    fn (int $carry, Order $order): int => $carry + Money::toCents($order->subtotal),
+                    0
+                )),
                 'discount_type' => null,
                 'discount_value' => '0.00',
-                'discount_amount' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->discount_amount), 2, '.', ''),
-                'taxable_subtotal' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->taxable_subtotal), 2, '.', ''),
-                'vat_rate' => number_format((float) $orders->max(fn (Order $order) => (float) $order->vat_rate), 2, '.', ''),
-                'vat_amount' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->vat_amount), 2, '.', ''),
-                'total' => number_format((float) $orders->sum(fn (Order $order) => (float) $order->total), 2, '.', ''),
+                'discount_amount' => Money::formatCents($orders->reduce(
+                    fn (int $carry, Order $order): int => $carry + Money::toCents($order->discount_amount),
+                    0
+                )),
+                'taxable_subtotal' => Money::formatCents($orders->reduce(
+                    fn (int $carry, Order $order): int => $carry + Money::toCents($order->taxable_subtotal),
+                    0
+                )),
+                'service_charge_rate' => Money::formatScaledInt(
+                    (int) $orders->map(fn (Order $order): int => Money::toScaledInt($order->service_charge_rate, 2))->max(),
+                    2
+                ),
+                'service_charge_amount' => Money::formatCents($orders->reduce(
+                    fn (int $carry, Order $order): int => $carry + Money::toCents($order->service_charge_amount),
+                    0
+                )),
+                'vat_rate' => Money::formatScaledInt(
+                    (int) $orders->map(fn (Order $order): int => Money::toScaledInt($order->vat_rate, 2))->max(),
+                    2
+                ),
+                'vat_amount' => Money::formatCents($orders->reduce(
+                    fn (int $carry, Order $order): int => $carry + Money::toCents($order->vat_amount),
+                    0
+                )),
+                'total' => Money::formatCents($orders->reduce(
+                    fn (int $carry, Order $order): int => $carry + Money::toCents($order->total),
+                    0
+                )),
+                'currency' => (string) ($session->restaurant->currency ?? 'USD'),
+                'exchange_rate' => Money::formatScaledInt(Money::toScaledInt($session->restaurant->dollar_rate ?? 1, 4), 4),
             ],
             'invoice_split' => $this->invoiceSplitService->buildPayload(
                 $session,

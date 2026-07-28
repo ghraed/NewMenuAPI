@@ -206,6 +206,8 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
         Route::post('/admin/finance/invoices', [InvoiceController::class, 'store'])
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
+        Route::get('/admin/finance/invoices/{invoice}/pdf', [InvoiceController::class, 'downloadPdf'])
+            ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
         Route::get('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'show'])
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
         Route::patch('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'update'])
