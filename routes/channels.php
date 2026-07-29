@@ -52,5 +52,5 @@ Broadcast::channel('restaurant.{restaurantId}.accounting', function (User $user,
         return false;
     }
 
-    return $user->isAdmin() || $user->isAccountant() || $user->isStaff();
+    return $user->isAdmin() || $user->isAccountant();
 });
