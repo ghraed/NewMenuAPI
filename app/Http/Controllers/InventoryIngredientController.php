@@ -141,6 +141,25 @@ class InventoryIngredientController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, Ingredient $ingredient): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $ingredient = $this->assertIngredientBelongsToRestaurant($ingredient, $restaurant);
+
+        DB::transaction(function () use ($ingredient): void {
+            $lockedIngredient = Ingredient::query()
+                ->whereKey($ingredient->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $lockedIngredient->delete();
+        });
+
+        return response()->json([
+            'message' => 'Ingredient deleted successfully.',
+        ]);
+    }
+
     public function activate(Request $request, Ingredient $ingredient): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -184,6 +203,7 @@ class InventoryIngredientController extends Controller
 
         $validated = $request->validate([
             'quantity' => ['required', 'numeric', 'gt:0'],
+            'unit' => ['sometimes', 'string', 'max:20'],
             'reference' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'create_expense' => ['sometimes', 'boolean'],
@@ -212,18 +232,23 @@ class InventoryIngredientController extends Controller
             'expense_paid_at' => ['sometimes', 'nullable', 'date'],
         ]);
 
-        $restockQuantity = round((float) $validated['quantity'], 3);
         $expenseDraftInput = $this->prepareExpenseLinkInput($validated);
         $status = 'unlinked';
         $warning = null;
         $linkedExpense = null;
 
-        $restockResult = DB::transaction(function () use ($request, $ingredient, $validated, $restockQuantity, $expenseDraftInput) {
+        $restockResult = DB::transaction(function () use ($request, $ingredient, $validated, $expenseDraftInput) {
             /** @var Ingredient $lockedIngredient */
             $lockedIngredient = Ingredient::query()
                 ->whereKey($ingredient->id)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $restockQuantity = $this->convertToStockQuantity(
+                (float) $validated['quantity'],
+                $validated['unit'] ?? null,
+                $lockedIngredient
+            );
 
             $quantityBefore = round((float) $lockedIngredient->current_stock_quantity, 3);
             $quantityAfter = round($quantityBefore + $restockQuantity, 3);
@@ -268,12 +293,14 @@ class InventoryIngredientController extends Controller
                 'ingredient' => $lockedIngredient,
                 'movement' => $movement,
                 'quantity_before' => $quantityBefore,
+                'restock_quantity' => $restockQuantity,
             ];
         });
 
         $ingredient = $restockResult['ingredient'];
         $movement = $restockResult['movement'];
         $quantityBefore = (float) $restockResult['quantity_before'];
+        $restockQuantity = (float) $restockResult['restock_quantity'];
 
         if ($expenseDraftInput['wants_link']) {
             if (! $expenseDraftInput['can_create']) {
@@ -385,18 +412,23 @@ class InventoryIngredientController extends Controller
 
         $validated = $request->validate([
             'quantity_delta' => ['required', 'numeric', 'not_in:0'],
+            'unit' => ['sometimes', 'string', 'max:20'],
             'reference' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $quantityDelta = round((float) $validated['quantity_delta'], 3);
-
-        $ingredient = DB::transaction(function () use ($request, $ingredient, $validated, $quantityDelta) {
+        $ingredient = DB::transaction(function () use ($request, $ingredient, $validated) {
             /** @var Ingredient $lockedIngredient */
             $lockedIngredient = Ingredient::query()
                 ->whereKey($ingredient->id)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $quantityDelta = $this->convertToStockQuantity(
+                (float) $validated['quantity_delta'],
+                $validated['unit'] ?? null,
+                $lockedIngredient
+            );
 
             $quantityBefore = round((float) $lockedIngredient->current_stock_quantity, 3);
             $quantityAfter = round($quantityBefore + $quantityDelta, 3);
@@ -629,6 +661,66 @@ class InventoryIngredientController extends Controller
     private function formatQuantity(float $value): string
     {
         return number_format($value, 3, '.', '');
+    }
+
+    private function convertToStockQuantity(float $quantity, mixed $inputUnit, Ingredient $ingredient): float
+    {
+        $normalizedUnit = $this->normalizeQuantityUnit($inputUnit);
+
+        if ($normalizedUnit === null) {
+            return round($quantity, 3);
+        }
+
+        $conversion = $this->quantityUnitConversions()[$normalizedUnit] ?? null;
+        if ($conversion === null) {
+            throw ValidationException::withMessages([
+                'unit' => 'Unsupported quantity unit.',
+            ]);
+        }
+
+        if ($conversion['base_unit'] !== $ingredient->stock_unit) {
+            throw ValidationException::withMessages([
+                'unit' => 'Quantity unit is not compatible with the ingredient stock unit.',
+            ]);
+        }
+
+        return round($quantity * $conversion['factor'], 3);
+    }
+
+    private function normalizeQuantityUnit(mixed $inputUnit): ?string
+    {
+        if (! is_string($inputUnit)) {
+            return null;
+        }
+
+        $normalized = strtolower(trim($inputUnit));
+
+        return $normalized === '' ? null : $normalized;
+    }
+
+    /**
+     * @return array<string, array{base_unit:string,factor:float}>
+     */
+    private function quantityUnitConversions(): array
+    {
+        return [
+            'g' => ['base_unit' => Ingredient::UNIT_GRAM, 'factor' => 1.0],
+            'gram' => ['base_unit' => Ingredient::UNIT_GRAM, 'factor' => 1.0],
+            'grams' => ['base_unit' => Ingredient::UNIT_GRAM, 'factor' => 1.0],
+            'kg' => ['base_unit' => Ingredient::UNIT_GRAM, 'factor' => 1000.0],
+            'kilogram' => ['base_unit' => Ingredient::UNIT_GRAM, 'factor' => 1000.0],
+            'kilograms' => ['base_unit' => Ingredient::UNIT_GRAM, 'factor' => 1000.0],
+            'ml' => ['base_unit' => Ingredient::UNIT_MILLILITER, 'factor' => 1.0],
+            'milliliter' => ['base_unit' => Ingredient::UNIT_MILLILITER, 'factor' => 1.0],
+            'milliliters' => ['base_unit' => Ingredient::UNIT_MILLILITER, 'factor' => 1.0],
+            'l' => ['base_unit' => Ingredient::UNIT_MILLILITER, 'factor' => 1000.0],
+            'liter' => ['base_unit' => Ingredient::UNIT_MILLILITER, 'factor' => 1000.0],
+            'liters' => ['base_unit' => Ingredient::UNIT_MILLILITER, 'factor' => 1000.0],
+            'piece' => ['base_unit' => Ingredient::UNIT_PIECE, 'factor' => 1.0],
+            'pieces' => ['base_unit' => Ingredient::UNIT_PIECE, 'factor' => 1.0],
+            'pc' => ['base_unit' => Ingredient::UNIT_PIECE, 'factor' => 1.0],
+            'pcs' => ['base_unit' => Ingredient::UNIT_PIECE, 'factor' => 1.0],
+        ];
     }
 
     private function normalizeIngredientName(string $value): string

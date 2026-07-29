@@ -255,6 +255,88 @@ class InventoryIngredientApiTest extends TestCase
             ->assertJsonCount(0, 'movements');
     }
 
+    public function test_inventory_api_supports_quantity_unit_conversion_for_restock_and_adjustment(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $restaurant = $this->createRestaurant($admin);
+        $this->enableFeature($restaurant, 'inventory');
+
+        Sanctum::actingAs($admin);
+
+        $createResponse = $this->postJson('/api/inventory/ingredients', [
+            'name' => 'Bread Flour',
+            'unit' => Ingredient::UNIT_GRAM,
+            'current_quantity' => 1000,
+            'low_stock_threshold' => 500,
+            'target_quantity' => 3000,
+        ])->assertCreated();
+
+        $ingredientId = (int) $createResponse->json('ingredient.id');
+
+        $this->postJson("/api/inventory/ingredients/{$ingredientId}/restock", [
+            'quantity' => 1.5,
+            'unit' => 'kg',
+            'reference' => 'KG-RESTOCK',
+        ])->assertOk()
+            ->assertJsonPath('ingredient.current_quantity', '2500.000');
+
+        $this->postJson("/api/inventory/ingredients/{$ingredientId}/adjust", [
+            'quantity_delta' => -0.25,
+            'unit' => 'kg',
+            'reference' => 'KG-WASTE',
+        ])->assertOk()
+            ->assertJsonPath('ingredient.current_quantity', '2250.000');
+
+        $historyResponse = $this->getJson('/api/inventory/stock-history');
+        $historyResponse->assertOk()
+            ->assertJsonPath('movements.0.reference_id', 'KG-WASTE')
+            ->assertJsonPath('movements.0.quantity', '-250.000')
+            ->assertJsonPath('movements.0.unit', Ingredient::UNIT_GRAM)
+            ->assertJsonPath('movements.1.reference_id', 'KG-RESTOCK')
+            ->assertJsonPath('movements.1.quantity', '1500.000')
+            ->assertJsonPath('movements.1.unit', Ingredient::UNIT_GRAM);
+    }
+
+    public function test_inventory_api_can_delete_ingredient_without_losing_stock_history_snapshots(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $restaurant = $this->createRestaurant($admin);
+        $this->enableFeature($restaurant, 'inventory');
+
+        Sanctum::actingAs($admin);
+
+        $createResponse = $this->postJson('/api/inventory/ingredients', [
+            'name' => 'Delete Me',
+            'unit' => Ingredient::UNIT_PIECE,
+            'current_quantity' => 12,
+            'low_stock_threshold' => 2,
+            'target_quantity' => 20,
+        ])->assertCreated();
+
+        $ingredientId = (int) $createResponse->json('ingredient.id');
+
+        $this->postJson("/api/inventory/ingredients/{$ingredientId}/adjust", [
+            'quantity_delta' => -2,
+            'reference' => 'DELETE-WASTE',
+        ])->assertOk();
+
+        $this->deleteJson("/api/inventory/ingredients/{$ingredientId}")
+            ->assertOk()
+            ->assertJsonPath('message', 'Ingredient deleted successfully.');
+
+        $this->assertDatabaseMissing('ingredients', [
+            'id' => $ingredientId,
+        ]);
+
+        $historyResponse = $this->getJson('/api/inventory/stock-history');
+        $historyResponse->assertOk()
+            ->assertJsonCount(2, 'movements')
+            ->assertJsonPath('movements.0.ingredient_name', 'Delete Me')
+            ->assertJsonPath('movements.0.quantity', '-2.000')
+            ->assertJsonPath('movements.1.ingredient_name', 'Delete Me')
+            ->assertJsonPath('movements.1.quantity', '12.000');
+    }
+
     private function createRestaurant(User $owner): Restaurant
     {
         return Restaurant::query()->create([

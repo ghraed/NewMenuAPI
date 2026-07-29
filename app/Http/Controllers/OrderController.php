@@ -9,10 +9,13 @@ use App\Events\KitchenOrderReady;
 use App\Events\KitchenOrderUpdated;
 use App\Models\Dish;
 use App\Models\ChatOrder;
+use App\Models\Ingredient;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderItemIngredientUsage;
 use App\Models\Restaurant;
 use App\Models\RestaurantTable;
+use App\Models\StockMovement;
 use App\Models\TableSession;
 use App\Models\User;
 use App\Services\DishAlternativeSuggestionService;
@@ -636,6 +639,9 @@ class OrderController extends Controller
         return response()->json([
             'message' => __('messages.orders.confirmed'),
             'order' => $this->formatOrder($order),
+            'inventory' => feature_enabled('ingredient_stock_deduction', $restaurant)
+                ? $this->buildInventorySummaryForOrder($order)
+                : $this->emptyInventorySummary(),
         ]);
     }
 
@@ -1410,59 +1416,77 @@ class OrderController extends Controller
         $userId = (int) $request->user()->id;
 
         try {
-            $order = DB::transaction(function () use (
+            $result = $this->runPosCheckoutWithIdempotency(
+                $request,
                 $restaurant,
-                $restaurantTable,
-                $tableReference,
+                $userId,
                 $validated,
-                $preparedItems,
-                $invoice,
-                $userId
-            ) {
-                $order = $restaurant->orders()->create([
-                    'uuid' => (string) Str::uuid(),
-                    'restaurant_table_id' => $restaurantTable?->id,
-                    'table_session_id' => null,
-                    'status' => Order::STATUS_STAFF_CONFIRMED,
-                    'guest_name' => $tableReference,
-                    'table_reference' => $tableReference,
-                    'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
-                    'confirmed_by' => $userId,
-                    'confirmed_at' => now(),
-                    'currency' => (string) ($restaurant->currency ?? 'USD'),
-                    'exchange_rate' => (string) ($restaurant->dollar_rate ?? 1),
-                    ...$invoice,
-                ]);
+                function () use (
+                    $restaurant,
+                    $restaurantTable,
+                    $tableReference,
+                    $validated,
+                    $preparedItems,
+                    $invoice,
+                    $userId
+                ): Order {
+                    return DB::transaction(function () use (
+                        $restaurant,
+                        $restaurantTable,
+                        $tableReference,
+                        $validated,
+                        $preparedItems,
+                        $invoice,
+                        $userId
+                    ) {
+                        $order = $restaurant->orders()->create([
+                            'uuid' => (string) Str::uuid(),
+                            'restaurant_table_id' => $restaurantTable?->id,
+                            'table_session_id' => null,
+                            'status' => Order::STATUS_STAFF_CONFIRMED,
+                            'guest_name' => $tableReference,
+                            'table_reference' => $tableReference,
+                            'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
+                            'confirmed_by' => $userId,
+                            'confirmed_at' => now(),
+                            'currency' => (string) ($restaurant->currency ?? 'USD'),
+                            'exchange_rate' => (string) ($restaurant->dollar_rate ?? 1),
+                            ...$invoice,
+                        ]);
 
-                $order->items()->createMany(array_map(
-                    fn (array $item): array => [
-                        'dish_id' => $item['dish_id'],
-                        'dish_name' => $item['dish_name'],
-                        'unit_price' => $item['unit_price'],
-                        'quantity' => $item['quantity'],
-                        'line_subtotal' => $item['line_subtotal'],
-                    ],
-                    $preparedItems
-                ));
+                        $order->items()->createMany(array_map(
+                            fn (array $item): array => [
+                                'dish_id' => $item['dish_id'],
+                                'dish_name' => $item['dish_name'],
+                                'unit_price' => $item['unit_price'],
+                                'quantity' => $item['quantity'],
+                                'line_subtotal' => $item['line_subtotal'],
+                            ],
+                            $preparedItems
+                        ));
 
-                $order->update([
-                    'order_number' => $this->formatOrderNumber($order),
-                ]);
+                        $order->update([
+                            'order_number' => $this->formatOrderNumber($order),
+                        ]);
 
-                if (feature_enabled('ingredient_stock_deduction', $restaurant)) {
-                    $this->orderInventoryDeductionService->deductForConfirmedOrder($order, $userId);
+                        if (feature_enabled('ingredient_stock_deduction', $restaurant)) {
+                            $this->orderInventoryDeductionService->deductForConfirmedOrder($order, $userId);
+                        }
+
+                        $order->update([
+                            'status' => Order::STATUS_ACCOUNTED,
+                            'invoice_number' => $this->formatInvoiceNumber($order),
+                            'accounted_by' => $userId,
+                            'accounted_at' => now(),
+                            'payment_method' => $validated['payment_method'],
+                        ]);
+
+                        return $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
+                    });
                 }
-
-                $order->update([
-                    'status' => Order::STATUS_ACCOUNTED,
-                    'invoice_number' => $this->formatInvoiceNumber($order),
-                    'accounted_by' => $userId,
-                    'accounted_at' => now(),
-                    'payment_method' => $validated['payment_method'],
-                ]);
-
-                return $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
-            });
+            );
+            $order = $result['order'];
+            $replayed = $result['replayed'];
         } catch (ValidationException $exception) {
             $firstError = collect($exception->errors())
                 ->flatten()
@@ -1490,13 +1514,89 @@ class OrderController extends Controller
         return response()->json([
             'message' => __('messages.orders.pos_checkout_completed'),
             'order' => $this->formatOrder($order),
+            'inventory' => feature_enabled('ingredient_stock_deduction', $restaurant)
+                ? $this->buildInventorySummaryForOrder($order)
+                : $this->emptyInventorySummary(),
             'payment' => [
                 'method' => $paymentMethod,
                 'amount_received' => number_format($effectiveAmountReceived, 2, '.', ''),
                 'change_due' => number_format($changeDue, 2, '.', ''),
                 'total' => number_format($totalAmount, 2, '.', ''),
             ],
-        ], 201);
+        ], $replayed ? 200 : 201);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @param  callable(): Order  $creator
+     * @return array{order: Order, replayed: bool}
+     */
+    private function runPosCheckoutWithIdempotency(
+        Request $request,
+        Restaurant $restaurant,
+        int $userId,
+        array $validated,
+        callable $creator
+    ): array {
+        $idempotencyKey = $this->extractIdempotencyKey($request);
+
+        if ($idempotencyKey === null) {
+            return [
+                'order' => $creator(),
+                'replayed' => false,
+            ];
+        }
+
+        $payloadHash = hash(
+            'sha256',
+            json_encode($this->normalizeOrderIdempotencyPayload($validated), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+        $scope = sprintf(
+            'pos-checkout:idempotency:%d:%d:%s',
+            $restaurant->id,
+            $userId,
+            hash('sha256', $idempotencyKey)
+        );
+        $lock = Cache::lock($scope.':lock', 10);
+
+        $result = $lock->get(function () use ($scope, $payloadHash, $creator): array {
+            $cached = Cache::get($scope);
+
+            if (is_array($cached) && isset($cached['payload_hash'], $cached['order_id'])) {
+                if (! hash_equals((string) $cached['payload_hash'], $payloadHash)) {
+                    throw new HttpResponseException(response()->json([
+                        'message' => 'The idempotency key was already used for a different POS checkout payload.',
+                    ], 409));
+                }
+
+                $order = Order::query()->findOrFail((int) $cached['order_id']);
+
+                return [
+                    'order' => $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy', 'accountedBy']),
+                    'replayed' => true,
+                ];
+            }
+
+            $order = $creator();
+
+            Cache::put($scope, [
+                'order_id' => $order->id,
+                'payload_hash' => $payloadHash,
+            ], now()->addDay());
+
+            return [
+                'order' => $order,
+                'replayed' => false,
+            ];
+        });
+
+        if ($result === false) {
+            throw new HttpResponseException(response()->json([
+                'message' => 'Another POS checkout with the same idempotency key is already being processed.',
+            ], 409));
+        }
+
+        return $result;
     }
 
     private function preparePendingOrderUpdateItems(Restaurant $restaurant, Order $order, array $requestedItems): array
@@ -1725,6 +1825,73 @@ class OrderController extends Controller
             'cancelled_by' => $this->formatActor($order->cancelledBy),
             'accounted_by' => $this->formatActor($order->accountedBy),
         ];
+    }
+
+    /**
+     * @return array{has_low_stock_ingredients: bool, low_stock_ingredients: array<int, array{id:int,name:string,unit:string,current_quantity:string,low_stock_threshold:string}>}
+     */
+    private function buildInventorySummaryForOrder(Order $order): array
+    {
+        $recipeIngredientIds = OrderItemIngredientUsage::query()
+            ->where('order_id', $order->id)
+            ->whereNotNull('ingredient_id')
+            ->pluck('ingredient_id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        $directIngredientIds = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+            ->where('inventory_source', StockMovement::SOURCE_DIRECT_PACKAGED_SALE)
+            ->whereNotNull('ingredient_id')
+            ->pluck('ingredient_id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        $ingredientIds = array_values(array_unique(array_merge($recipeIngredientIds, $directIngredientIds)));
+        if ($ingredientIds === []) {
+            return $this->emptyInventorySummary();
+        }
+
+        $lowStockIngredients = Ingredient::query()
+            ->where('restaurant_id', $order->restaurant_id)
+            ->whereIn('id', $ingredientIds)
+            ->get()
+            ->filter(function (Ingredient $ingredient): bool {
+                return $ingredient->is_active
+                    && (float) $ingredient->current_stock_quantity <= (float) $ingredient->low_stock_threshold;
+            })
+            ->sortBy('name')
+            ->values();
+
+        return [
+            'has_low_stock_ingredients' => $lowStockIngredients->isNotEmpty(),
+            'low_stock_ingredients' => $lowStockIngredients
+                ->map(fn (Ingredient $ingredient): array => [
+                    'id' => $ingredient->id,
+                    'name' => $ingredient->name,
+                    'unit' => $ingredient->stock_unit,
+                    'current_quantity' => $this->formatInventoryQuantity((float) $ingredient->current_stock_quantity),
+                    'low_stock_threshold' => $this->formatInventoryQuantity((float) $ingredient->low_stock_threshold),
+                ])
+                ->all(),
+        ];
+    }
+
+    /**
+     * @return array{has_low_stock_ingredients: bool, low_stock_ingredients: array<int, array{id:int,name:string,unit:string,current_quantity:string,low_stock_threshold:string}>}
+     */
+    private function emptyInventorySummary(): array
+    {
+        return [
+            'has_low_stock_ingredients' => false,
+            'low_stock_ingredients' => [],
+        ];
+    }
+
+    private function formatInventoryQuantity(float $quantity): string
+    {
+        return number_format($quantity, 3, '.', '');
     }
 
     private function formatActor(?User $user): ?array

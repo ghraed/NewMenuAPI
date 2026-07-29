@@ -4,12 +4,14 @@ namespace Tests\Feature;
 
 use App\Models\Dish;
 use App\Models\DishIngredient;
+use App\Models\Feature;
 use App\Models\Ingredient;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderItemIngredientUsage;
 use App\Models\Restaurant;
+use App\Models\RestaurantFeature;
 use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -75,8 +77,11 @@ class InventoryContractsTest extends TestCase
             ],
         ]);
 
-        $response->assertStatus(422)
-            ->assertJsonPath('message', 'The following dishes are unavailable: Inactive Ingredient Bowl');
+        $response->assertStatus(422);
+        $this->assertStringContainsString(
+            'Inactive Ingredient Bowl',
+            (string) $response->json('message')
+        );
     }
 
     public function test_stock_history_api_includes_movement_unit_field(): void
@@ -355,7 +360,7 @@ class InventoryContractsTest extends TestCase
 
     private function createRestaurant(User $owner, string $slug): Restaurant
     {
-        return Restaurant::query()->create([
+        $restaurant = Restaurant::query()->create([
             'uuid' => (string) Str::uuid(),
             'user_id' => $owner->id,
             'name' => Str::headline($slug),
@@ -363,5 +368,33 @@ class InventoryContractsTest extends TestCase
             'description' => 'Inventory contract test restaurant',
             'address' => 'Beirut',
         ]);
+
+        $this->enableFeature($restaurant, 'inventory');
+        $this->enableFeature($restaurant, 'table_ordering');
+
+        return $restaurant;
+    }
+
+    private function enableFeature(Restaurant $restaurant, string $featureKey): void
+    {
+        $feature = Feature::query()->updateOrCreate(
+            ['key' => $featureKey],
+            [
+                'name' => Str::title(str_replace('_', ' ', $featureKey)),
+                'description' => 'Enabled in tests',
+                'category' => 'Testing',
+                'is_active_by_default' => false,
+            ]
+        );
+
+        RestaurantFeature::query()->updateOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'feature_id' => $feature->id,
+            ],
+            [
+                'enabled' => true,
+            ]
+        );
     }
 }

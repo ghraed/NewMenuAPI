@@ -92,6 +92,29 @@ class OrderInventoryDeductionTest extends TestCase
         ]);
     }
 
+    public function test_confirmation_returns_low_stock_warning_when_deduction_crosses_threshold(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $mint = $this->createIngredient($restaurant, 'Mint', 10, Ingredient::UNIT_GRAM, 6.000);
+
+        $dish = $this->createDish($restaurant, 'Mint Lemonade', 7.50);
+        $this->attachRecipe($dish, $mint, 5.000);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 1);
+
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/orders/{$order->id}/confirm")
+            ->assertOk()
+            ->assertJsonPath('inventory.has_low_stock_ingredients', true)
+            ->assertJsonPath('inventory.low_stock_ingredients.0.name', 'Mint')
+            ->assertJsonPath('inventory.low_stock_ingredients.0.current_quantity', '5.000')
+            ->assertJsonPath('inventory.low_stock_ingredients.0.low_stock_threshold', '6.000');
+    }
+
     public function test_pending_order_does_not_deduct_until_confirmation_and_duplicate_confirm_requests_do_not_deduct_twice(): void
     {
         $restaurant = $this->createRestaurant();
@@ -188,6 +211,33 @@ class OrderInventoryDeductionTest extends TestCase
         );
     }
 
+    public function test_rejected_pending_order_does_not_deduct_or_restore_inventory(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $lettuce = $this->createIngredient($restaurant, 'Lettuce', 14, Ingredient::UNIT_GRAM);
+
+        $dish = $this->createDish($restaurant, 'Green Salad', 9.50);
+        $this->attachRecipe($dish, $lettuce, 2.000);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/orders/{$order->id}/cancel")
+            ->assertOk()
+            ->assertJsonPath('order.status', Order::STATUS_STAFF_CANCELLED);
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $lettuce->id,
+            'current_stock_quantity' => '14.000',
+        ]);
+        $this->assertSame(0, OrderItemIngredientUsage::query()->where('order_id', $order->id)->count());
+        $this->assertSame(0, StockMovement::query()->where('order_id', $order->id)->count());
+    }
+
     public function test_inventory_deduction_service_is_idempotent_for_same_confirmed_order(): void
     {
         $restaurant = $this->createRestaurant();
@@ -232,6 +282,46 @@ class OrderInventoryDeductionTest extends TestCase
         $this->assertSame($quantityBefore, $quantityAfter);
     }
 
+    public function test_duplicate_job_retry_and_event_replay_invocations_do_not_deduct_twice_for_same_confirmed_order(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $tea = $this->createIngredient($restaurant, 'Tea Leaves', 12, Ingredient::UNIT_GRAM);
+
+        $dish = $this->createDish($restaurant, 'Tea Pot', 6.00);
+        $this->attachRecipe($dish, $tea, 2.000);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $usageCountBefore = OrderItemIngredientUsage::query()->where('order_id', $order->id)->count();
+        $movementCountBefore = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+            ->count();
+        $quantityBefore = (string) Ingredient::query()->findOrFail($tea->id)->current_stock_quantity;
+
+        $service = app(OrderInventoryDeductionService::class);
+        $service->deductForConfirmedOrder($order->fresh(), $staff->id);
+        $service->deductForConfirmedOrder($order->fresh(), $staff->id);
+        $service->deductForConfirmedOrder($order->fresh(), $staff->id);
+
+        $usageCountAfter = OrderItemIngredientUsage::query()->where('order_id', $order->id)->count();
+        $movementCountAfter = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+            ->count();
+        $quantityAfter = (string) Ingredient::query()->findOrFail($tea->id)->current_stock_quantity;
+
+        $this->assertSame($usageCountBefore, $usageCountAfter);
+        $this->assertSame($movementCountBefore, $movementCountAfter);
+        $this->assertSame($quantityBefore, $quantityAfter);
+    }
+
     public function test_pos_checkout_failure_rolls_back_order_creation_and_stock_deduction(): void
     {
         $admin = User::factory()->admin()->create();
@@ -266,6 +356,57 @@ class OrderInventoryDeductionTest extends TestCase
         ]);
         $this->assertSame(0, StockMovement::query()->count());
         $this->assertSame(0, OrderItemIngredientUsage::query()->count());
+    }
+
+    public function test_duplicate_pos_checkout_network_request_with_same_idempotency_key_does_not_deduct_twice(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $restaurant = $this->createRestaurant($admin);
+        $this->enableFeature($restaurant, 'table_ordering');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+
+        $coffee = $this->createIngredient($restaurant, 'Coffee Beans', 20, Ingredient::UNIT_GRAM, 15.000);
+        $dish = $this->createDish($restaurant, 'Espresso', 4.00);
+        $this->attachRecipe($dish, $coffee, 3.000);
+
+        Sanctum::actingAs($admin);
+
+        $headers = [
+            'X-Idempotency-Key' => 'pos-checkout-order-1',
+        ];
+        $payload = [
+            'table_reference' => 'T01',
+            'payment_method' => 'cash',
+            'amount_received' => 10,
+            'items' => [
+                [
+                    'dish_id' => $dish->id,
+                    'quantity' => 2,
+                ],
+            ],
+        ];
+
+        $firstResponse = $this->postJson('/api/pos/checkout', $payload, $headers);
+        $secondResponse = $this->postJson('/api/pos/checkout', $payload, $headers);
+
+        $firstResponse->assertCreated();
+        $secondResponse->assertOk()
+            ->assertJsonPath('order.id', $firstResponse->json('order.id'))
+            ->assertJsonPath('inventory.has_low_stock_ingredients', true)
+            ->assertJsonPath('inventory.low_stock_ingredients.0.name', 'Coffee Beans');
+
+        $this->assertSame(1, Order::query()->where('restaurant_id', $restaurant->id)->count());
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $coffee->id,
+            'current_stock_quantity' => '14.000',
+        ]);
+        $this->assertSame(
+            1,
+            StockMovement::query()
+                ->where('ingredient_id', $coffee->id)
+                ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+                ->count()
+        );
     }
 
     public function test_cancelling_a_confirmed_order_restores_inventory_from_usage_snapshots(): void

@@ -335,6 +335,7 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::post('/inventory/ingredients', [InventoryIngredientController::class, 'store']);
         Route::post('/inventory/ingredients/import-global', [InventoryIngredientController::class, 'importGlobal']);
         Route::patch('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'update']);
+        Route::delete('/inventory/ingredients/{ingredient}', [InventoryIngredientController::class, 'destroy']);
         Route::post('/inventory/ingredients/{ingredient}/activate', [InventoryIngredientController::class, 'activate']);
         Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
         Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
