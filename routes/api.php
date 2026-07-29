@@ -325,10 +325,12 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::post('/ingredients/generate-missing-images', [IngredientLibraryController::class, 'generateMissingImages']);
     });
 
-    Route::middleware(['role:admin,stock_manager', 'feature:inventory'])->group(function () {
+    Route::middleware(['role:admin,stock_manager'])->group(function () {
         // Inventory catalog reference
         Route::get('/global-ingredients', [GlobalIngredientController::class, 'index']);
+    });
 
+    Route::middleware(['role:admin,stock_manager', 'feature:inventory'])->group(function () {
         // Inventory ingredients
         Route::get('/inventory/ingredients', [InventoryIngredientController::class, 'index']);
         Route::get('/inventory/stock-history', [InventoryStockHistoryController::class, 'index']);

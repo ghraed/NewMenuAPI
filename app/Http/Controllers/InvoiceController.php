@@ -314,7 +314,8 @@ class InvoiceController extends Controller
         $validated = $request->validate([
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
-                        'group_by' => ['nullable', 'in:daily,monthly,yearly'],
+            'group_by' => ['nullable', 'in:daily,monthly,yearly'],
+            'expense_status' => ['nullable', 'in:approved_paid,all_non_void'],
         ]);
 
         [$from, $to] = $this->resolveProfitLossDateRange(
@@ -460,13 +461,13 @@ class InvoiceController extends Controller
             ->where('restaurant_id', $restaurant->id)
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
             ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
-            ->sum('taxable_subtotal'), 2);
+            ->sum(DB::raw('CASE WHEN taxable_subtotal IS NULL OR taxable_subtotal = 0 THEN subtotal ELSE taxable_subtotal END')), 2);
 
         $outputVat = round((float) Invoice::query()
             ->where('restaurant_id', $restaurant->id)
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
             ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
-            ->sum('vat_amount'), 2);
+            ->sum(DB::raw('CASE WHEN vat_amount IS NULL OR vat_amount = 0 THEN GREATEST(total - subtotal, 0) ELSE vat_amount END')), 2);
 
         $inputVat = round(((int) DB::table('expenses')
             ->where('restaurant_id', $restaurant->id)
@@ -480,7 +481,7 @@ class InvoiceController extends Controller
             ->where('restaurant_id', $restaurant->id)
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
             ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
-            ->selectRaw("DATE_FORMAT(invoice_date, '%Y-%m') AS bucket, SUM(vat_amount) AS output_vat")
+            ->selectRaw("DATE_FORMAT(invoice_date, '%Y-%m') AS bucket, SUM(CASE WHEN vat_amount IS NULL OR vat_amount = 0 THEN GREATEST(total - subtotal, 0) ELSE vat_amount END) AS output_vat")
             ->groupBy('bucket')
             ->orderBy('bucket')
             ->get()

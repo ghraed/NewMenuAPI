@@ -71,7 +71,7 @@ class AssetFileController extends Controller
 
     private function canAccess(Request $request, DishAsset $asset): bool
     {
-        if ($request->hasValidSignature()) {
+        if ($request->hasValidSignature() || $request->hasValidSignature(false)) {
             return true;
         }
 

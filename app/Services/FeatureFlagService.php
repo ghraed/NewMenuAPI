@@ -68,7 +68,7 @@ class FeatureFlagService
             ->first();
 
         if (! $feature) {
-            return false;
+            return true;
         }
 
         $override = RestaurantFeature::query()

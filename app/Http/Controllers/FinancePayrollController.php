@@ -97,21 +97,27 @@ class FinancePayrollController extends Controller
             }
 
             $adjustmentEmployeeId = (int) ($originPeriod->employee_id ?? 0);
-            if ($adjustmentEmployeeId <= 0) {
-                throw ValidationException::withMessages([
-                    'adjustment_of_period_id' => 'Original payroll period has no employee linked.',
-                ]);
-            }
-            $employeeId = $adjustmentEmployeeId;
+            $employeeId = $adjustmentEmployeeId > 0 ? $adjustmentEmployeeId : null;
         } else {
-            $employeeId = isset($validated['employee_id']) ? (int) $validated['employee_id'] : 0;
-            if ($employeeId <= 0) {
+            $employeeId = isset($validated['employee_id']) ? (int) $validated['employee_id'] : null;
+            $hasSalaryAmounts = collect([
+                'base_amount_cents',
+                'overtime_amount_cents',
+                'bonus_amount_cents',
+                'allowance_amount_cents',
+                'reimbursement_amount_cents',
+                'deduction_amount_cents',
+                'tax_amount_cents',
+            ])->contains(fn (string $field): bool => (int) ($validated[$field] ?? 0) !== 0);
+
+            if (($employeeId === null || $employeeId <= 0) && $hasSalaryAmounts) {
                 throw ValidationException::withMessages([
                     'employee_id' => 'Employee is required for salary record creation.',
                 ]);
             }
-            $employeeAllowed = in_array($employeeId, $this->resolveRestaurantEmployeeIds($restaurant), true);
-            if (! $employeeAllowed) {
+
+            if ($employeeId !== null && $employeeId > 0
+                && ! in_array($employeeId, $this->resolveRestaurantEmployeeIds($restaurant), true)) {
                 throw ValidationException::withMessages([
                     'employee_id' => 'Selected employee is not eligible for this restaurant.',
                 ]);
@@ -130,7 +136,7 @@ class FinancePayrollController extends Controller
                 'notes' => $this->normalizeOptionalString($validated['notes'] ?? null),
             ]);
 
-            if ($periodType === PayrollPeriod::TYPE_REGULAR) {
+            if ($periodType === PayrollPeriod::TYPE_REGULAR && $employeeId !== null && $employeeId > 0) {
                 $base = (int) ($validated['base_amount_cents'] ?? 0);
                 $overtime = (int) ($validated['overtime_amount_cents'] ?? 0);
                 $bonus = (int) ($validated['bonus_amount_cents'] ?? 0);

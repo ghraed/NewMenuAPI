@@ -73,14 +73,11 @@ class GuestController extends Controller
             $response['dish_index'] = $this->buildDishIndex($restaurant->id);
         }
 
+        $visibleDishes = $this->guestVisibleDishesQuery($restaurant->id);
+
         if ($includeDishes === 'page') {
-            $total = Dish::query()
-                ->where('restaurant_id', $restaurant->id)
-                ->where('status', 'published')
-                ->count();
-            $pageDishes = Dish::query()
-                ->where('restaurant_id', $restaurant->id)
-                ->where('status', 'published')
+            $total = (clone $visibleDishes)->count();
+            $pageDishes = (clone $visibleDishes)
                 ->with(['assets', 'dishIngredients.ingredient'])
                 ->orderBy('name')
                 ->skip($offset)
@@ -98,9 +95,7 @@ class GuestController extends Controller
                 'next_offset' => $hasMore ? ($offset + $loadedCount) : null,
             ];
         } elseif ($includeDishes === 'all') {
-            $dishes = Dish::query()
-                ->where('restaurant_id', $restaurant->id)
-                ->where('status', 'published')
+            $dishes = (clone $visibleDishes)
                 ->with(['assets', 'dishIngredients.ingredient'])
                 ->orderBy('name')
                 ->get();
@@ -134,9 +129,7 @@ class GuestController extends Controller
 
     private function buildDishIndex(int $restaurantId): array
     {
-        $dishes = Dish::query()
-            ->where('restaurant_id', $restaurantId)
-            ->where('status', 'published')
+        $dishes = $this->guestVisibleDishesQuery($restaurantId)
             ->select([
                 'id',
                 'uuid',
@@ -224,9 +217,7 @@ class GuestController extends Controller
         $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
 
         $dish = $this->resolvePublishedDishReference(
-            Dish::query()
-                ->where('restaurant_id', $restaurant->id)
-                ->where('status', 'published')
+            $this->guestVisibleDishesQuery($restaurant->id)
                 ->with(['assets', 'dishIngredients.ingredient']),
             $dishId
         );
@@ -318,6 +309,14 @@ class GuestController extends Controller
             'restaurant' => $this->formatGuestRestaurant($restaurant),
             'tables' => $tables,
         ]);
+    }
+
+    private function guestVisibleDishesQuery(int $restaurantId): Builder
+    {
+        return Dish::query()
+            ->where('restaurant_id', $restaurantId)
+            ->where('status', 'published')
+            ->whereHas('assets', fn (Builder $query) => $query->where('asset_type', 'glb'));
     }
 
     private function formatGuestRestaurant(\App\Models\Restaurant $restaurant): array

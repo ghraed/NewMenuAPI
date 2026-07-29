@@ -210,7 +210,9 @@ class RestaurantController extends Controller
 
         $restaurant = $this->getOwnedRestaurant($request);
         $mode = $this->tableManagementModeService->resolveMode($restaurant);
-        if ($mode === TableManagementModeService::MODE_MANUAL && ! $restaurant->manual_table_count) {
+        if ($mode === TableManagementModeService::MODE_MANUAL
+            && ! $restaurant->manual_table_count
+            && ! $restaurant->tables()->where('is_active', true)->exists()) {
             throw ValidationException::withMessages([
                 'manual_table_count' => 'Set a manual table count before assigning tables.',
             ]);
@@ -296,7 +298,9 @@ class RestaurantController extends Controller
             'table_ids.*' => 'integer|distinct',
         ]);
 
-        if ($mode === TableManagementModeService::MODE_MANUAL && ! $restaurant->manual_table_count) {
+        if ($mode === TableManagementModeService::MODE_MANUAL
+            && ! $restaurant->manual_table_count
+            && ! $restaurant->tables()->where('is_active', true)->exists()) {
             throw ValidationException::withMessages([
                 'manual_table_count' => 'Set a manual table count before assigning tables.',
             ]);

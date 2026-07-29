@@ -30,7 +30,8 @@ class TenantRestaurantResolver
         }
 
         if ($request !== null) {
-            $restaurantFromLocalSubdomain = $this->resolveFromLocalSubdomain($request->getHost());
+            $requestHost = $this->requestHost($request);
+            $restaurantFromLocalSubdomain = $this->resolveFromLocalSubdomain($requestHost);
             if ($restaurantFromLocalSubdomain) {
                 return $restaurantFromLocalSubdomain;
             }
@@ -40,7 +41,7 @@ class TenantRestaurantResolver
                 return $restaurantFromHost;
             }
 
-            if (! $this->isLocalHost($request->getHost())) {
+            if (! $this->isLocalHost($requestHost)) {
                 throw (new ModelNotFoundException())->setModel(Restaurant::class);
             }
         }
@@ -50,7 +51,7 @@ class TenantRestaurantResolver
 
     private function resolveFromRequestHost(Request $request): ?Restaurant
     {
-        $host = $this->normalizeDomain($request->getHost());
+        $host = $this->normalizeDomain($this->requestHost($request));
 
         if ($host === '') {
             return null;
@@ -166,6 +167,21 @@ class TenantRestaurantResolver
         return Restaurant::query()
             ->where('slug', $slug)
             ->first();
+    }
+
+    private function requestHost(Request $request): string
+    {
+        $forwardedHost = trim((string) $request->headers->get('X-Forwarded-Host', ''));
+        if ($forwardedHost !== '') {
+            return trim(explode(',', $forwardedHost)[0]);
+        }
+
+        $headerHost = trim((string) $request->headers->get('Host', ''));
+        if ($headerHost !== '') {
+            return $headerHost;
+        }
+
+        return $request->getHost();
     }
 
     private function isCustomDomainEnabledForRestaurant(int $restaurantId): bool

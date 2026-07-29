@@ -16,6 +16,25 @@ class Restaurant extends Model
     use HasFactory;
     use SoftDeletes;
 
+    protected static function booted(): void
+    {
+        static::created(function (self $restaurant): void {
+            if ($restaurant->tables()->exists()) {
+                return;
+            }
+
+            $restaurant->tables()->createMany(
+                collect(range(1, 10))
+                    ->map(fn (int $number): array => [
+                        'name' => sprintf('T%02d', $number),
+                        'is_active' => true,
+                        'seats' => null,
+                    ])
+                    ->all()
+            );
+        });
+    }
+
     protected $fillable = [
         'uuid',
         'user_id',
