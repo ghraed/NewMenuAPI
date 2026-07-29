@@ -139,13 +139,7 @@ class IngredientLibraryController extends Controller
 
         foreach ($ingredients as $ingredient) {
             $this->deleteStoredIngredientFile($ingredient);
-
-            $ingredient->update([
-                'file_path' => null,
-                'source_file_name' => null,
-                'file_size' => null,
-                'mime_type' => null,
-            ]);
+            $ingredient->delete();
         }
 
         return response()->json([

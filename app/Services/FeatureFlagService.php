@@ -15,6 +15,7 @@ class FeatureFlagService
     private const LEGACY_ENABLED_WHEN_UNDEFINED = [
         'inventory',
         'qr_menu',
+        'ai_recommendations',
     ];
 
     public function __construct(

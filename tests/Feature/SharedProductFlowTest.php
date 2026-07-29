@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\Dish;
 use App\Models\DishAsset;
+use App\Models\Feature;
 use App\Models\Restaurant;
+use App\Models\RestaurantFeature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -257,11 +259,35 @@ class SharedProductFlowTest extends TestCase
     {
         $owner = $user ?? User::factory()->create();
 
-        return Restaurant::query()->create([
+        $restaurant = Restaurant::query()->create([
             'uuid' => (string) Str::uuid(),
             'user_id' => $owner->id,
             'name' => 'Shared Product Restaurant',
             'slug' => 'shared-product-restaurant-'.Str::lower(Str::random(6)),
         ]);
+
+        foreach (['qr_menu', 'ar_3d_dishes', 'ai_recommendations'] as $featureKey) {
+            $feature = Feature::query()->updateOrCreate(
+                ['key' => $featureKey],
+                [
+                    'name' => Str::title(str_replace('_', ' ', $featureKey)),
+                    'description' => 'Shared product flow test feature',
+                    'category' => 'Tests',
+                    'is_active_by_default' => false,
+                ]
+            );
+
+            RestaurantFeature::query()->updateOrCreate(
+                [
+                    'restaurant_id' => $restaurant->id,
+                    'feature_id' => $feature->id,
+                ],
+                [
+                    'enabled' => true,
+                ]
+            );
+        }
+
+        return $restaurant;
     }
 }

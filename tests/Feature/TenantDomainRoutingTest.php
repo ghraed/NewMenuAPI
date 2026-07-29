@@ -157,7 +157,7 @@ class TenantDomainRoutingTest extends TestCase
             'address' => 'Beirut',
         ]);
 
-        foreach (['qr_menu', 'table_ordering', 'waiter_call', 'custom_domain'] as $featureKey) {
+        foreach (['qr_menu', 'table_ordering', 'waiter_call', 'custom_domain', 'realtime_staff_orders'] as $featureKey) {
             $this->enableFeature($restaurant, $featureKey);
         }
 

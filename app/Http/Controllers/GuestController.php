@@ -70,10 +70,10 @@ class GuestController extends Controller
         ];
 
         if ($includeIndex) {
-            $response['dish_index'] = $this->buildDishIndex($restaurant->id);
+            $response['dish_index'] = $this->buildDishIndex($restaurant->id, $ar3dEnabled);
         }
 
-        $visibleDishes = $this->guestVisibleDishesQuery($restaurant->id);
+        $visibleDishes = $this->guestVisibleDishesQuery($restaurant->id, $ar3dEnabled);
 
         if ($includeDishes === 'page') {
             $total = (clone $visibleDishes)->count();
@@ -127,9 +127,9 @@ class GuestController extends Controller
         return min($limit, 100);
     }
 
-    private function buildDishIndex(int $restaurantId): array
+    private function buildDishIndex(int $restaurantId, bool $ar3dEnabled): array
     {
-        $dishes = $this->guestVisibleDishesQuery($restaurantId)
+        $dishes = $this->guestVisibleDishesQuery($restaurantId, $ar3dEnabled)
             ->select([
                 'id',
                 'uuid',
@@ -217,7 +217,7 @@ class GuestController extends Controller
         $animatedIngredientsEnabled = $this->featureFlagService->isEnabled($restaurant, 'animated_ingredients');
 
         $dish = $this->resolvePublishedDishReference(
-            $this->guestVisibleDishesQuery($restaurant->id)
+            $this->guestVisibleDishesQuery($restaurant->id, $ar3dEnabled)
                 ->with(['assets', 'dishIngredients.ingredient']),
             $dishId
         );
@@ -311,12 +311,17 @@ class GuestController extends Controller
         ]);
     }
 
-    private function guestVisibleDishesQuery(int $restaurantId): Builder
+    private function guestVisibleDishesQuery(int $restaurantId, bool $ar3dEnabled): Builder
     {
-        return Dish::query()
+        $query = Dish::query()
             ->where('restaurant_id', $restaurantId)
-            ->where('status', 'published')
-            ->whereHas('assets', fn (Builder $query) => $query->where('asset_type', 'glb'));
+            ->where('status', 'published');
+
+        if ($ar3dEnabled) {
+            $query->whereHas('assets', fn (Builder $assetQuery) => $assetQuery->where('asset_type', 'glb'));
+        }
+
+        return $query;
     }
 
     private function formatGuestRestaurant(\App\Models\Restaurant $restaurant): array

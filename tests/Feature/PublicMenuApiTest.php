@@ -114,17 +114,20 @@ class PublicMenuApiTest extends TestCase
         $restaurant = $this->createRestaurant('table-menu');
         $this->enableFeature($restaurant, 'qr_menu');
 
-        RestaurantTable::factory()->for($restaurant)->create([
-            'name' => 'T01',
+        $restaurant->tables()->where('name', 'T01')->update([
             'is_active' => true,
+            'seats' => 8,
         ]);
-        RestaurantTable::factory()->for($restaurant)->create([
-            'name' => 'T02',
+        $restaurant->tables()->where('name', 'T02')->update([
             'is_active' => false,
+            'seats' => 8,
         ]);
-        RestaurantTable::factory()->for($restaurant)->create([
-            'name' => 'T03',
+        $restaurant->tables()->where('name', 'T03')->update([
             'is_active' => true,
+            'seats' => 8,
+        ]);
+        $restaurant->tables()->whereNotIn('name', ['T01', 'T02', 'T03'])->update([
+            'is_active' => false,
         ]);
 
         Dish::factory()->for($restaurant)->published()->create([
