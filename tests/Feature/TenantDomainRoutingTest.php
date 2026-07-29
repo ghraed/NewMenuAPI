@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Dish;
+use App\Models\DishAsset;
 use App\Models\Feature;
 use App\Models\Restaurant;
 use App\Models\RestaurantDomain;
@@ -30,8 +31,7 @@ class TenantDomainRoutingTest extends TestCase
         $alphaDish = $this->createDish($alpha, 'Alpha Burger');
         $this->createDish($sigma, 'Sigma Sushi');
 
-        $response = $this->withTenantHost('alpha.rozer.fun')
-            ->getJson('/api/menu/dishes');
+        $response = $this->getJsonForHost('alpha.rozer.fun', '/api/menu/dishes');
 
         $response->assertOk()
             ->assertJsonPath('restaurant.id', $alpha->id)
@@ -42,8 +42,7 @@ class TenantDomainRoutingTest extends TestCase
     {
         $this->createRestaurant('alpha-kitchen');
 
-        $this->withTenantHost('gamma.rozer.fun')
-            ->getJson('/api/menu/dishes')
+        $this->getJsonForHost('gamma.rozer.fun', '/api/menu/dishes')
             ->assertNotFound();
     }
 
@@ -52,8 +51,7 @@ class TenantDomainRoutingTest extends TestCase
         $restaurant = $this->createRestaurant('legacy-slug');
         $this->createDish($restaurant, 'Legacy Dish');
 
-        $response = $this->withTenantHost('gamma.rozer.fun')
-            ->getJson("/api/menu/{$restaurant->slug}/dishes");
+        $response = $this->getJsonForHost('gamma.rozer.fun', "/api/menu/{$restaurant->slug}/dishes");
 
         $response->assertOk()
             ->assertJsonPath('restaurant.slug', $restaurant->slug);
@@ -69,8 +67,7 @@ class TenantDomainRoutingTest extends TestCase
         $alphaDish = $this->createDish($alpha, 'Alpha Burger');
         $this->createDish($sigma, 'Sigma Sushi');
 
-        $this->withTenantHost('alpha.rozer.fun')
-            ->getJson('/api/menu/table/1')
+        $this->getJsonForHost('alpha.rozer.fun', '/api/menu/table/1')
             ->assertOk()
             ->assertJsonPath('restaurant.id', $alpha->id);
 
@@ -81,19 +78,16 @@ class TenantDomainRoutingTest extends TestCase
 
         $pin = $this->activeSessionPin();
 
-        $verify = $this->withTenantHost('alpha.rozer.fun', [
-            'X-Guest-Device-Id' => 'tenant-domain-test-device',
-        ])->postJson('/api/menu/table/1/verify-pin', [
+        $verify = $this->postJsonForHost('alpha.rozer.fun', '/api/menu/table/1/verify-pin', [
             'pin' => $pin,
+        ], [
+            'X-Guest-Device-Id' => 'tenant-domain-test-device',
         ]);
 
         $verify->assertOk();
         $token = (string) $verify->json('guest_access.token');
 
-        $this->withTenantHost('alpha.rozer.fun', [
-            'X-Guest-Device-Id' => 'tenant-domain-test-device',
-            'X-Guest-Access-Token' => $token,
-        ])->postJson('/api/menu/orders', [
+        $this->postJsonForHost('alpha.rozer.fun', '/api/menu/orders', [
             'table_reference' => 'T01',
             'items' => [
                 [
@@ -101,12 +95,12 @@ class TenantDomainRoutingTest extends TestCase
                     'quantity' => 1,
                 ],
             ],
+        ], [
+            'X-Guest-Device-Id' => 'tenant-domain-test-device',
+            'X-Guest-Access-Token' => $token,
         ])->assertCreated();
 
-        $this->withTenantHost('sigma.rozer.fun', [
-            'X-Guest-Device-Id' => 'tenant-domain-test-device',
-            'X-Guest-Access-Token' => $token,
-        ])->postJson('/api/menu/orders', [
+        $this->postJsonForHost('sigma.rozer.fun', '/api/menu/orders', [
             'table_reference' => 'T01',
             'items' => [
                 [
@@ -114,6 +108,9 @@ class TenantDomainRoutingTest extends TestCase
                     'quantity' => 1,
                 ],
             ],
+        ], [
+            'X-Guest-Device-Id' => 'tenant-domain-test-device',
+            'X-Guest-Access-Token' => $token,
         ])->assertForbidden();
     }
 
@@ -125,8 +122,7 @@ class TenantDomainRoutingTest extends TestCase
         ]);
         $this->createDish($restaurant, 'Custom Domain Dish');
 
-        $response = $this->withTenantHost('custom.example.com')
-            ->getJson('/api/menu/dishes');
+        $response = $this->getJsonForHost('custom.example.com', '/api/menu/dishes');
 
         $response->assertOk()
             ->assertJsonPath('restaurant.id', $restaurant->id)
@@ -141,8 +137,7 @@ class TenantDomainRoutingTest extends TestCase
         ]);
         $this->createDish($restaurant, 'Custom WWW Dish');
 
-        $response = $this->withTenantHost('www.custom-www.example.com')
-            ->getJson('/api/menu/dishes');
+        $response = $this->getJsonForHost('www.custom-www.example.com', '/api/menu/dishes');
 
         $response->assertOk()
             ->assertJsonPath('restaurant.id', $restaurant->id)
@@ -182,7 +177,7 @@ class TenantDomainRoutingTest extends TestCase
 
     private function createDish(Restaurant $restaurant, string $name): Dish
     {
-        return Dish::query()->create([
+        $dish = Dish::query()->create([
             'uuid' => (string) Str::uuid(),
             'restaurant_id' => $restaurant->id,
             'name' => $name,
@@ -191,6 +186,21 @@ class TenantDomainRoutingTest extends TestCase
             'category' => 'Main',
             'status' => 'published',
         ]);
+
+        DishAsset::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'dish_id' => $dish->id,
+            'asset_type' => 'glb',
+            'storage_disk' => 'public',
+            'file_path' => "dishes/{$dish->id}/model.glb",
+            'glb_path' => "dishes/{$dish->id}/model.glb",
+            'file_url' => '',
+            'file_size' => 1024,
+            'mime_type' => 'model/gltf-binary',
+            'metadata' => ['uploaded_at' => now()->toIso8601String()],
+        ]);
+
+        return $dish;
     }
 
     private function activeSessionPin(): string
@@ -226,13 +236,21 @@ class TenantDomainRoutingTest extends TestCase
         );
     }
 
-    private function withTenantHost(string $host, array $headers = []): static
+    private function getJsonForHost(string $host, string $uri, array $headers = [])
     {
-        return $this
-            ->withServerVariables([
-                'HTTP_HOST' => $host,
-                'SERVER_NAME' => $host,
-            ])
-            ->withHeaders($headers);
+        return $this->getJson($uri, $this->tenantHeaders($host, $headers));
+    }
+
+    private function postJsonForHost(string $host, string $uri, array $data, array $headers = [])
+    {
+        return $this->postJson($uri, $data, $this->tenantHeaders($host, $headers));
+    }
+
+    private function tenantHeaders(string $host, array $headers = []): array
+    {
+        return array_merge([
+            'HOST' => $host,
+            'X-Forwarded-Host' => $host,
+        ], $headers);
     }
 }
