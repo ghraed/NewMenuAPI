@@ -51,7 +51,16 @@ class TestEnvironmentSmokeTest extends TestCase
         RestaurantFeature::factory()->for($restaurant)->for($feature)->create();
 
         $roomPlan = RoomPlan::factory()->for($restaurant)->create();
-        $table = RestaurantTable::factory()->for($restaurant)->create(['name' => 'T01']);
+        $table = RestaurantTable::query()->firstOrCreate(
+            [
+                'restaurant_id' => $restaurant->id,
+                'name' => 'T01',
+            ],
+            [
+                'is_active' => true,
+                'seats' => 6,
+            ]
+        );
         $roomPlanItem = RoomPlanItem::factory()
             ->for($roomPlan)
             ->for($table, 'restaurantTable')

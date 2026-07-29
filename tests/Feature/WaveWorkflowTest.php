@@ -137,12 +137,16 @@ class WaveWorkflowTest extends TestCase
         ]);
 
         foreach (range(1, 10) as $number) {
-            RestaurantTable::query()->create([
-                'restaurant_id' => $restaurant->id,
-                'name' => sprintf('T%02d', $number),
-                'is_active' => true,
-                'seats' => 4,
-            ]);
+            RestaurantTable::query()->updateOrCreate(
+                [
+                    'restaurant_id' => $restaurant->id,
+                    'name' => sprintf('T%02d', $number),
+                ],
+                [
+                    'is_active' => true,
+                    'seats' => 4,
+                ]
+            );
         }
 
         foreach (['qr_menu', 'table_ordering', 'waiter_call', 'request_bill', 'realtime_staff_orders'] as $featureKey) {

@@ -69,6 +69,18 @@ class FinancePayrollController extends Controller
         $periodType = (string) ($validated['period_type'] ?? PayrollPeriod::TYPE_REGULAR);
         $adjustmentOfPeriodId = isset($validated['adjustment_of_period_id']) ? (int) $validated['adjustment_of_period_id'] : null;
 
+        $overlapsExistingPeriod = PayrollPeriod::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->whereDate('period_start', '<=', (string) $validated['period_end'])
+            ->whereDate('period_end', '>=', (string) $validated['period_start'])
+            ->exists();
+
+        if ($overlapsExistingPeriod) {
+            throw ValidationException::withMessages([
+                'period_start' => 'Payroll periods cannot overlap existing payroll periods.',
+            ]);
+        }
+
         if ($periodType === PayrollPeriod::TYPE_ADJUSTMENT) {
             if ($adjustmentOfPeriodId === null) {
                 throw ValidationException::withMessages([
@@ -771,7 +783,9 @@ class FinancePayrollController extends Controller
             ]
         );
 
-        $paidDate = $period->paid_at?->copy()->toDateString() ?? now()->toDateString();
+        $paidDate = $period->period_end?->copy()->toDateString()
+            ?? $period->paid_at?->copy()->toDateString()
+            ?? now()->toDateString();
 
         Expense::query()->updateOrCreate(
             [

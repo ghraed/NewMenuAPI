@@ -117,12 +117,22 @@ class BroadcastChannelAuthorizationTest extends TestCase
 
     private function createTable(Restaurant $restaurant, string $name): RestaurantTable
     {
-        return RestaurantTable::query()->create([
-            'restaurant_id' => $restaurant->id,
-            'name' => $name,
-            'is_active' => true,
-            'seats' => 4,
-        ]);
+        return tap(
+            RestaurantTable::query()->firstOrCreate(
+                [
+                    'restaurant_id' => $restaurant->id,
+                    'name' => $name,
+                ],
+                [
+                    'is_active' => true,
+                    'seats' => 4,
+                ]
+            ),
+            fn (RestaurantTable $table) => $table->update([
+                'is_active' => true,
+                'seats' => 4,
+            ])
+        );
     }
 
     private function enableFeature(Restaurant $restaurant, string $key): void

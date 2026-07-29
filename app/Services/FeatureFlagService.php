@@ -12,6 +12,11 @@ use Illuminate\Support\Facades\DB;
 
 class FeatureFlagService
 {
+    private const LEGACY_ENABLED_WHEN_UNDEFINED = [
+        'inventory',
+        'qr_menu',
+    ];
+
     public function __construct(
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
         private readonly TableManagementModeService $tableManagementModeService,
@@ -68,7 +73,7 @@ class FeatureFlagService
             ->first();
 
         if (! $feature) {
-            return true;
+            return in_array(trim($featureKey), self::LEGACY_ENABLED_WHEN_UNDEFINED, true);
         }
 
         $override = RestaurantFeature::query()
