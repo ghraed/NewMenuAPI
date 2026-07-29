@@ -152,6 +152,115 @@ class DishManagementApiTest extends TestCase
             ->assertJsonValidationErrors(['suggested_dish_ids']);
     }
 
+    public function test_admin_can_edit_and_remove_recipe_ingredients_with_decimal_quantities(): void
+    {
+        [$admin, $restaurant] = $this->adminContext(['Main Courses']);
+        $flour = $this->createIngredient($restaurant, 'Flour');
+        $yeast = $this->createIngredient($restaurant, 'Yeast');
+        $salt = $this->createIngredient($restaurant, 'Salt');
+
+        Sanctum::actingAs($admin);
+
+        $createResponse = $this->postJson('/api/menu-items', [
+            'name' => 'House Bread',
+            'price' => 5,
+            'category' => 'Main Courses',
+            'recipe_ingredients' => [
+                ['ingredient_id' => $flour->id, 'quantity_required' => 1.250, 'order_index' => 0],
+                ['ingredient_id' => $yeast->id, 'quantity_required' => 0.250, 'order_index' => 1],
+            ],
+        ]);
+
+        $createResponse->assertCreated()
+            ->assertJsonCount(2, 'dish_ingredients');
+
+        $dishId = (int) $createResponse->json('id');
+
+        $this->patchJson("/api/menu-items/{$dishId}", [
+            'recipe_ingredients' => [
+                ['ingredient_id' => $flour->id, 'quantity_required' => 3.750, 'order_index' => 0],
+                ['ingredient_id' => $salt->id, 'quantity_required' => 0.500, 'order_index' => 1, 'show_in_animation' => false],
+            ],
+        ])->assertOk()
+            ->assertJsonCount(2, 'dish_ingredients');
+
+        $this->assertDatabaseHas('dish_ingredients', [
+            'dish_id' => $dishId,
+            'ingredient_id' => $flour->id,
+            'quantity' => '3.750',
+            'unit' => Ingredient::UNIT_PIECE,
+        ]);
+        $this->assertDatabaseHas('dish_ingredients', [
+            'dish_id' => $dishId,
+            'ingredient_id' => $salt->id,
+            'quantity' => '0.500',
+            'unit' => Ingredient::UNIT_PIECE,
+            'show_in_animation' => 0,
+        ]);
+        $this->assertDatabaseMissing('dish_ingredients', [
+            'dish_id' => $dishId,
+            'ingredient_id' => $yeast->id,
+        ]);
+
+        $this->patchJson("/api/menu-items/{$dishId}", [
+            'recipe_ingredients' => [],
+        ])->assertOk()
+            ->assertJsonCount(0, 'dish_ingredients');
+
+        $this->assertSame(
+            0,
+            Dish::query()->findOrFail($dishId)->dishIngredients()->count()
+        );
+    }
+
+    public function test_recipe_validation_rejects_duplicate_missing_and_deleted_ingredient_references(): void
+    {
+        [$admin, $restaurant] = $this->adminContext(['Main Courses']);
+        $cumin = $this->createIngredient($restaurant, 'Cumin');
+        $staleIngredient = $this->createIngredient($restaurant, 'Stale Coriander');
+        $staleIngredientId = $staleIngredient->id;
+        $staleIngredient->delete();
+
+        Sanctum::actingAs($admin);
+
+        $duplicateIngredientPayload = $this->postJson('/api/menu-items', [
+            'name' => 'Duplicate Spice Mix',
+            'price' => 4,
+            'category' => 'Main Courses',
+            'recipe_ingredients' => [
+                ['ingredient_id' => $cumin->id, 'quantity_required' => 1],
+                ['ingredient_id' => $cumin->id, 'quantity_required' => 2],
+            ],
+        ]);
+
+        $duplicateIngredientPayload->assertStatus(422)
+            ->assertJsonValidationErrors(['recipe_ingredients.1.ingredient_id']);
+
+        $missingIngredientPayload = $this->postJson('/api/menu-items', [
+            'name' => 'Missing Spice Mix',
+            'price' => 4,
+            'category' => 'Main Courses',
+            'recipe_ingredients' => [
+                ['ingredient_id' => 999999, 'quantity_required' => 1],
+            ],
+        ]);
+
+        $missingIngredientPayload->assertStatus(422)
+            ->assertJsonValidationErrors(['recipe_ingredients.0.ingredient_id']);
+
+        $deletedIngredientPayload = $this->postJson('/api/menu-items', [
+            'name' => 'Deleted Spice Mix',
+            'price' => 4,
+            'category' => 'Main Courses',
+            'recipe_ingredients' => [
+                ['ingredient_id' => $staleIngredientId, 'quantity_required' => 1],
+            ],
+        ]);
+
+        $deletedIngredientPayload->assertStatus(422)
+            ->assertJsonValidationErrors(['recipe_ingredients.0.ingredient_id']);
+    }
+
     /**
      * @return array{0: User, 1: Restaurant}
      */

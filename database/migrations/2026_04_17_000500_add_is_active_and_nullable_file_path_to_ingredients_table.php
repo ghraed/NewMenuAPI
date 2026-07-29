@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -20,6 +21,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        DB::table('ingredients')
+            ->whereNull('file_path')
+            ->update(['file_path' => '']);
+
         Schema::table('ingredients', function (Blueprint $table) {
             $table->dropIndex('ingredients_restaurant_is_active_index');
             $table->dropColumn('is_active');

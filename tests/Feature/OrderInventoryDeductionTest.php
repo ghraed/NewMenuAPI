@@ -92,6 +92,56 @@ class OrderInventoryDeductionTest extends TestCase
         ]);
     }
 
+    public function test_pending_order_does_not_deduct_until_confirmation_and_duplicate_confirm_requests_do_not_deduct_twice(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $herbs = $this->createIngredient($restaurant, 'Herbs', 12, Ingredient::UNIT_GRAM, 3.000);
+
+        $dish = $this->createDish($restaurant, 'Herb Salad', 9.00);
+        $this->attachRecipe($dish, $herbs, 2.000);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 2);
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $herbs->id,
+            'current_stock_quantity' => '12.000',
+        ]);
+        $this->assertSame(0, OrderItemIngredientUsage::query()->where('order_id', $order->id)->count());
+        $this->assertSame(0, StockMovement::query()->where('order_id', $order->id)->count());
+
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $usageCountAfterFirstConfirm = OrderItemIngredientUsage::query()
+            ->where('order_id', $order->id)
+            ->count();
+        $movementCountAfterFirstConfirm = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+            ->count();
+        $quantityAfterFirstConfirm = (string) Ingredient::query()->findOrFail($herbs->id)->current_stock_quantity;
+
+        $secondConfirm = $this->postJson("/api/orders/{$order->id}/confirm");
+        $secondConfirm->assertStatus(422);
+
+        $usageCountAfterSecondConfirm = OrderItemIngredientUsage::query()
+            ->where('order_id', $order->id)
+            ->count();
+        $movementCountAfterSecondConfirm = StockMovement::query()
+            ->where('order_id', $order->id)
+            ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+            ->count();
+        $quantityAfterSecondConfirm = (string) Ingredient::query()->findOrFail($herbs->id)->current_stock_quantity;
+
+        $this->assertSame($usageCountAfterFirstConfirm, $usageCountAfterSecondConfirm);
+        $this->assertSame($movementCountAfterFirstConfirm, $movementCountAfterSecondConfirm);
+        $this->assertSame($quantityAfterFirstConfirm, $quantityAfterSecondConfirm);
+    }
+
     public function test_confirm_fails_safely_when_stock_is_insufficient_and_rolls_back_status_change(): void
     {
         $restaurant = $this->createRestaurant();
@@ -180,6 +230,42 @@ class OrderInventoryDeductionTest extends TestCase
         $this->assertSame($usageCountBefore, $usageCountAfter);
         $this->assertSame($movementCountBefore, $movementCountAfter);
         $this->assertSame($quantityBefore, $quantityAfter);
+    }
+
+    public function test_pos_checkout_failure_rolls_back_order_creation_and_stock_deduction(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $restaurant = $this->createRestaurant($admin);
+        $this->enableFeature($restaurant, 'table_ordering');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+
+        $beef = $this->createIngredient($restaurant, 'Ground Beef', 2, Ingredient::UNIT_GRAM);
+        $dish = $this->createDish($restaurant, 'Beef Burger', 11.00);
+        $this->attachRecipe($dish, $beef, 3.000);
+
+        Sanctum::actingAs($admin);
+
+        $response = $this->postJson('/api/pos/checkout', [
+            'table_reference' => 'T01',
+            'payment_method' => 'cash',
+            'amount_received' => 20,
+            'items' => [
+                [
+                    'dish_id' => $dish->id,
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422);
+
+        $this->assertSame(0, Order::query()->where('restaurant_id', $restaurant->id)->count());
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $beef->id,
+            'current_stock_quantity' => '2.000',
+        ]);
+        $this->assertSame(0, StockMovement::query()->count());
+        $this->assertSame(0, OrderItemIngredientUsage::query()->count());
     }
 
     public function test_cancelling_a_confirmed_order_restores_inventory_from_usage_snapshots(): void
@@ -405,6 +491,114 @@ class OrderInventoryDeductionTest extends TestCase
         $this->assertSame('3.000', (string) $usageAfterRecipeChange->consumed_quantity);
     }
 
+    public function test_shared_ingredient_across_two_orders_allows_first_confirmation_and_rejects_second_without_overdeducting(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+        $staff = $this->createStaffUser($restaurant, ['T01', 'T02']);
+        $cheese = $this->createIngredient($restaurant, 'Cheese', 5, Ingredient::UNIT_GRAM);
+
+        $dish = $this->createDish($restaurant, 'Cheese Plate', 10.00);
+        $this->attachRecipe($dish, $cheese, 3.000);
+
+        $firstOrder = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 1);
+        $secondOrder = $this->createPendingOrderWithDish($restaurant, 'T02', $dish, 1);
+
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/orders/{$firstOrder->id}/confirm")->assertOk();
+
+        $secondResponse = $this->postJson("/api/orders/{$secondOrder->id}/confirm");
+        $secondResponse->assertStatus(422);
+        $this->assertStringContainsString('insufficient ingredient stock', (string) $secondResponse->json('message'));
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $cheese->id,
+            'current_stock_quantity' => '2.000',
+        ]);
+        $this->assertDatabaseHas('orders', [
+            'id' => $secondOrder->id,
+            'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
+        ]);
+        $this->assertSame(
+            1,
+            StockMovement::query()
+                ->where('ingredient_id', $cheese->id)
+                ->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+                ->count()
+        );
+    }
+
+    public function test_confirmation_aggregates_stock_history_correctly_for_multiple_dishes_and_ingredients(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $tomato = $this->createIngredient($restaurant, 'Tomato', 20, Ingredient::UNIT_GRAM);
+        $cheese = $this->createIngredient($restaurant, 'Cheese', 20, Ingredient::UNIT_GRAM);
+        $basil = $this->createIngredient($restaurant, 'Basil', 10, Ingredient::UNIT_GRAM);
+
+        $pizza = $this->createDish($restaurant, 'Pizza', 14.00);
+        $salad = $this->createDish($restaurant, 'Salad', 9.00);
+        $this->attachRecipe($pizza, $tomato, 2.000);
+        $this->attachRecipe($pizza, $cheese, 1.500);
+        $this->attachRecipe($salad, $tomato, 1.000);
+        $this->attachRecipe($salad, $basil, 0.500);
+
+        $order = $this->createPendingOrderWithItems($restaurant, 'T01', [
+            ['dish' => $pizza, 'quantity' => 2],
+            ['dish' => $salad, 'quantity' => 3],
+        ]);
+
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/orders/{$order->id}/confirm")->assertOk();
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $tomato->id,
+            'current_stock_quantity' => '13.000',
+        ]);
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $cheese->id,
+            'current_stock_quantity' => '17.000',
+        ]);
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $basil->id,
+            'current_stock_quantity' => '8.500',
+        ]);
+
+        $this->assertSame(
+            4,
+            OrderItemIngredientUsage::query()->where('order_id', $order->id)->count()
+        );
+
+        $this->assertDatabaseHas('stock_movements', [
+            'order_id' => $order->id,
+            'ingredient_id' => $tomato->id,
+            'movement_type' => StockMovement::TYPE_ORDER_CONSUMPTION,
+            'quantity_delta' => '-7.000',
+            'quantity_before' => '20.000',
+            'quantity_after' => '13.000',
+        ]);
+        $this->assertDatabaseHas('stock_movements', [
+            'order_id' => $order->id,
+            'ingredient_id' => $cheese->id,
+            'movement_type' => StockMovement::TYPE_ORDER_CONSUMPTION,
+            'quantity_delta' => '-3.000',
+            'quantity_before' => '20.000',
+            'quantity_after' => '17.000',
+        ]);
+        $this->assertDatabaseHas('stock_movements', [
+            'order_id' => $order->id,
+            'ingredient_id' => $basil->id,
+            'movement_type' => StockMovement::TYPE_ORDER_CONSUMPTION,
+            'quantity_delta' => '-1.500',
+            'quantity_before' => '10.000',
+            'quantity_after' => '8.500',
+        ]);
+    }
+
     public function test_packaged_item_uses_direct_stock_deduction_and_restores_on_cancel(): void
     {
         $restaurant = $this->createRestaurant();
@@ -493,7 +687,8 @@ class OrderInventoryDeductionTest extends TestCase
         Restaurant $restaurant,
         string $name,
         float $quantity,
-        string $unit
+        string $unit,
+        float $lowStockThreshold = 0.0
     ): Ingredient {
         return Ingredient::query()->create([
             'uuid' => (string) Str::uuid(),
@@ -507,7 +702,7 @@ class OrderInventoryDeductionTest extends TestCase
             'mime_type' => null,
             'stock_unit' => $unit,
             'current_stock_quantity' => number_format($quantity, 3, '.', ''),
-            'low_stock_threshold' => '0.000',
+            'low_stock_threshold' => number_format($lowStockThreshold, 3, '.', ''),
             'is_active' => true,
         ]);
     }
@@ -570,6 +765,54 @@ class OrderInventoryDeductionTest extends TestCase
             'quantity' => $quantity,
             'line_subtotal' => number_format($subtotal, 2, '.', ''),
         ]);
+
+        return $order;
+    }
+
+    /**
+     * @param array<int, array{dish: Dish, quantity: int}> $items
+     */
+    private function createPendingOrderWithItems(
+        Restaurant $restaurant,
+        string $tableReference,
+        array $items
+    ): Order {
+        $tableId = $restaurant->tables()
+            ->where('name', $tableReference)
+            ->value('id');
+
+        $subtotal = array_reduce(
+            $items,
+            fn (float $carry, array $item): float => $carry + (((float) $item['dish']->price) * $item['quantity']),
+            0.0
+        );
+
+        $order = Order::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'restaurant_table_id' => $tableId,
+            'order_number' => 'ORD-TEST-'.Str::upper(Str::random(6)),
+            'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION,
+            'guest_name' => $tableReference,
+            'table_reference' => $tableReference,
+            'subtotal' => number_format($subtotal, 2, '.', ''),
+            'taxable_subtotal' => number_format($subtotal, 2, '.', ''),
+            'total' => number_format($subtotal, 2, '.', ''),
+        ]);
+
+        foreach ($items as $item) {
+            $unitPrice = (float) $item['dish']->price;
+            $lineSubtotal = $unitPrice * $item['quantity'];
+
+            OrderItem::query()->create([
+                'order_id' => $order->id,
+                'dish_id' => $item['dish']->id,
+                'dish_name' => $item['dish']->name,
+                'unit_price' => number_format($unitPrice, 2, '.', ''),
+                'quantity' => $item['quantity'],
+                'line_subtotal' => number_format($lineSubtotal, 2, '.', ''),
+            ]);
+        }
 
         return $order;
     }

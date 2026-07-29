@@ -112,24 +112,24 @@ class ReservationController extends Controller
      */
     private function validateReservationPayload(Request $request, bool $isCreate): array
     {
-        $prefix = $isCreate ? 'required' : 'sometimes|required';
+        $presenceRules = $isCreate ? ['required'] : ['sometimes', 'required'];
 
         return $request->validate([
-            'room_plan_id' => $prefix.'|integer',
+            'room_plan_id' => [...$presenceRules, 'integer'],
             'room_plan_item_id' => [
-                $prefix,
+                ...$presenceRules,
                 'integer',
                 Rule::exists('room_plan_items', 'id')->where(function ($query): void {
                     $query->whereIn('type', [RoomPlanItem::TYPE_TABLE, RoomPlanItem::TYPE_TABLE_CIRCLE])
                         ->where('is_active', true);
                 }),
             ],
-            'customer_name' => $prefix.'|string|max:120',
-            'customer_phone' => $prefix.'|string|max:40',
+            'customer_name' => [...$presenceRules, 'string', 'max:120'],
+            'customer_phone' => [...$presenceRules, 'string', 'max:40'],
             'customer_email' => 'sometimes|nullable|email|max:255',
-            'reservation_date' => $prefix.'|date_format:Y-m-d',
-            'start_time' => $prefix.'|date_format:H:i',
-            'end_time' => $prefix.'|date_format:H:i',
+            'reservation_date' => [...$presenceRules, 'date_format:Y-m-d'],
+            'start_time' => [...$presenceRules, 'date_format:H:i'],
+            'end_time' => [...$presenceRules, 'date_format:H:i'],
             'status' => 'sometimes|string|in:reserved,busy,cancelled,completed,no_show',
             'notes' => 'sometimes|nullable|string|max:2000',
         ]);

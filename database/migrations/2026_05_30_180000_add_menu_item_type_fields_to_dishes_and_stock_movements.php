@@ -52,9 +52,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('stock_movements', function (Blueprint $table) {
+            $table->dropConstrainedForeignId('dish_id');
             $table->dropIndex('stock_movements_dish_type_index');
             $table->dropIndex('stock_movements_restaurant_source_index');
-            $table->dropConstrainedForeignId('dish_id');
             $table->dropColumn('inventory_source');
         });
 
