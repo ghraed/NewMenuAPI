@@ -22,8 +22,7 @@ class EventPlanningAlertService
     public function __construct(
         private readonly WebPushNotificationService $webPushNotificationService,
         private readonly MobilePushNotificationService $mobilePushNotificationService,
-    ) {
-    }
+    ) {}
 
     public function dispatchImmediateUpdate(EventReservation $eventReservation, string $reason): void
     {
@@ -176,4 +175,3 @@ class EventPlanningAlertService
         }
     }
 }
-

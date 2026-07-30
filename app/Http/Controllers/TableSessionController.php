@@ -2,20 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Reservation;
-use App\Models\Restaurant;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Reservation;
+use App\Models\Restaurant;
 use App\Models\RestaurantTable;
 use App\Models\RoomPlanItem;
 use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
-use App\Support\Money;
 use App\Services\GuestMenuSessionService;
 use App\Services\InvoiceSplitService;
 use App\Services\StaffCapabilityService;
 use App\Services\TableSessionAccessService;
+use App\Support\Money;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -26,8 +26,7 @@ class TableSessionController extends Controller
         private readonly TableSessionAccessService $tableSessionAccessService,
         private readonly InvoiceSplitService $invoiceSplitService,
         private readonly StaffCapabilityService $staffCapabilityService,
-    ) {
-    }
+    ) {}
 
     public function requestBill(TableSession $tableSession, WaveController $waveController): JsonResponse
     {

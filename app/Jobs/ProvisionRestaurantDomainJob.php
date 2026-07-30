@@ -16,8 +16,7 @@ class ProvisionRestaurantDomainJob implements ShouldQueue
 
     public function __construct(
         public readonly int $restaurantId,
-    ) {
-    }
+    ) {}
 
     public function handle(
         DomainProvisioner $domainProvisioner,

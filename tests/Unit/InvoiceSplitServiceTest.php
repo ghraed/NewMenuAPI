@@ -14,14 +14,14 @@ class InvoiceSplitServiceTest extends TestCase
 {
     public function test_equal_split_breakdown_totals_always_match_original_invoice_total_exactly(): void
     {
-        $service = new InvoiceSplitService();
+        $service = new InvoiceSplitService;
 
         foreach (range(1, 250) as $totalCents) {
             foreach ([2, 3, 4, 7] as $splitCount) {
                 $order = new Order([
                     'total' => Money::formatCents($totalCents),
                 ]);
-                $order->setRelation('items', new Collection());
+                $order->setRelation('items', new Collection);
 
                 $session = new TableSession([
                     'invoice_split_mode' => InvoiceSplitService::MODE_EQUAL,
@@ -41,7 +41,7 @@ class InvoiceSplitServiceTest extends TestCase
 
     public function test_selected_item_split_preserves_total_without_losing_or_creating_money(): void
     {
-        $service = new InvoiceSplitService();
+        $service = new InvoiceSplitService;
 
         $items = [
             $this->makeOrderItem(101, 'Item A', 2, '3.50', '7.00'),
@@ -49,13 +49,13 @@ class InvoiceSplitServiceTest extends TestCase
             $this->makeOrderItem(103, 'Item C', 3, '1.10', '3.30'),
         ];
 
-        $order = new Order();
+        $order = new Order;
         $order->forceFill([
             'total' => '14.55',
         ]);
         $order->setRelation('items', collect($items));
 
-        $session = new TableSession();
+        $session = new TableSession;
         $session->forceFill([
             'invoice_split_mode' => InvoiceSplitService::MODE_BY_PERSON_ORDER,
             'invoice_split_count' => 3,
@@ -102,14 +102,14 @@ class InvoiceSplitServiceTest extends TestCase
 
     public function test_selected_item_split_allocates_discount_service_charge_and_vat_exactly(): void
     {
-        $service = new InvoiceSplitService();
+        $service = new InvoiceSplitService;
 
         $items = [
             $this->makeOrderItem(201, 'Platter', 2, '10.00', '20.00'),
             $this->makeOrderItem(202, 'Drink', 1, '5.00', '5.00'),
         ];
 
-        $order = new Order();
+        $order = new Order;
         $order->id = 77;
         $order->forceFill([
             'discount_amount' => '2.00',
@@ -119,7 +119,7 @@ class InvoiceSplitServiceTest extends TestCase
         ]);
         $order->setRelation('items', collect($items));
 
-        $session = new TableSession();
+        $session = new TableSession;
         $session->forceFill([
             'invoice_split_mode' => InvoiceSplitService::MODE_BY_PERSON_ORDER,
             'invoice_split_count' => 2,
@@ -205,7 +205,7 @@ class InvoiceSplitServiceTest extends TestCase
 
     private function makeOrderItem(int $id, string $dishName, int $quantity, string $unitPrice, string $lineSubtotal): OrderItem
     {
-        $item = new OrderItem();
+        $item = new OrderItem;
         $item->forceFill([
             'dish_name' => $dishName,
             'quantity' => $quantity,

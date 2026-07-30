@@ -182,6 +182,7 @@ class StaffScheduleController extends Controller
         }
 
         $normalized = trim($value);
+
         return $normalized === '' ? null : $normalized;
     }
 

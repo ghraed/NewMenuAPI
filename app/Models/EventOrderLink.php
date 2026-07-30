@@ -29,4 +29,3 @@ class EventOrderLink extends Model
         return $this->belongsTo(Order::class);
     }
 }
-

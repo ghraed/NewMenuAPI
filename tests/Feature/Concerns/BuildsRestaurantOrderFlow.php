@@ -16,8 +16,8 @@ use Laravel\Sanctum\Sanctum;
 trait BuildsRestaurantOrderFlow
 {
     /**
-     * @param array<int, string> $featureKeys
-     * @param array<string, mixed> $attributes
+     * @param  array<int, string>  $featureKeys
+     * @param  array<string, mixed>  $attributes
      */
     private function createRestaurant(
         ?User $user = null,

@@ -15,8 +15,7 @@ class SuperAdminFeatureFlagController extends Controller
 {
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,
-    ) {
-    }
+    ) {}
 
     public function restaurants(): JsonResponse
     {
@@ -167,8 +166,8 @@ class SuperAdminFeatureFlagController extends Controller
     }
 
     /**
-     * @param Collection<int, Feature> $features
-     * @param Collection<int|string, RestaurantFeature> $overridesByFeatureId
+     * @param  Collection<int, Feature>  $features
+     * @param  Collection<int|string, RestaurantFeature>  $overridesByFeatureId
      * @return array<int, array<string, mixed>>
      */
     private function formatFeatureStateList(Collection $features, Collection $overridesByFeatureId): array

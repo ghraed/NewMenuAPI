@@ -6,7 +6,6 @@ use App\Models\Dish;
 use App\Models\Feature;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
-use App\Models\RestaurantTable;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;

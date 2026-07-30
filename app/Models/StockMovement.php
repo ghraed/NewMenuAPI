@@ -8,12 +8,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StockMovement extends Model
 {
     public const TYPE_OPENING_BALANCE = 'opening_balance';
+
     public const TYPE_RESTOCK = 'restock';
+
     public const TYPE_MANUAL_ADJUSTMENT = 'manual_adjustment';
+
     public const TYPE_ORDER_CONSUMPTION = 'order_consumption';
+
     public const TYPE_CANCELLATION_RESTORE = 'order_restoration';
+
     public const TYPE_ORDER_RESTORATION = self::TYPE_CANCELLATION_RESTORE;
+
     public const SOURCE_RECIPE_INGREDIENT_USAGE = 'recipe_ingredient_usage';
+
     public const SOURCE_DIRECT_PACKAGED_SALE = 'direct_packaged_sale';
 
     protected $fillable = [

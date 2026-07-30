@@ -26,4 +26,3 @@ class DishIngredientFactory extends Factory
         ];
     }
 }
-

@@ -20,11 +20,10 @@ class EventReservationService
     public function __construct(
         private readonly ReservationAvailabilityService $reservationAvailabilityService,
         private readonly EventPlanningAlertService $eventPlanningAlertService,
-    ) {
-    }
+    ) {}
 
     /**
-     * @param array<string, mixed> $filters
+     * @param  array<string, mixed>  $filters
      */
     public function list(Restaurant $restaurant, array $filters): LengthAwarePaginator
     {
@@ -49,7 +48,7 @@ class EventReservationService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function create(Restaurant $restaurant, array $payload): EventReservation
     {
@@ -82,7 +81,7 @@ class EventReservationService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function update(Restaurant $restaurant, EventReservation $eventReservation, array $payload): EventReservation
     {
@@ -147,7 +146,7 @@ class EventReservationService
     }
 
     /**
-     * @param array<int, array<string, mixed>> $items
+     * @param  array<int, array<string, mixed>>  $items
      */
     public function replaceMenuItems(Restaurant $restaurant, EventReservation $eventReservation, array $items): EventReservation
     {
@@ -567,6 +566,7 @@ class EventReservationService
         }
 
         $normalized = trim($value);
+
         return $normalized === '' ? null : $normalized;
     }
 

@@ -147,6 +147,7 @@ class FinanceVendorController extends Controller
         }
 
         $normalized = trim($value);
+
         return $normalized === '' ? null : $normalized;
     }
 
@@ -169,4 +170,3 @@ class FinanceVendorController extends Controller
         ];
     }
 }
-

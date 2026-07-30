@@ -88,7 +88,7 @@ class DishDescriptionGenerationService
     }
 
     /**
-     * @param array<int,string> $targetLanguages
+     * @param  array<int,string>  $targetLanguages
      * @return array<int,string>
      */
     private function normalizeTargetLanguages(array $targetLanguages): array
@@ -110,7 +110,7 @@ class DishDescriptionGenerationService
     }
 
     /**
-     * @param array<int,array<string,mixed>> $ingredients
+     * @param  array<int,array<string,mixed>>  $ingredients
      * @return array<int,array{
      *   ingredient_name:string,
      *   quantity_required:float,
@@ -202,7 +202,7 @@ class DishDescriptionGenerationService
     }
 
     /**
-     * @param array<string,mixed> $requestPayload
+     * @param  array<string,mixed>  $requestPayload
      */
     private function executeRequest(string $apiKey, array $requestPayload): string
     {

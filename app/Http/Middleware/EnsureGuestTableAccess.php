@@ -12,8 +12,7 @@ class EnsureGuestTableAccess
 {
     public function __construct(
         private readonly TableSessionAccessService $tableSessionAccessService
-    ) {
-    }
+    ) {}
 
     public function handle(Request $request, Closure $next): Response
     {

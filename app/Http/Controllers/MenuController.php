@@ -23,8 +23,7 @@ class MenuController extends Controller
         private readonly TableSessionAccessService $tableSessionAccessService,
         private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService,
         private readonly FeatureFlagService $featureFlagService,
-    ) {
-    }
+    ) {}
 
     public function showTableMenu(int $table_id, Request $request): JsonResponse
     {

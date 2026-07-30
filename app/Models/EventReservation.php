@@ -12,11 +12,15 @@ class EventReservation extends Model
     use SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_CONFIRMED = 'confirmed';
+
     public const STATUS_CANCELLED = 'cancelled';
+
     public const STATUS_COMPLETED = 'completed';
 
     public const NOTIFICATION_IMMEDIATE_UPDATE = 'immediate_update';
+
     public const NOTIFICATION_T_MINUS_1D = 't_minus_1d';
 
     /**
@@ -94,4 +98,3 @@ class EventReservation extends Model
         return $this->hasMany(EventOrderLink::class);
     }
 }
-

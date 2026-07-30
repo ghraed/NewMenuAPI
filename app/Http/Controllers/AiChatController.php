@@ -22,8 +22,7 @@ class AiChatController extends Controller
     public function __construct(
         private readonly DeepSeekChatService $deepSeekChatService,
         private readonly RozerContactDetector $contactDetector,
-    ) {
-    }
+    ) {}
 
     public function createSession(Request $request): JsonResponse
     {

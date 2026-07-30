@@ -13,9 +13,13 @@ class Reservation extends Model
     use SoftDeletes;
 
     public const STATUS_RESERVED = 'reserved';
+
     public const STATUS_BUSY = 'busy';
+
     public const STATUS_CANCELLED = 'cancelled';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_NO_SHOW = 'no_show';
 
     /**

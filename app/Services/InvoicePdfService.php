@@ -18,8 +18,7 @@ final class InvoicePdfService
 {
     public function __construct(
         private readonly InvoiceSplitService $invoiceSplitService,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{disk:string,path:string}
@@ -95,10 +94,10 @@ final class InvoicePdfService
 
     private function renderPdf(string $htmlPath, string $pdfPath): void
     {
-        $browser = (new ExecutableFinder())->find('google-chrome')
-            ?? (new ExecutableFinder())->find('google-chrome-stable')
-            ?? (new ExecutableFinder())->find('chromium-browser')
-            ?? (new ExecutableFinder())->find('chromium');
+        $browser = (new ExecutableFinder)->find('google-chrome')
+            ?? (new ExecutableFinder)->find('google-chrome-stable')
+            ?? (new ExecutableFinder)->find('chromium-browser')
+            ?? (new ExecutableFinder)->find('chromium');
 
         if (! is_string($browser) || $browser === '') {
             throw new RuntimeException('No headless Chrome binary is available for invoice PDF generation.');
@@ -127,7 +126,7 @@ final class InvoicePdfService
     }
 
     /**
-     * @param \Illuminate\Support\Collection<int, Order> $linkedOrders
+     * @param  \Illuminate\Support\Collection<int, Order>  $linkedOrders
      */
     private function renderHtml(Invoice $invoice, $linkedOrders): string
     {
@@ -261,7 +260,7 @@ HTML;
     }
 
     /**
-     * @param \Illuminate\Support\Collection<int, Order> $linkedOrders
+     * @param  \Illuminate\Support\Collection<int, Order>  $linkedOrders
      */
     private function renderSplitSection($linkedOrders): string
     {

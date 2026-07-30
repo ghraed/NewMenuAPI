@@ -1,39 +1,39 @@
 <?php
 
-use App\Http\Controllers\AnalyticsController;
-use App\Http\Controllers\AiChatController;
 use App\Http\Controllers\AdminEventReservationController;
+use App\Http\Controllers\AiChatController;
+use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AssetFileController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\CurrencySettingsController;
 use App\Http\Controllers\DishController;
-use App\Http\Controllers\GuestTableAccessController;
-use App\Http\Controllers\GuestController;
-use App\Http\Controllers\GlobalIngredientController;
-use App\Http\Controllers\InventoryIngredientController;
-use App\Http\Controllers\InventoryStockHistoryController;
-use App\Http\Controllers\InvoiceController;
-use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\FinanceExpenseCategoryController;
 use App\Http\Controllers\FinanceExpenseController;
 use App\Http\Controllers\FinancePayrollController;
 use App\Http\Controllers\FinanceVendorController;
+use App\Http\Controllers\GlobalIngredientController;
+use App\Http\Controllers\GuestController;
+use App\Http\Controllers\GuestTableAccessController;
+use App\Http\Controllers\IngredientLibraryController;
+use App\Http\Controllers\InventoryIngredientController;
+use App\Http\Controllers\InventoryStockHistoryController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MenuController;
+use App\Http\Controllers\OrderController;
+use App\Http\Controllers\PublicReservationController;
+use App\Http\Controllers\PushSubscriptionController;
+use App\Http\Controllers\QRCodeController;
+use App\Http\Controllers\ReservationController;
+use App\Http\Controllers\RestaurantController;
+use App\Http\Controllers\RoomPlanController;
+use App\Http\Controllers\RoomPlanItemController;
+use App\Http\Controllers\StaffScheduleController;
 use App\Http\Controllers\SuperAdmin\SuperAdminAuthController;
 use App\Http\Controllers\SuperAdmin\SuperAdminContactLeadController;
 use App\Http\Controllers\SuperAdmin\SuperAdminFeatureFlagController;
 use App\Http\Controllers\SuperAdmin\SuperAdminRestaurantManagementController;
-use App\Http\Controllers\OrderController;
-use App\Http\Controllers\PushSubscriptionController;
-use App\Http\Controllers\PublicReservationController;
-use App\Http\Controllers\ReservationController;
-use App\Http\Controllers\RoomPlanController;
-use App\Http\Controllers\RoomPlanItemController;
-use App\Http\Controllers\StaffScheduleController;
-use App\Http\Controllers\QRCodeController;
-use App\Http\Controllers\RestaurantController;
 use App\Http\Controllers\TableSessionController;
 use App\Http\Controllers\WaveController;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -133,54 +133,54 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
-        Route::middleware('role:admin,staff,chef,stock_manager')->group(function () {
-            Route::middleware('feature:realtime_staff_orders')->group(function () {
-                Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
-                Route::patch('/orders/{order}', [OrderController::class, 'update']);
-                Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
-                Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
-                Route::post('/orders/{order}/served', [OrderController::class, 'markServed']);
-                Route::post('/orders/{order}/undo-served', [OrderController::class, 'undoMarkServed']);
-                Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
-                Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
-                Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
-                Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
-                Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
-                Route::get('/waves/pending', [WaveController::class, 'pending']);
-                Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
-            });
-            Route::get('/table-sessions/{tableSession}/invoice-split', [TableSessionController::class, 'invoiceSplit'])
-                ->middleware('feature:invoice_splitting');
-            Route::post('/pos/checkout', [OrderController::class, 'quickCheckout'])
-                ->middleware('feature:table_ordering');
-            Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
-                Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
-                Route::post('/push/mobile-token', [PushSubscriptionController::class, 'storeMobileToken']);
+    Route::middleware('role:admin,staff,chef,stock_manager')->group(function () {
+        Route::middleware('feature:realtime_staff_orders')->group(function () {
+            Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
+            Route::patch('/orders/{order}', [OrderController::class, 'update']);
+            Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
+            Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
+            Route::post('/orders/{order}/served', [OrderController::class, 'markServed']);
+            Route::post('/orders/{order}/undo-served', [OrderController::class, 'undoMarkServed']);
+            Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
+            Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
+            Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
+            Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
+            Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
+            Route::get('/waves/pending', [WaveController::class, 'pending']);
+            Route::post('/waves/{wave}/resolve', [WaveController::class, 'resolve']);
+        });
+        Route::get('/table-sessions/{tableSession}/invoice-split', [TableSessionController::class, 'invoiceSplit'])
+            ->middleware('feature:invoice_splitting');
+        Route::post('/pos/checkout', [OrderController::class, 'quickCheckout'])
+            ->middleware('feature:table_ordering');
+        Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
+        Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
+        Route::post('/push/mobile-token', [PushSubscriptionController::class, 'storeMobileToken']);
 
-            Route::middleware('feature:room_plan_editor')->group(function () {
-                Route::get('/room-plans', [RoomPlanController::class, 'index']);
-                Route::get('/room-plans/{roomPlan}', [RoomPlanController::class, 'show']);
-            });
+        Route::middleware('feature:room_plan_editor')->group(function () {
+            Route::get('/room-plans', [RoomPlanController::class, 'index']);
+            Route::get('/room-plans/{roomPlan}', [RoomPlanController::class, 'show']);
+        });
+    });
+
+    Route::middleware('role:admin,staff')->group(function () {
+        Route::middleware('feature:room_plan_editor')->group(function () {
+            Route::post('/room-plans', [RoomPlanController::class, 'store']);
+            Route::patch('/room-plans/{roomPlan}', [RoomPlanController::class, 'update']);
+            Route::delete('/room-plans/{roomPlan}', [RoomPlanController::class, 'destroy']);
+            Route::post('/room-plans/{roomPlan}/background', [RoomPlanController::class, 'uploadBackground']);
+            Route::put('/room-plans/{roomPlan}/items/bulk', [RoomPlanController::class, 'saveItems']);
+
+            Route::post('/room-plans/{roomPlan}/items', [RoomPlanItemController::class, 'store']);
+            Route::patch('/room-plans/{roomPlan}/items/{roomPlanItem}', [RoomPlanItemController::class, 'update']);
+            Route::delete('/room-plans/{roomPlan}/items/{roomPlanItem}', [RoomPlanItemController::class, 'destroy']);
+            Route::post('/room-plans/{roomPlan}/items/{roomPlanItem}/duplicate', [RoomPlanItemController::class, 'duplicate']);
         });
 
-        Route::middleware('role:admin,staff')->group(function () {
-            Route::middleware('feature:room_plan_editor')->group(function () {
-                Route::post('/room-plans', [RoomPlanController::class, 'store']);
-                Route::patch('/room-plans/{roomPlan}', [RoomPlanController::class, 'update']);
-                Route::delete('/room-plans/{roomPlan}', [RoomPlanController::class, 'destroy']);
-                Route::post('/room-plans/{roomPlan}/background', [RoomPlanController::class, 'uploadBackground']);
-                Route::put('/room-plans/{roomPlan}/items/bulk', [RoomPlanController::class, 'saveItems']);
-
-                Route::post('/room-plans/{roomPlan}/items', [RoomPlanItemController::class, 'store']);
-                Route::patch('/room-plans/{roomPlan}/items/{roomPlanItem}', [RoomPlanItemController::class, 'update']);
-                Route::delete('/room-plans/{roomPlan}/items/{roomPlanItem}', [RoomPlanItemController::class, 'destroy']);
-                Route::post('/room-plans/{roomPlan}/items/{roomPlanItem}/duplicate', [RoomPlanItemController::class, 'duplicate']);
-            });
-
-            Route::middleware('feature:table_reservations')->group(function () {
-                Route::get('/admin/reservations', [ReservationController::class, 'index']);
-            });
+        Route::middleware('feature:table_reservations')->group(function () {
+            Route::get('/admin/reservations', [ReservationController::class, 'index']);
         });
+    });
 
     Route::middleware('role:admin,accountant')->group(function () {
         Route::get('/orders/accounting', [OrderController::class, 'accounting'])

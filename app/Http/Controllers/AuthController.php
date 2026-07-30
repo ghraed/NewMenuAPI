@@ -12,8 +12,7 @@ class AuthController extends Controller
 {
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,
-    ) {
-    }
+    ) {}
 
     public function login(Request $request): JsonResponse
     {

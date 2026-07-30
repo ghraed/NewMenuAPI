@@ -8,8 +8,8 @@ use App\Models\Dish;
 use App\Services\DishAlternativeSuggestionService;
 use App\Services\FeatureFlagService;
 use App\Services\TenantRestaurantResolver;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -22,8 +22,7 @@ class GuestController extends Controller
         private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService,
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
         private readonly FeatureFlagService $featureFlagService,
-    ) {
-    }
+    ) {}
 
     public function listDishes(Request $request): JsonResponse
     {

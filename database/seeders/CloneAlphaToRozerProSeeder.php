@@ -14,8 +14,11 @@ use RuntimeException;
 class CloneAlphaToRozerProSeeder extends Seeder
 {
     private const SOURCE_DOMAIN = 'alpha.rozer.fun';
+
     private const TARGET_DOMAIN = 'rozer.pro';
+
     private const TARGET_ADMIN_EMAIL = 'rozer@rozer.pro';
+
     private const TARGET_EMAIL_DOMAIN = 'rozer.pro';
 
     /**
@@ -379,7 +382,7 @@ class CloneAlphaToRozerProSeeder extends Seeder
             mutator: function (array &$row) use (&$maps, $targetRestaurantId): void {
                 $row['dish_id'] = $this->requireMappedId($row['dish_id'] ?? null, $maps['dishes'], 'qr_codes.dish_id');
                 if (! empty($row['code_url'])) {
-                    $row['code_url'] = rtrim((string) $row['code_url'], '/') . '?clone=' . $targetRestaurantId . '-' . Str::uuid()->toString();
+                    $row['code_url'] = rtrim((string) $row['code_url'], '/').'?clone='.$targetRestaurantId.'-'.Str::uuid()->toString();
                 }
             }
         );
@@ -435,7 +438,7 @@ class CloneAlphaToRozerProSeeder extends Seeder
                 $row['restaurant_table_id'] = $this->mapNullableId($row['restaurant_table_id'] ?? null, $maps['restaurant_tables']);
                 $row['table_session_id'] = $this->mapNullableId($row['table_session_id'] ?? null, $maps['table_sessions']);
                 if (! empty($row['order_number'])) {
-                    $row['order_number'] = (string) $row['order_number'] . '-clone-' . $targetRestaurantId . '-' . Str::random(6);
+                    $row['order_number'] = (string) $row['order_number'].'-clone-'.$targetRestaurantId.'-'.Str::random(6);
                 }
                 $this->remapUserColumns('orders', $row, $userMap, $targetAdminId);
             }
@@ -638,7 +641,7 @@ class CloneAlphaToRozerProSeeder extends Seeder
     }
 
     /**
-     * @param callable(array<string, mixed>): void|null $mutator
+     * @param  callable(array<string, mixed>): void|null  $mutator
      * @return array<int|string, int|string>
      */
     private function cloneRestaurantScopedTable(
@@ -655,7 +658,7 @@ class CloneAlphaToRozerProSeeder extends Seeder
                 ->where('restaurant_id', $sourceRestaurantId)
                 ->orderBy($primaryKey)
                 ->get(),
-            mutator: function (array &$row) use ($table, $targetRestaurantId, $mutator): void {
+            mutator: function (array &$row) use ($targetRestaurantId, $mutator): void {
                 $row['restaurant_id'] = $targetRestaurantId;
                 if ($mutator) {
                     $mutator($row);
@@ -667,8 +670,8 @@ class CloneAlphaToRozerProSeeder extends Seeder
     }
 
     /**
-     * @param iterable<object> $sourceRows
-     * @param callable(array<string, mixed>): void|null $mutator
+     * @param  iterable<object>  $sourceRows
+     * @param  callable(array<string, mixed>): void|null  $mutator
      * @return array<int|string, int|string>
      */
     private function cloneRowsWithMap(
@@ -707,8 +710,8 @@ class CloneAlphaToRozerProSeeder extends Seeder
     }
 
     /**
-     * @param iterable<object> $sourceRows
-     * @param callable(array<string, mixed>): void|null $mutator
+     * @param  iterable<object>  $sourceRows
+     * @param  callable(array<string, mixed>): void|null  $mutator
      */
     private function cloneRowsWithoutMap(
         string $table,
@@ -733,7 +736,7 @@ class CloneAlphaToRozerProSeeder extends Seeder
     }
 
     /**
-     * @param array<string, mixed> $row
+     * @param  array<string, mixed>  $row
      */
     private function refreshUniqueIdentifiers(string $table, array &$row): void
     {
@@ -743,7 +746,7 @@ class CloneAlphaToRozerProSeeder extends Seeder
     }
 
     /**
-     * @param array<string, mixed> $row
+     * @param  array<string, mixed>  $row
      */
     private function remapUserColumns(string $table, array &$row, array $userMap, int $targetAdminId): void
     {
@@ -775,11 +778,13 @@ class CloneAlphaToRozerProSeeder extends Seeder
 
             if ($sourceUserId === null) {
                 $row[$column] = null;
+
                 continue;
             }
 
             if (array_key_exists($sourceUserId, $userMap)) {
                 $row[$column] = $userMap[$sourceUserId];
+
                 continue;
             }
 
@@ -802,7 +807,7 @@ class CloneAlphaToRozerProSeeder extends Seeder
     }
 
     /**
-     * @param array<int|string, int|string> $map
+     * @param  array<int|string, int|string>  $map
      */
     private function mapNullableId(mixed $sourceId, array $map): mixed
     {
@@ -818,7 +823,7 @@ class CloneAlphaToRozerProSeeder extends Seeder
     }
 
     /**
-     * @param array<int|string, int|string> $map
+     * @param  array<int|string, int|string>  $map
      */
     private function requireMappedId(mixed $sourceId, array $map, string $label): mixed
     {
@@ -908,16 +913,16 @@ class CloneAlphaToRozerProSeeder extends Seeder
         $normalized = strtolower(trim($sourceEmail));
 
         if ($normalized === '') {
-            return 'user' . $sourceUserId . '@' . self::TARGET_EMAIL_DOMAIN;
+            return 'user'.$sourceUserId.'@'.self::TARGET_EMAIL_DOMAIN;
         }
 
         $localPart = strstr($normalized, '@', true);
 
         if ($localPart === false || $localPart === '') {
-            $localPart = 'user' . $sourceUserId;
+            $localPart = 'user'.$sourceUserId;
         }
 
-        return $localPart . '@' . self::TARGET_EMAIL_DOMAIN;
+        return $localPart.'@'.self::TARGET_EMAIL_DOMAIN;
     }
 
     private function resolveTargetPhone(?string $sourcePhone, ?int $targetUserId): ?string

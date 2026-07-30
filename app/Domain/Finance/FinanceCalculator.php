@@ -80,7 +80,7 @@ final class FinanceCalculator implements FinanceCalculatorContract
 
     private function parseFiniteNumber(float|int|string $value): float
     {
-        if (!is_numeric($value)) {
+        if (! is_numeric($value)) {
             return 0.0;
         }
 

@@ -7,17 +7,20 @@ use App\Models\MobilePushToken;
 use App\Models\Order;
 use App\Models\TableWave;
 use App\Models\User;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class MobilePushNotificationService
 {
     private const STAFF_ORDERS_URL = '/staff/orders';
+
     private const ADMIN_EVENTS_URL = '/admin/events';
+
     private const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+
     private const TOKEN_CACHE_TTL_SECONDS = 3000;
 
     public function isConfigured(): bool
@@ -118,7 +121,7 @@ class MobilePushNotificationService
     }
 
     /**
-     * @param array<int, string> $targetRoles
+     * @param  array<int, string>  $targetRoles
      */
     public function notifyEventPlanning(
         EventReservation $eventReservation,
@@ -163,8 +166,8 @@ class MobilePushNotificationService
     }
 
     /**
-     * @param Collection<int, User> $recipients
-     * @param array<string, string> $data
+     * @param  Collection<int, User>  $recipients
+     * @param  array<string, string>  $data
      */
     private function dispatchToRecipients(
         Collection $recipients,
@@ -172,8 +175,7 @@ class MobilePushNotificationService
         string $title,
         string $body,
         array $data
-    ): void
-    {
+    ): void {
         /** @var Collection<int, MobilePushToken> $tokens */
         $tokens = $recipients
             ->flatMap(fn (User $user) => $user->mobilePushTokens)
@@ -279,12 +281,14 @@ class MobilePushNotificationService
         $path = $this->resolveServiceAccountPath();
         if ($path === null || ! is_file($path)) {
             Log::warning('FCM service account file is missing.', ['path' => $path]);
+
             return null;
         }
 
         $decoded = json_decode((string) file_get_contents($path), true);
         if (! is_array($decoded)) {
             Log::warning('FCM service account JSON is invalid.', ['path' => $path]);
+
             return null;
         }
 
@@ -292,7 +296,7 @@ class MobilePushNotificationService
     }
 
     /**
-     * @param array<string, mixed>|null $credentials
+     * @param  array<string, mixed>|null  $credentials
      */
     private function resolveProjectId(?array $credentials = null): ?string
     {
@@ -302,11 +306,12 @@ class MobilePushNotificationService
         }
 
         $projectId = $credentials ? Arr::get($credentials, 'project_id') : null;
+
         return is_string($projectId) && $projectId !== '' ? $projectId : null;
     }
 
     /**
-     * @param array<string, mixed>|null $credentials
+     * @param  array<string, mixed>|null  $credentials
      */
     private function getAccessToken(?array $credentials): ?string
     {
@@ -319,6 +324,7 @@ class MobilePushNotificationService
 
         if (! is_string($clientEmail) || $clientEmail === '' || ! is_string($privateKey) || $privateKey === '') {
             Log::warning('FCM credentials are missing client_email/private_key.');
+
             return null;
         }
 
@@ -349,6 +355,7 @@ class MobilePushNotificationService
         $signed = openssl_sign($unsignedJwt, $signature, $privateKey, OPENSSL_ALGO_SHA256);
         if (! $signed) {
             Log::warning('Failed to sign FCM OAuth JWT.');
+
             return null;
         }
 
@@ -361,6 +368,7 @@ class MobilePushNotificationService
             ]);
         } catch (\Throwable $exception) {
             Log::warning('Failed requesting FCM OAuth token.', ['message' => $exception->getMessage()]);
+
             return null;
         }
 
@@ -369,12 +377,14 @@ class MobilePushNotificationService
                 'status' => $response->status(),
                 'body' => $response->body(),
             ]);
+
             return null;
         }
 
         $token = data_get($response->json(), 'access_token');
         if (! is_string($token) || $token === '') {
             Log::warning('FCM OAuth token response missing access_token.');
+
             return null;
         }
 

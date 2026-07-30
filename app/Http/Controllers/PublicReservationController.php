@@ -18,8 +18,7 @@ class PublicReservationController extends Controller
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
         private readonly ReservationAvailabilityService $availabilityService,
         private readonly ReservationService $reservationService,
-    ) {
-    }
+    ) {}
 
     public function listRoomPlans(Request $request): JsonResponse
     {

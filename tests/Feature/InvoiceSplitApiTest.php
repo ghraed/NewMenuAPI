@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Order;
 use App\Models\OrderItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;

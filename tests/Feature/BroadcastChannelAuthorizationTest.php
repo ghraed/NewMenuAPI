@@ -2,16 +2,15 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Broadcasting\BroadcastManager;
 use App\Models\Feature;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
 use App\Models\RestaurantTable;
 use App\Models\User;
+use Illuminate\Broadcasting\BroadcastManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
-use Laravel\Sanctum\Sanctum;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Tests\TestCase;
 

@@ -13,11 +13,10 @@ class ReservationService
 {
     public function __construct(
         private readonly ReservationAvailabilityService $availabilityService,
-    ) {
-    }
+    ) {}
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function create(Restaurant $restaurant, array $payload): Reservation
     {
@@ -83,7 +82,7 @@ class ReservationService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function update(Restaurant $restaurant, Reservation $reservation, array $payload): Reservation
     {

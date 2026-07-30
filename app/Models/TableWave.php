@@ -8,8 +8,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class TableWave extends Model
 {
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_RESOLVED = 'resolved';
+
     public const REQUEST_TYPE_CALL_WAITER = 'call_waiter';
+
     public const REQUEST_TYPE_REQUEST_BILL = 'request_bill';
 
     protected $fillable = [

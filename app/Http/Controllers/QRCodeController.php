@@ -17,7 +17,7 @@ class QRCodeController extends Controller
 
         // Check if QR already exists
         $qrCode = $dish->qrCode;
-        if (!$qrCode) {
+        if (! $qrCode) {
             $url = route('guest.show-dish', [
                 'restaurant_slug' => $dish->restaurant->slug,
                 'dish_id' => $dish->id,
@@ -39,7 +39,7 @@ class QRCodeController extends Controller
         $this->authorize('view', $dish);
 
         $qrCode = $dish->qrCode;
-        if (!$qrCode) {
+        if (! $qrCode) {
             $this->generate($dish);
             $qrCode = $dish->qrCode;
         }
@@ -56,10 +56,10 @@ class QRCodeController extends Controller
     private function generateQRImage(string $url): string
     {
         $qr = new QrCode($url);
-        $writer = new PngWriter();
+        $writer = new PngWriter;
         $result = $writer->write($qr);
 
-        return 'data:image/png;base64,' . base64_encode($result->getString());
+        return 'data:image/png;base64,'.base64_encode($result->getString());
     }
 
     public function generateTable(Request $request, RestaurantTable $restaurantTable): JsonResponse
@@ -100,7 +100,7 @@ class QRCodeController extends Controller
         $tableNumber = $this->resolveRestaurantScopedTableNumber($restaurantTable);
         $frontendUrl = rtrim((string) config('app.frontend_url', config('app.url')), '/');
 
-        return $frontendUrl . "/menu/table/{$tableNumber}";
+        return $frontendUrl."/menu/table/{$tableNumber}";
     }
 
     private function resolveRestaurantScopedTableNumber(RestaurantTable $restaurantTable): int

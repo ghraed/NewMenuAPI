@@ -12,11 +12,10 @@ class RoomPlanItemService
 {
     public function __construct(
         private readonly RoomPlanTableSyncService $tableSyncService,
-    ) {
-    }
+    ) {}
 
     /**
-     * @param array<int, array<string, mixed>> $items
+     * @param  array<int, array<string, mixed>>  $items
      */
     public function saveBulk(RoomPlan $roomPlan, array $items): Collection
     {
@@ -31,6 +30,7 @@ class RoomPlanItemService
                     $item = $existing->get($incomingId);
                     $this->updateItem($roomPlan, $item, $itemPayload);
                     $persistedIds[] = $item->id;
+
                     continue;
                 }
 
@@ -48,7 +48,7 @@ class RoomPlanItemService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function createItem(RoomPlan $roomPlan, array $payload): RoomPlanItem
     {
@@ -73,7 +73,7 @@ class RoomPlanItemService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function updateItem(RoomPlan $roomPlan, RoomPlanItem $item, array $payload): RoomPlanItem
     {
@@ -137,7 +137,7 @@ class RoomPlanItemService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
     private function normalizePayload(RoomPlan $roomPlan, array $payload, ?RoomPlanItem $existing): array

@@ -14,9 +14,7 @@ class NewContactLeadMail extends Mailable
     use Queueable;
     use SerializesModels;
 
-    public function __construct(public ContactLead $lead)
-    {
-    }
+    public function __construct(public ContactLead $lead) {}
 
     public function envelope(): Envelope
     {

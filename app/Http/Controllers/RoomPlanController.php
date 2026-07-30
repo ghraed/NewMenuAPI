@@ -14,8 +14,7 @@ class RoomPlanController extends Controller
     public function __construct(
         private readonly RoomPlanService $roomPlanService,
         private readonly RoomPlanItemService $roomPlanItemService,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {

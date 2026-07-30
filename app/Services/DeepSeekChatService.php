@@ -5,8 +5,8 @@ namespace App\Services;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Throwable;
 use RuntimeException;
+use Throwable;
 
 class DeepSeekChatService
 {
@@ -41,7 +41,7 @@ Do not invent exact prices unless pricing data is provided. Say that pricing dep
 PROMPT;
 
     /**
-     * @param array<int, array{role:string, content:string}> $messages
+     * @param  array<int, array{role:string, content:string}>  $messages
      * @param array{
      *   restaurant_id?:int,
      *   restaurant_name?:string,
@@ -107,7 +107,7 @@ PROMPT;
     }
 
     /**
-     * @param array<int, array{role:string, content:string}> $messages
+     * @param  array<int, array{role:string, content:string}>  $messages
      */
     public function contactReply(array $messages): string
     {
@@ -355,11 +355,13 @@ PROMPT;
                 if ($inString) {
                     if ($escaped) {
                         $escaped = false;
+
                         continue;
                     }
 
                     if ($ch === '\\') {
                         $escaped = true;
+
                         continue;
                     }
 
@@ -372,11 +374,13 @@ PROMPT;
 
                 if ($ch === '"') {
                     $inString = true;
+
                     continue;
                 }
 
                 if ($ch === '{') {
                     $depth++;
+
                     continue;
                 }
 
@@ -405,7 +409,7 @@ PROMPT;
     }
 
     /**
-     * @param array<int, array<string,mixed>> $jsonObjects
+     * @param  array<int, array<string,mixed>>  $jsonObjects
      * @return array{action:string,items:array<int,array{name:string,quantity:int}>}|null
      */
     private function extractOrderData(array $jsonObjects): ?array
@@ -428,7 +432,7 @@ PROMPT;
     }
 
     /**
-     * @param array<string,mixed> $payload
+     * @param  array<string,mixed>  $payload
      * @return array{action:string,items:array<int,array{name:string,quantity:int}>}|null
      */
     private function normalizePlaceOrderPayload(array $payload): ?array
@@ -503,7 +507,7 @@ PROMPT;
     }
 
     /**
-     * @param array<string,mixed> $payload
+     * @param  array<string,mixed>  $payload
      * @return array<string,mixed>
      */
     private function executeContactRequest(string $apiKey, array $payload): array
@@ -535,7 +539,7 @@ PROMPT;
     }
 
     /**
-     * @param array<string,mixed> $payload
+     * @param  array<string,mixed>  $payload
      * @return array{reply:string, order_data?:array<string,mixed>}
      */
     private function executeRequest(string $apiKey, array $payload): array

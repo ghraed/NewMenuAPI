@@ -39,4 +39,3 @@ class EventPlanningNotification implements ShouldBroadcastNow
         ];
     }
 }
-

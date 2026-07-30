@@ -28,4 +28,3 @@ final class MenuCategoryFactory
         return $categories[array_rand($categories)];
     }
 }
-

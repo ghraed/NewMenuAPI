@@ -3,15 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Expense;
-use App\Models\ExpenseCategory;
 use App\Models\Restaurant;
 use App\Models\StockMovement;
-use App\Models\Vendor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class FinanceExpenseController extends Controller
@@ -337,6 +335,7 @@ class FinanceExpenseController extends Controller
         }
 
         $normalized = trim($value);
+
         return $normalized === '' ? null : $normalized;
     }
 

@@ -273,11 +273,11 @@ class InvoicePdfDownloadTest extends TestCase
 
     private function requirePdfTooling(): void
     {
-        $browser = (new ExecutableFinder())->find('google-chrome')
-            ?? (new ExecutableFinder())->find('google-chrome-stable')
-            ?? (new ExecutableFinder())->find('chromium-browser')
-            ?? (new ExecutableFinder())->find('chromium');
-        $pdfToText = (new ExecutableFinder())->find('pdftotext');
+        $browser = (new ExecutableFinder)->find('google-chrome')
+            ?? (new ExecutableFinder)->find('google-chrome-stable')
+            ?? (new ExecutableFinder)->find('chromium-browser')
+            ?? (new ExecutableFinder)->find('chromium');
+        $pdfToText = (new ExecutableFinder)->find('pdftotext');
 
         if (! is_string($browser) || $browser === '' || ! is_string($pdfToText) || $pdfToText === '') {
             $this->markTestSkipped('Invoice PDF tooling is not installed in this environment.');

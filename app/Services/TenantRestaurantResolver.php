@@ -42,7 +42,7 @@ class TenantRestaurantResolver
             }
 
             if (! $this->isLocalHost($requestHost)) {
-                throw (new ModelNotFoundException())->setModel(Restaurant::class);
+                throw (new ModelNotFoundException)->setModel(Restaurant::class);
             }
         }
 
@@ -115,7 +115,7 @@ class TenantRestaurantResolver
         $restaurant = Restaurant::query()->orderBy('id')->first();
 
         if (! $restaurant) {
-            throw (new ModelNotFoundException())->setModel(Restaurant::class);
+            throw (new ModelNotFoundException)->setModel(Restaurant::class);
         }
 
         return $restaurant;

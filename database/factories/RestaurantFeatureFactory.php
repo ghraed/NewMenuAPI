@@ -28,4 +28,3 @@ class RestaurantFeatureFactory extends Factory
         return $this->state(fn (): array => ['enabled' => false]);
     }
 }
-

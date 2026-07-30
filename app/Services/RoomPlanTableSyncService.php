@@ -9,8 +9,7 @@ class RoomPlanTableSyncService
 {
     public function __construct(
         private readonly TableManagementModeService $tableManagementModeService,
-    ) {
-    }
+    ) {}
 
     public function syncFromItem(RoomPlanItem $item): ?RestaurantTable
     {

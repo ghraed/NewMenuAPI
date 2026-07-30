@@ -13,12 +13,14 @@ class DemoIngredientAlignmentSeeder extends Seeder
 
         if ($sqlPath === null) {
             $this->command?->error("Demo ingredient SQL not found at: {$sqlPath}");
+
             return;
         }
 
         $sql = file_get_contents($sqlPath);
         if ($sql === false || trim($sql) === '') {
             $this->command?->error("Demo ingredient SQL is empty or unreadable: {$sqlPath}");
+
             return;
         }
 
@@ -32,8 +34,8 @@ class DemoIngredientAlignmentSeeder extends Seeder
         $configured = env('DEMO_INGREDIENT_SQL_PATH');
         $candidates = array_filter([
             is_string($configured) && trim($configured) !== '' ? trim($configured) : null,
-            dirname(base_path()) . '/Menu_React/backups/demo_ingredient_fix.sql',
-            dirname(base_path()) . '/NewMenuReact/backups/demo_ingredient_fix.sql',
+            dirname(base_path()).'/Menu_React/backups/demo_ingredient_fix.sql',
+            dirname(base_path()).'/NewMenuReact/backups/demo_ingredient_fix.sql',
         ]);
 
         foreach ($candidates as $candidate) {

@@ -54,6 +54,7 @@ class GlobalIngredientProvisioningService
 
                 if ($existingIngredient->global_ingredient_id) {
                     $existingByGlobalId[(int) $existingIngredient->global_ingredient_id] = $existingIngredient;
+
                     continue;
                 }
 
@@ -67,6 +68,7 @@ class GlobalIngredientProvisioningService
 
                 if (! $globalIngredient) {
                     $skippedGlobalIngredientIds[] = (int) $globalIngredientId;
+
                     continue;
                 }
 
@@ -74,6 +76,7 @@ class GlobalIngredientProvisioningService
 
                 if (isset($existingByGlobalId[$numericGlobalIngredientId])) {
                     $skippedGlobalIngredientIds[] = $numericGlobalIngredientId;
+
                     continue;
                 }
 
@@ -90,11 +93,13 @@ class GlobalIngredientProvisioningService
                     $linkedIds[] = (int) $ingredientToLink->id;
                     $existingByGlobalId[$numericGlobalIngredientId] = $ingredientToLink;
                     unset($unlinkedByNormalizedName[$normalizedName]);
+
                     continue;
                 }
 
                 if ($normalizedName !== '' && isset($existingNormalizedNames[$normalizedName])) {
                     $skippedGlobalIngredientIds[] = $numericGlobalIngredientId;
+
                     continue;
                 }
 

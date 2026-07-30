@@ -19,14 +19,16 @@ use Illuminate\Support\Str;
 class TableSessionAccessService
 {
     private const MAX_PIN_ATTEMPTS = 5;
+
     private const PIN_LOCK_MINUTES = 10;
+
     private const TOKEN_HEADER = 'X-Guest-Access-Token';
+
     private const DEVICE_HEADER = 'X-Guest-Device-Id';
 
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService
-    ) {
-    }
+    ) {}
 
     public function verifyPinForTable(Request $request, int $tableNumber, string $pin): array
     {
@@ -212,8 +214,7 @@ class TableSessionAccessService
         ?int $staffUserId = null,
         string $reason = 'finalized',
         array $payment = []
-    ): array
-    {
+    ): array {
         return DB::transaction(function () use ($tableSession, $staffUserId, $reason, $payment) {
             /** @var TableSession $session */
             $session = TableSession::query()
@@ -539,6 +540,7 @@ class TableSessionAccessService
 
         if ($touch) {
             $this->touchAccess($access, $access->tableSession);
+
             return $access->fresh(['tableSession.restaurantTable']);
         }
 

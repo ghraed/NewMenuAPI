@@ -17,8 +17,7 @@ class AnalyticsController extends Controller
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
-    ) {
-    }
+    ) {}
 
     /**
      * Track analytics events from the AR menu frontend
@@ -85,7 +84,7 @@ class AnalyticsController extends Controller
                 'messages' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Analytics tracking failed: ' . $e->getMessage(), [
+            Log::error('Analytics tracking failed: '.$e->getMessage(), [
                 'request' => $request->all(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -99,7 +98,7 @@ class AnalyticsController extends Controller
 
     private function detectDeviceType(Request $request): string
     {
-        $agent = new Agent();
+        $agent = new Agent;
         $userAgent = $request->userAgent() ?? '';
 
         if ($agent->is('iOS') || str_contains($userAgent, 'iPhone') || str_contains($userAgent, 'iPad')) {
@@ -119,7 +118,7 @@ class AnalyticsController extends Controller
         $user->loadMissing('restaurant');
 
         $restaurantId = $user->restaurant?->id;
-        if (!$restaurantId) {
+        if (! $restaurantId) {
             abort(403, 'No restaurant is linked to this account');
         }
 

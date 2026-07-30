@@ -12,4 +12,3 @@ final class CashSettlementDTO
         public readonly float $remainingDue
     ) {}
 }
-

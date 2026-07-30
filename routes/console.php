@@ -25,8 +25,9 @@ Artisan::command('seed:prod', function () {
     $password = env('ADMIN_PASSWORD');
     $name = env('ADMIN_NAME', 'Admin');
 
-    if (!$email || !$password) {
+    if (! $email || ! $password) {
         $this->error('ADMIN_EMAIL and ADMIN_PASSWORD must be set in the environment.');
+
         return 1;
     }
 
@@ -35,19 +36,19 @@ Artisan::command('seed:prod', function () {
         ['name' => $name, 'password' => Hash::make($password)]
     );
 
-    if (!$user->wasRecentlyCreated && $user->name !== $name) {
+    if (! $user->wasRecentlyCreated && $user->name !== $name) {
         $user->update(['name' => $name]);
     }
 
     $restaurant = $user->restaurant;
-    if (!$restaurant) {
-        $restaurantName = env('ADMIN_RESTAURANT_NAME', $name . "'s Restaurant");
+    if (! $restaurant) {
+        $restaurantName = env('ADMIN_RESTAURANT_NAME', $name."'s Restaurant");
         $restaurantSlug = env('ADMIN_RESTAURANT_SLUG', Str::slug($restaurantName));
         $restaurantAddress = env('ADMIN_RESTAURANT_ADDRESS', '');
         $restaurantDescription = env('ADMIN_RESTAURANT_DESCRIPTION', '');
 
         if (Restaurant::where('slug', $restaurantSlug)->exists()) {
-            $restaurantSlug = $restaurantSlug . '-' . Str::random(4);
+            $restaurantSlug = $restaurantSlug.'-'.Str::random(4);
         }
 
         $restaurant = Restaurant::create([
@@ -62,8 +63,8 @@ Artisan::command('seed:prod', function () {
 
     app(GlobalIngredientProvisioningService::class)->provisionForRestaurant($restaurant);
 
-    $this->info('Admin user ready: ' . $user->email);
-    $this->info('Restaurant: ' . $restaurant->name . ' (' . $restaurant->slug . ')');
+    $this->info('Admin user ready: '.$user->email);
+    $this->info('Restaurant: '.$restaurant->name.' ('.$restaurant->slug.')');
 })->purpose('Create or update a production admin user and restaurant.');
 
 Schedule::command('dishes:cleanup-deleted-assets')->dailyAt('02:00');
@@ -76,6 +77,7 @@ Artisan::command('dishes:purge-dummy', function () {
 
     if ($dummyDishes->isEmpty()) {
         $this->info('No dummy dishes found.');
+
         return 0;
     }
 
@@ -89,7 +91,6 @@ Artisan::command('dishes:purge-dummy', function () {
 
     return 0;
 })->purpose('Delete all dummy dishes created by the DummyDishesSeeder.');
-
 
 Artisan::command('ingredients:backfill-global-links', function () {
     $globalByNormalized = GlobalIngredient::query()
@@ -138,8 +139,9 @@ Artisan::command('ingredients:backfill-global-links', function () {
 })->purpose('Backfill ingredients.global_ingredient_id by normalized local ingredient names.');
 
 Artisan::command('finance:backfill-payroll-mirror-expenses {--restaurant_id=} {--period_id=}', function () {
-    if (!\Illuminate\Support\Facades\Schema::hasColumn('expenses', 'payroll_period_id')) {
+    if (! \Illuminate\Support\Facades\Schema::hasColumn('expenses', 'payroll_period_id')) {
         $this->error('Missing expenses.payroll_period_id. Run latest migrations first.');
+
         return 1;
     }
 

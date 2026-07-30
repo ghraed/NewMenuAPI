@@ -2,11 +2,11 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
-use App\Models\Restaurant;
+use App\Models\AnalyticsEvent;
 use App\Models\Dish;
 use App\Models\DishAsset;
-use App\Models\AnalyticsEvent;
+use App\Models\Restaurant;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 

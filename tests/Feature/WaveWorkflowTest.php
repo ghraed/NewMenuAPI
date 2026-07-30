@@ -2,13 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\Feature;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
 use App\Models\RestaurantTable;
 use App\Models\TableSession;
 use App\Models\TableWave;
 use App\Models\User;
-use App\Models\Feature;
 use App\Services\GuestMenuSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;

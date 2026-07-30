@@ -158,7 +158,7 @@ class GlobalIngredientArabicRepairSeeder extends Seeder
             ->replaceMatches('/\s+/', ' ')
             ->trim()
             ->explode(' ')
-            ->map(fn(string $token) => Str::singular($token))
+            ->map(fn (string $token) => Str::singular($token))
             ->implode(' ');
 
         return trim((string) $singularized);

@@ -12,8 +12,7 @@ class TableProvisioningService
 {
     public function __construct(
         private readonly RoomPlanTableSyncService $roomPlanTableSyncService,
-    ) {
-    }
+    ) {}
 
     public function provisionFromRoomPlan(Restaurant $restaurant): void
     {
@@ -26,6 +25,7 @@ class TableProvisioningService
                 ->get()
                 ->map(function (RoomPlanItem $item): ?int {
                     $table = $this->roomPlanTableSyncService->syncFromItem($item);
+
                     return $table?->id;
                 })
                 ->filter()

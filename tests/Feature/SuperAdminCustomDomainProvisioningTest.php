@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Jobs\ProvisionRestaurantDomainJob;
 use App\Models\Restaurant;
-use App\Models\RestaurantDomain;
 use App\Models\SuperAdmin;
 use App\Models\User;
 use App\Services\DomainProvisioner;
@@ -286,7 +285,7 @@ class SuperAdminCustomDomainProvisioningTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed> $overrides
+     * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
      */
     private function restaurantPayload(array $overrides = []): array

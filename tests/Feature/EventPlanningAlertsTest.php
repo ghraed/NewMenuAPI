@@ -7,7 +7,6 @@ use App\Events\EventPlanningNotification;
 use App\Models\EventNotificationLog;
 use App\Models\EventReservation;
 use App\Models\Restaurant;
-use App\Models\SuperAdmin;
 use App\Models\User;
 use App\Services\EventPlanningAlertService;
 use App\Services\MobilePushNotificationService;
@@ -152,7 +151,7 @@ class EventPlanningAlertsTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed> $overrides
+     * @param  array<string, mixed>  $overrides
      */
     private function createEvent(Restaurant $restaurant, string $status, \DateTimeInterface $startAt, array $overrides = []): EventReservation
     {

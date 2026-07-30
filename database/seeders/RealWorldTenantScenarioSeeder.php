@@ -16,9 +16,13 @@ use Illuminate\Support\Str;
 class RealWorldTenantScenarioSeeder extends Seeder
 {
     private const DISHES_PER_RESTAURANT = 190;
+
     private const ALPHA_FOOD_COUNT = 170;
+
     private const ALPHA_DRINK_COUNT = 20;
+
     private const SIGMA_FOOD_COUNT = 170;
+
     private const SIGMA_DRINK_COUNT = 20;
 
     public function run(): void
@@ -734,7 +738,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
     }
 
     /**
-     * @param array<int, array{name:string,name_ar:string,unit:string,stock:float|int,low:float|int}> $definitions
+     * @param  array<int, array{name:string,name_ar:string,unit:string,stock:float|int,low:float|int}>  $definitions
      * @return array<string, Ingredient>
      */
     private function seedRestaurantIngredients(Restaurant $restaurant, array $definitions): array
@@ -789,7 +793,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
      *   image_url:string,
      *   recipe:array<int, array{ingredient:string,qty:float|int,unit:string}>
      * }> $dishes
-     * @param array<string, Ingredient> $ingredientMap
+     * @param  array<string, Ingredient>  $ingredientMap
      */
     private function seedRestaurantDishes(Restaurant $restaurant, array $ingredientMap, array $dishes): void
     {
@@ -846,7 +850,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
     /**
      * Ensure one row per ingredient_id to satisfy unique(dish_id, ingredient_id).
      *
-     * @param array<int, array{ingredient_id:int,quantity:float|int,unit:string,order_index:int,show_in_animation:bool}> $recipeRows
+     * @param  array<int, array{ingredient_id:int,quantity:float|int,unit:string,order_index:int,show_in_animation:bool}>  $recipeRows
      * @return array<int, array{ingredient_id:int,quantity:float,unit:string,order_index:int,show_in_animation:bool}>
      */
     private function mergeDuplicateRecipeRows(array $recipeRows, string $dishName): array
@@ -864,6 +868,7 @@ class RealWorldTenantScenarioSeeder extends Seeder
                     'order_index' => (int) $row['order_index'],
                     'show_in_animation' => (bool) $row['show_in_animation'],
                 ];
+
                 continue;
             }
 

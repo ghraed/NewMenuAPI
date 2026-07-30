@@ -3,14 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Expense;
-use App\Models\GlobalIngredient;
 use App\Models\Ingredient;
 use App\Models\Restaurant;
-use App\Services\GlobalIngredientProvisioningService;
 use App\Models\StockMovement;
-use Illuminate\Support\Carbon;
+use App\Services\GlobalIngredientProvisioningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -20,8 +19,7 @@ class InventoryIngredientController extends Controller
 {
     public function __construct(
         private readonly GlobalIngredientProvisioningService $globalIngredientProvisioningService,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -543,7 +541,7 @@ class InventoryIngredientController extends Controller
     }
 
     /**
-     * @param array<string,mixed> $validated
+     * @param  array<string,mixed>  $validated
      * @return array{
      *   wants_link:bool,
      *   can_create:bool,

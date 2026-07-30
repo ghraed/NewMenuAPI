@@ -22,8 +22,7 @@ class FeatureFlagService
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
         private readonly TableManagementModeService $tableManagementModeService,
         private readonly TableProvisioningService $tableProvisioningService,
-    ) {
-    }
+    ) {}
 
     public function enabled(string $featureKey): bool
     {
@@ -104,7 +103,7 @@ class FeatureFlagService
     }
 
     /**
-     * @param array<int, array{key:string, enabled:bool}> $features
+     * @param  array<int, array{key:string, enabled:bool}>  $features
      */
     public function syncFeatures(Restaurant $restaurant, array $features): void
     {
@@ -131,7 +130,7 @@ class FeatureFlagService
             ->first();
 
         if (! $feature) {
-            throw (new ModelNotFoundException())->setModel(Feature::class, [$normalizedKey]);
+            throw (new ModelNotFoundException)->setModel(Feature::class, [$normalizedKey]);
         }
 
         return $feature;
@@ -188,6 +187,7 @@ class FeatureFlagService
 
         if ($mode === TableManagementModeService::MODE_ROOM_PLAN) {
             $this->tableProvisioningService->provisionFromRoomPlan($restaurant);
+
             return;
         }
 

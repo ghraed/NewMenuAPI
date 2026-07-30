@@ -21,8 +21,7 @@ class GuestMenuSessionService
     public function __construct(
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
         private readonly FeatureFlagService $featureFlagService,
-    ) {
-    }
+    ) {}
 
     public function resolveGuestRestaurant(?Request $request = null): Restaurant
     {
@@ -68,7 +67,7 @@ class GuestMenuSessionService
     public function resolveTableByReference(Restaurant $restaurant, int $tableReference): RestaurantTable
     {
         if ($tableReference <= 0) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         $tables = $restaurant->relationLoaded('tables')
@@ -80,17 +79,17 @@ class GuestMenuSessionService
         $maxTables = $tables->count();
 
         if ($tableReference > $maxTables) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         $table = $this->matchTableByNumber($tables, $tableReference);
 
         if (! $table) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         if (! $table->is_active) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         return $table;
@@ -111,7 +110,7 @@ class GuestMenuSessionService
                 ->first();
 
             if (! $lockedTable) {
-                throw new ModelNotFoundException();
+                throw new ModelNotFoundException;
             }
 
             $this->expireActiveSessionsForRestaurant($restaurant->id, $now);
@@ -177,7 +176,7 @@ class GuestMenuSessionService
         $index = $tables->values()->search(fn (RestaurantTable $candidate) => $candidate->id === $table->id);
 
         if ($index === false) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         return $index + 1;
@@ -190,7 +189,7 @@ class GuestMenuSessionService
             ->findOrFail($sessionId);
 
         if ($this->expireSessionIfNeeded($session) || $session->status !== TableSession::STATUS_ACTIVE) {
-            throw new ModelNotFoundException();
+            throw new ModelNotFoundException;
         }
 
         return $session;
@@ -292,6 +291,7 @@ class GuestMenuSessionService
     {
         if (! $session->expires_at) {
             Cache::forever($this->pinCacheKey($session->id), $pin);
+
             return;
         }
 

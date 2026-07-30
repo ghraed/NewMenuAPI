@@ -533,7 +533,7 @@ class InvoiceController extends Controller
     }
 
     /**
-     * @param array<int,array<string,mixed>> $rows
+     * @param  array<int,array<string,mixed>>  $rows
      * @return array<int,array{
      *   name:string,
      *   quantity:string,
@@ -777,7 +777,7 @@ class InvoiceController extends Controller
                 StockMovement::TYPE_ORDER_RESTORATION,
             ])
             ->whereBetween('occurred_at', [$from->toDateTimeString(), $to->toDateTimeString()])
-            ->selectRaw("
+            ->selectRaw('
                 SUM(
                     CASE
                         WHEN movement_type = ? THEN COALESCE(total_cost_cents, 0)
@@ -785,7 +785,7 @@ class InvoiceController extends Controller
                         ELSE 0
                     END
                 ) AS cogs_cents
-            ", [
+            ', [
                 StockMovement::TYPE_ORDER_CONSUMPTION,
                 StockMovement::TYPE_ORDER_RESTORATION,
             ])

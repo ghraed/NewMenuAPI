@@ -14,18 +14,29 @@ class RoomPlanItem extends Model
     use SoftDeletes;
 
     public const TYPE_TABLE = 'table';
+
     public const TYPE_TABLE_CIRCLE = 'table_circle';
+
     public const TYPE_WINDOW = 'window';
+
     public const TYPE_COUNTER = 'counter';
+
     public const TYPE_BAR = 'bar';
+
     public const TYPE_KITCHEN = 'kitchen';
+
     public const TYPE_CASHIER = 'cashier';
+
     public const TYPE_FRIDGE = 'fridge';
+
     public const TYPE_SOFA = 'sofa';
+
     public const TYPE_PLANT = 'plant';
+
     public const TYPE_WC = 'wc';
 
     public const CONTAINER_ROOM = 'room';
+
     public const CONTAINER_WRAPPER = 'wrapper';
 
     /**

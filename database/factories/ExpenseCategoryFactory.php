@@ -23,4 +23,3 @@ class ExpenseCategoryFactory extends Factory
         ];
     }
 }
-

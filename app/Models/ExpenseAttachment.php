@@ -26,4 +26,3 @@ class ExpenseAttachment extends Model
         return $this->belongsTo(Expense::class);
     }
 }
-

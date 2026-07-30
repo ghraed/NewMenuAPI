@@ -32,4 +32,3 @@ class EventMenuItem extends Model
         return $this->belongsTo(Dish::class);
     }
 }
-

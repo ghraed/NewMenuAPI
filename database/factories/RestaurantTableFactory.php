@@ -28,4 +28,3 @@ class RestaurantTableFactory extends Factory
         return $this->state(fn (): array => ['is_active' => false]);
     }
 }
-

@@ -9,8 +9,7 @@ class RestaurantFeatureFlagScope
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,
         private readonly Restaurant $restaurant,
-    ) {
-    }
+    ) {}
 
     public function enabled(string $featureKey): bool
     {

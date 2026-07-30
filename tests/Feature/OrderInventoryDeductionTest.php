@@ -4,14 +4,14 @@ namespace Tests\Feature;
 
 use App\Models\Dish;
 use App\Models\DishIngredient;
+use App\Models\Feature;
 use App\Models\Ingredient;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderItemIngredientUsage;
 use App\Models\Restaurant;
-use App\Models\RestaurantTable;
-use App\Models\Feature;
 use App\Models\RestaurantFeature;
+use App\Models\RestaurantTable;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\OrderInventoryDeductionService;
@@ -915,7 +915,7 @@ class OrderInventoryDeductionTest extends TestCase
     }
 
     /**
-     * @param array<int, array{dish: Dish, quantity: int}> $items
+     * @param  array<int, array{dish: Dish, quantity: int}>  $items
      */
     private function createPendingOrderWithItems(
         Restaurant $restaurant,

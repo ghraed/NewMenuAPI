@@ -5,8 +5,8 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -17,11 +17,17 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     public const ROLE_SAAS_OWNER = 'saas_owner';
+
     public const ROLE_RESTAURANT_ADMIN = 'restaurant_admin';
+
     public const ROLE_ADMIN = 'admin';
+
     public const ROLE_STAFF = 'staff';
+
     public const ROLE_CHEF = 'chef';
+
     public const ROLE_STOCK_MANAGER = 'stock_manager';
+
     public const ROLE_ACCOUNTANT = 'accountant';
 
     /**

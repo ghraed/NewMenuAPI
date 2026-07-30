@@ -21,8 +21,7 @@ class RestaurantController extends Controller
     public function __construct(
         private readonly TableManagementModeService $tableManagementModeService,
         private readonly TableProvisioningService $tableProvisioningService,
-    ) {
-    }
+    ) {}
 
     public function indexStaff(Request $request): JsonResponse
     {

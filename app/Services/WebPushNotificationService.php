@@ -15,6 +15,7 @@ use Minishlink\WebPush\WebPush;
 class WebPushNotificationService
 {
     private const STAFF_ORDERS_URL = '/staff/orders';
+
     private const ADMIN_EVENTS_URL = '/admin/events';
 
     public function isConfigured(): bool
@@ -134,7 +135,7 @@ class WebPushNotificationService
     }
 
     /**
-     * @param array<int, string> $targetRoles
+     * @param  array<int, string>  $targetRoles
      */
     public function notifyEventPlanning(
         EventReservation $eventReservation,
@@ -192,7 +193,7 @@ class WebPushNotificationService
     }
 
     /**
-     * @param Collection<int, User> $recipients
+     * @param  Collection<int, User>  $recipients
      */
     private function dispatchPayloadToRecipients(Collection $recipients, string $payload): void
     {
@@ -234,6 +235,7 @@ class WebPushNotificationService
                 $storedSubscription->forceFill([
                     'last_used_at' => now(),
                 ])->save();
+
                 continue;
             }
 

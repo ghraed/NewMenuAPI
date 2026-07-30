@@ -12,8 +12,7 @@ class GuestTableAccessController extends Controller
     public function __construct(
         private readonly GuestMenuSessionService $guestMenuSessionService,
         private readonly TableSessionAccessService $tableSessionAccessService
-    ) {
-    }
+    ) {}
 
     public function verifyPin(Request $request, int $table_id): JsonResponse
     {

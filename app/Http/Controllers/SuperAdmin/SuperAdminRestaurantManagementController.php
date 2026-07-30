@@ -102,8 +102,7 @@ class SuperAdminRestaurantManagementController extends Controller
         private readonly FeatureFlagService $featureFlagService,
         private readonly GlobalIngredientProvisioningService $globalIngredientProvisioningService,
         private readonly RestaurantCustomDomainService $customDomainService,
-    ) {
-    }
+    ) {}
 
     public function options(): JsonResponse
     {

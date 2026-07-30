@@ -30,10 +30,10 @@ class DishController extends Controller
         ['key' => 'red_bull', 'name' => 'Red Bull', 'category' => 'Drinks', 'item_type' => 'packaged_drink', 'packaged_unit' => 'can', 'direct_stock_quantity_per_sale' => 1],
         ['key' => 'chips', 'name' => 'Chips', 'category' => 'Products', 'item_type' => 'other_product', 'packaged_unit' => 'bag', 'direct_stock_quantity_per_sale' => 1],
     ];
+
     public function __construct(
         private readonly DishDescriptionGenerationService $dishDescriptionGenerationService
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -98,7 +98,7 @@ class DishController extends Controller
                 'file',
                 'max:51200',
                 function ($attribute, $value, $fail) {
-                    if ($value && !in_array(strtolower($value->getClientOriginalExtension()), ['glb', 'gltf'], true)) {
+                    if ($value && ! in_array(strtolower($value->getClientOriginalExtension()), ['glb', 'gltf'], true)) {
                         $fail('The glb file must have a .glb or .gltf extension.');
                     }
                 },
@@ -556,7 +556,7 @@ class DishController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
 
-        if (!$dish->trashed()) {
+        if (! $dish->trashed()) {
             return response()->json([
                 'message' => 'Dish is already active.',
             ], 422);
@@ -564,10 +564,10 @@ class DishController extends Controller
 
         $dish->restore();
 
-            return response()->json([
-                'message' => 'Dish restored successfully.',
-                'dish' => $dish->fresh()->load(['assets', 'latestScan']),
-            ]);
+        return response()->json([
+            'message' => 'Dish restored successfully.',
+            'dish' => $dish->fresh()->load(['assets', 'latestScan']),
+        ]);
     }
 
     public function forceDelete(Request $request, Dish $dish): JsonResponse
@@ -575,7 +575,7 @@ class DishController extends Controller
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
 
-        if (!$dish->trashed()) {
+        if (! $dish->trashed()) {
             return response()->json([
                 'message' => 'Soft delete the dish before permanently deleting it.',
             ], 422);

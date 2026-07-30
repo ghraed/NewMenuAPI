@@ -77,6 +77,7 @@ class DummyDishesSeeder extends Seeder
 
         if ($restaurants->isEmpty()) {
             $this->command?->warn('No restaurants found. Create at least one restaurant before seeding dummy dishes.');
+
             return;
         }
 
@@ -338,7 +339,7 @@ class DummyDishesSeeder extends Seeder
     private function purgeExistingDummyDishes(): int
     {
         $query = Dish::query()
-            ->where('description', 'like', self::DESCRIPTION_MARKER . '%');
+            ->where('description', 'like', self::DESCRIPTION_MARKER.'%');
 
         $count = (int) $query->count();
 
@@ -352,7 +353,7 @@ class DummyDishesSeeder extends Seeder
     }
 
     /**
-     * @param Collection<int, Restaurant> $restaurants
+     * @param  Collection<int, Restaurant>  $restaurants
      */
     private function scanIngredientsByRestaurant(Collection $restaurants): Collection
     {
@@ -369,7 +370,7 @@ class DummyDishesSeeder extends Seeder
     }
 
     /**
-     * @param Collection<int, Restaurant> $restaurants
+     * @param  Collection<int, Restaurant>  $restaurants
      */
     private function removeDuplicateDishItems(Collection $restaurants): int
     {
@@ -414,7 +415,7 @@ class DummyDishesSeeder extends Seeder
     }
 
     /**
-     * @param array<string, array<int, array{name:string,ingredients:array<int, string>}>> $categoryRecipes
+     * @param  array<string, array<int, array{name:string,ingredients:array<int, string>}>>  $categoryRecipes
      * @return array<int, array{name:string,category:string,ingredients:array<int, string>}>
      */
     private function recipeRows(array $categoryRecipes): array
@@ -435,8 +436,8 @@ class DummyDishesSeeder extends Seeder
     }
 
     /**
-     * @param Collection<int, Ingredient> $ingredientPool
-     * @param array<int, string> $recipeIngredients
+     * @param  Collection<int, Ingredient>  $ingredientPool
+     * @param  array<int, string>  $recipeIngredients
      */
     private function attachRealIngredientsToDish(Dish $dish, array $recipeIngredients, Collection $ingredientPool): void
     {
@@ -493,8 +494,8 @@ class DummyDishesSeeder extends Seeder
     }
 
     /**
-     * @param Collection<int, Ingredient> $ingredientPool
-     * @param Collection<int, Ingredient> $selected
+     * @param  Collection<int, Ingredient>  $ingredientPool
+     * @param  Collection<int, Ingredient>  $selected
      */
     private function findIngredientMatch(Collection $ingredientPool, string $recipeIngredient, Collection $selected): ?Ingredient
     {
@@ -555,7 +556,7 @@ class DummyDishesSeeder extends Seeder
         foreach ($restaurants as $restaurant) {
             $dishes = Dish::query()
                 ->where('restaurant_id', $restaurant->id)
-                ->where('description', 'like', self::DESCRIPTION_MARKER . '%')
+                ->where('description', 'like', self::DESCRIPTION_MARKER.'%')
                 ->orderBy('id')
                 ->get();
 
@@ -577,8 +578,8 @@ class DummyDishesSeeder extends Seeder
     }
 
     /**
-     * @param Collection<int, Dish> $dishes
-     * @param array<int, int> $offsets
+     * @param  Collection<int, Dish>  $dishes
+     * @param  array<int, int>  $offsets
      * @return array<int, int>
      */
     private function linkCandidates(Collection $dishes, Dish $dish, int $position, array $offsets): array
@@ -619,7 +620,7 @@ class DummyDishesSeeder extends Seeder
         foreach ($restaurants as $restaurant) {
             $dishes = Dish::query()
                 ->where('restaurant_id', $restaurant->id)
-                ->where('description', 'like', self::DESCRIPTION_MARKER . '%')
+                ->where('description', 'like', self::DESCRIPTION_MARKER.'%')
                 ->orderBy('id')
                 ->get();
 

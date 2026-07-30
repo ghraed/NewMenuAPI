@@ -27,7 +27,7 @@ use Tests\TestCase;
  */
 final class FinanceParityTest extends TestCase
 {
-    private const FIXTURE_PATH = __DIR__ . '/../../Fixtures/financeBackendParity.json';
+    private const FIXTURE_PATH = __DIR__.'/../../Fixtures/financeBackendParity.json';
 
     #[DataProvider('fixtureProvider')]
     public function test_backend_finance_math_matches_locked_fixtures(array $fixture): void
@@ -137,12 +137,12 @@ final class FinanceParityTest extends TestCase
     {
         $raw = file_get_contents(self::FIXTURE_PATH);
         if ($raw === false) {
-            throw new \RuntimeException('Unable to read fixture file: ' . self::FIXTURE_PATH);
+            throw new \RuntimeException('Unable to read fixture file: '.self::FIXTURE_PATH);
         }
 
         $payload = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
-        if (!is_array($payload) || !isset($payload['fixtures']) || !is_array($payload['fixtures'])) {
-            throw new \RuntimeException('Invalid fixture payload in ' . self::FIXTURE_PATH);
+        if (! is_array($payload) || ! isset($payload['fixtures']) || ! is_array($payload['fixtures'])) {
+            throw new \RuntimeException('Invalid fixture payload in '.self::FIXTURE_PATH);
         }
 
         $rows = [];
@@ -161,7 +161,7 @@ final class FinanceParityTest extends TestCase
     {
         $service = app()->bound(FinanceCalculatorContract::class)
             ? app(FinanceCalculatorContract::class)
-            : new FinanceCalculator();
+            : new FinanceCalculator;
 
         $preview = $service->preview(
             subtotal: $input['subtotal'],

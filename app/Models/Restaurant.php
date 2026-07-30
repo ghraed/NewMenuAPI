@@ -222,5 +222,4 @@ class Restaurant extends Model
             ->orderByDesc('is_primary')
             ->value('domain');
     }
-
 }

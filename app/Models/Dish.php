@@ -2,9 +2,8 @@
 
 namespace App\Models;
 
-use App\Models\Ingredient;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -16,9 +15,13 @@ class Dish extends Model
 {
     use HasFactory;
     use SoftDeletes;
+
     public const ITEM_TYPE_PREPARED_DISH = 'prepared_dish';
+
     public const ITEM_TYPE_PREPARED_DRINK = 'prepared_drink';
+
     public const ITEM_TYPE_PACKAGED_DRINK = 'packaged_drink';
+
     public const ITEM_TYPE_OTHER_PRODUCT = 'other_product';
 
     private ?bool $cachedOrderable = null;
@@ -321,7 +324,7 @@ class Dish extends Model
         $baseName = trim($matches[1]);
         $suffix = $matches[2];
 
-        return ($this->dishNameTranslations()[$baseName] ?? $baseName) . $suffix;
+        return ($this->dishNameTranslations()[$baseName] ?? $baseName).$suffix;
     }
 
     private function translateDescriptionToArabic(?string $description): ?string

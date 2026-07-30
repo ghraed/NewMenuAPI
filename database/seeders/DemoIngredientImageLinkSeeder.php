@@ -36,6 +36,7 @@ class DemoIngredientImageLinkSeeder extends Seeder
 
             if (! $global) {
                 $this->command?->warn("Global ingredient not found or has no image: {$globalNormalizedName}");
+
                 continue;
             }
 

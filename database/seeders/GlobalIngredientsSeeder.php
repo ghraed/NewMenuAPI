@@ -58,6 +58,7 @@ class GlobalIngredientsSeeder extends Seeder
                     'name_ar' => $nameAr !== '' ? $nameAr : null,
                     'source_name' => $name,
                 ];
+
                 continue;
             }
 

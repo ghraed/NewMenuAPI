@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Dish;
 use App\Models\Restaurant;
-use App\Services\GuestMenuSessionService;
 use App\Services\DeepSeekChatService;
+use App\Services\GuestMenuSessionService;
 use App\Services\TenantRestaurantResolver;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
@@ -16,16 +16,18 @@ use Throwable;
 class ChatController extends Controller
 {
     private const SESSION_KEY = 'chatbot.conversations';
+
     private const SESSION_LANGUAGE_KEY = 'chatbot.conversation_languages';
+
     private const MAX_MESSAGES = 20;
+
     private const MAX_CONVERSATIONS = 50;
 
     public function __construct(
         private readonly DeepSeekChatService $deepSeekChatService,
         private readonly GuestMenuSessionService $guestMenuSessionService,
         private readonly TenantRestaurantResolver $tenantRestaurantResolver
-    ) {
-    }
+    ) {}
 
     public function chat(Request $request): JsonResponse
     {
@@ -357,7 +359,7 @@ class ChatController extends Controller
      * When a guest mentions a specific dish, prefer profitable related dishes first,
      * then profitable dishes in the same category, then any same-category fallback.
      *
-     * @param array<string,mixed> $chatContext
+     * @param  array<string,mixed>  $chatContext
      * @return array{category:string,dish:array<string,mixed>,secondary?:array<string,mixed>}|null
      */
     private function resolveMentionedDishRecommendation(string $messageLower, array $chatContext): ?array
@@ -420,7 +422,7 @@ class ChatController extends Controller
     }
 
     /**
-     * @param array<int,array<string,mixed>> $menuItems
+     * @param  array<int,array<string,mixed>>  $menuItems
      * @return array<string,mixed>|null
      */
     private function resolveMentionedMenuItem(string $messageLower, array $menuItems): ?array
@@ -450,7 +452,7 @@ class ChatController extends Controller
     }
 
     /**
-     * @param array<string,mixed> $chatContext
+     * @param  array<string,mixed>  $chatContext
      * @return array{category:string,dish:array<string,mixed>,secondary?:array<string,mixed>}|null
      */
     private function resolvePreferredCategoryDish(string $messageLower, array $chatContext): ?array
@@ -507,7 +509,7 @@ class ChatController extends Controller
     }
 
     /**
-     * @param array<string,mixed> $chatContext
+     * @param  array<string,mixed>  $chatContext
      * @return array{category:string,dish:array<string,mixed>,secondary?:array<string,mixed>}|null
      */
     private function resolvePreferredKeywordDish(string $messageLower, array $chatContext): ?array
@@ -581,7 +583,7 @@ class ChatController extends Controller
      * Match profitable dishes directly against request keywords so a broad prompt like
      * "what pizza do you have?" still prefers the profitable pizza.
      *
-     * @param array<string,mixed> $chatContext
+     * @param  array<string,mixed>  $chatContext
      * @return array{category:string,dish:array<string,mixed>,secondary?:array<string,mixed>}|null
      */
     private function resolveDirectPreferredRecommendation(string $messageLower, array $chatContext): ?array
@@ -645,7 +647,7 @@ class ChatController extends Controller
     }
 
     /**
-     * @param array<string,mixed> $chatContext
+     * @param  array<string,mixed>  $chatContext
      * @return array{name:string,category:string,price:string,description:string,ingredients:array<int,string>,recommendation_priority?:string}|null
      */
     private function resolveGlobalPreferredDish(array $chatContext): ?array
@@ -665,7 +667,7 @@ class ChatController extends Controller
     }
 
     /**
-     * @param array<string,mixed> $chatContext
+     * @param  array<string,mixed>  $chatContext
      * @return array{category:string,dish:array<string,mixed>,secondary?:array<string,mixed>}|null
      */
     private function resolveCategoryRecommendation(string $messageLower, array $chatContext): ?array
@@ -774,7 +776,7 @@ class ChatController extends Controller
     }
 
     /**
-     * @param array<string, mixed> $validated
+     * @param  array<string, mixed>  $validated
      * @return array{
      *   restaurant_id:int,
      *   restaurant_name:string,
@@ -842,7 +844,7 @@ class ChatController extends Controller
     }
 
     /**
-     * @param array<string, mixed> $validated
+     * @param  array<string, mixed>  $validated
      */
     private function resolveChatRestaurant(array $validated, Request $request): Restaurant
     {

@@ -53,4 +53,3 @@ class SendEventPlanningReminders extends Command
         return self::SUCCESS;
     }
 }
-

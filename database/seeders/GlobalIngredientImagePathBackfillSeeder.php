@@ -99,7 +99,7 @@ class GlobalIngredientImagePathBackfillSeeder extends Seeder
     }
 
     /**
-     * @param array<int, string> $files
+     * @param  array<int, string>  $files
      */
     private function pickPreferredImagePath(array $files): ?string
     {

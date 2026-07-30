@@ -64,4 +64,3 @@ class DishFactory extends Factory
         ]);
     }
 }
-

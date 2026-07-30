@@ -15,8 +15,6 @@ use App\Models\OrderItemIngredientUsage;
 use App\Models\PushSubscription;
 use App\Models\Restaurant;
 use App\Models\RestaurantTable;
-use App\Models\Scan;
-use App\Models\ScanJob;
 use App\Models\StockMovement;
 use App\Models\TableSession;
 use App\Models\TableWave;
@@ -32,6 +30,7 @@ use Illuminate\Support\Str;
 class FullResetTenantFinanceScenarioSeeder extends Seeder
 {
     private const SEEDED_INGREDIENT_PLACEHOLDER_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Z0dcAAAAASUVORK5CYII=';
+
     private const SEEDED_DISH_PLACEHOLDER_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Z0dcAAAAASUVORK5CYII=';
 
     /**
@@ -553,7 +552,7 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
     }
 
     /**
-     * @param array<int, Ingredient> $ingredients
+     * @param  array<int, Ingredient>  $ingredients
      */
     private function seedOpeningStockMovements(Restaurant $restaurant, array $ingredients, User $admin): void
     {
@@ -582,7 +581,7 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
     }
 
     /**
-     * @param \Illuminate\Support\Collection<int, Ingredient> $ingredientsById
+     * @param  \Illuminate\Support\Collection<int, Ingredient>  $ingredientsById
      */
     private function seedIngredientUsageAndStock(
         Restaurant $restaurant,
@@ -656,7 +655,7 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
     }
 
     /**
-     * @param array<int, array{name:string,quantity:string,unit_price:string,line_total:string,order_index:int,created_at:Carbon,updated_at:Carbon}> $invoiceItemsPayload
+     * @param  array<int, array{name:string,quantity:string,unit_price:string,line_total:string,order_index:int,created_at:Carbon,updated_at:Carbon}>  $invoiceItemsPayload
      */
     private function seedInvoiceRecord(
         Restaurant $restaurant,
@@ -788,7 +787,7 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
     }
 
     /**
-     * @param \Illuminate\Database\Eloquent\Collection<int, Restaurant> $restaurants
+     * @param  \Illuminate\Database\Eloquent\Collection<int, Restaurant>  $restaurants
      */
     private function seedPushSubscriptions($restaurants): void
     {
@@ -823,7 +822,7 @@ class FullResetTenantFinanceScenarioSeeder extends Seeder
     }
 
     /**
-     * @param \Illuminate\Database\Eloquent\Collection<int, Restaurant> $restaurants
+     * @param  \Illuminate\Database\Eloquent\Collection<int, Restaurant>  $restaurants
      */
     private function seedChatOrders($restaurants): void
     {

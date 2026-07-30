@@ -7,14 +7,16 @@ use App\Models\OrderItem;
 use App\Models\TableSession;
 use App\Support\Money;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class InvoiceSplitService
 {
     public const MODE_NONE = 'none';
+
     public const MODE_EQUAL = 'equal';
+
     public const MODE_BY_PERSON_ORDER = 'by_person_order';
 
     public function normalizeMode(?string $mode): string
@@ -25,7 +27,7 @@ class InvoiceSplitService
     }
 
     /**
-     * @param Collection<int, Order> $orders
+     * @param  Collection<int, Order>  $orders
      * @return array<string, mixed>
      */
     public function buildPayload(TableSession $session, Collection $orders, bool $enabled): array
@@ -120,8 +122,8 @@ class InvoiceSplitService
     }
 
     /**
-     * @param Collection<int, Order> $orders
-     * @param array<int, array<string,mixed>>|null $people
+     * @param  Collection<int, Order>  $orders
+     * @param  array<int, array<string,mixed>>|null  $people
      */
     public function applySplitSettings(
         TableSession $session,
@@ -146,6 +148,7 @@ class InvoiceSplitService
                     'invoice_split_count' => null,
                     'invoice_split_allocations' => null,
                 ]);
+
                 return;
             }
 
@@ -161,6 +164,7 @@ class InvoiceSplitService
                     'invoice_split_count' => $splitCount,
                     'invoice_split_allocations' => null,
                 ]);
+
                 return;
             }
 
@@ -195,7 +199,7 @@ class InvoiceSplitService
     }
 
     /**
-     * @param Collection<int, Order> $orders
+     * @param  Collection<int, Order>  $orders
      * @return array<int, array{order_id:int,order_item_id:int,key:string,dish_name:string,quantity:int,unit_price:string,line_subtotal:string}>
      */
     private function buildEditableItems(Collection $orders): array
@@ -215,8 +219,8 @@ class InvoiceSplitService
     }
 
     /**
-     * @param array<int, array<string,mixed>> $editableItems
-     * @param array<int, array<string,mixed>> $people
+     * @param  array<int, array<string,mixed>>  $editableItems
+     * @param  array<int, array<string,mixed>>  $people
      * @return array<int, array{person_index:int,items:array<int,array{order_item_id:int,quantity:int}>}>
      */
     private function normalizePeopleAllocations(
@@ -240,6 +244,7 @@ class InvoiceSplitService
                         'people' => 'Each person entry must be an object.',
                     ]);
                 }
+
                 continue;
             }
 
@@ -250,6 +255,7 @@ class InvoiceSplitService
                         'people' => "person_index must be between 1 and {$splitCount}.",
                     ]);
                 }
+
                 continue;
             }
 
@@ -269,6 +275,7 @@ class InvoiceSplitService
                             'people' => "order_item_id {$orderItemId} is not valid for this table session.",
                         ]);
                     }
+
                     continue;
                 }
 
@@ -279,6 +286,7 @@ class InvoiceSplitService
                             'people' => "Assigned quantity for order_item_id {$orderItemId} exceeds available quantity.",
                         ]);
                     }
+
                     continue;
                 }
 
@@ -310,9 +318,9 @@ class InvoiceSplitService
     }
 
     /**
-     * @param Collection<int, Order> $orders
-     * @param array<int, array<string,mixed>> $editableItems
-     * @param array<int, array{person_index:int,items:array<int,array{order_item_id:int,quantity:int}>}> $normalizedPeople
+     * @param  Collection<int, Order>  $orders
+     * @param  array<int, array<string,mixed>>  $editableItems
+     * @param  array<int, array{person_index:int,items:array<int,array{order_item_id:int,quantity:int}>}>  $normalizedPeople
      * @return array{0:array<int,array<string,mixed>>,1:array<int,array<string,mixed>>,2:array<string,string>,3:bool}
      */
     private function buildPeopleAndRemaining(Collection $orders, array $editableItems, array $normalizedPeople, int $splitCount): array
@@ -456,7 +464,7 @@ class InvoiceSplitService
     }
 
     /**
-     * @param Collection<int, Order> $orders
+     * @param  Collection<int, Order>  $orders
      * @return array<int, array{key:string,label:string,amount:string}>
      */
     private function equalBreakdown(Collection $orders, int $splitCount): array
@@ -505,7 +513,7 @@ class InvoiceSplitService
     }
 
     /**
-     * @param array<string,int> $bases
+     * @param  array<string,int>  $bases
      * @return array<string,int>
      */
     private function allocateProportionally(int $amountCents, array $bases): array
@@ -523,6 +531,7 @@ class InvoiceSplitService
         foreach ($bases as $key => $base) {
             if ($base <= 0) {
                 $remainders[$key] = 0;
+
                 continue;
             }
 
@@ -564,7 +573,7 @@ class InvoiceSplitService
     }
 
     /**
-     * @param array{subtotal:int,discount_amount:int,taxable_subtotal:int,service_charge_amount:int,vat_amount:int} $summaryCents
+     * @param  array{subtotal:int,discount_amount:int,taxable_subtotal:int,service_charge_amount:int,vat_amount:int}  $summaryCents
      * @return array{subtotal:string,discount_amount:string,taxable_subtotal:string,service_charge_amount:string,vat_amount:string,total:string}
      */
     private function formatSummary(array $summaryCents): array

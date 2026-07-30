@@ -18,8 +18,7 @@ trait FormatsGuestDishes
         Dish $dish,
         bool $ar3dEnabled = true,
         bool $animatedIngredientsEnabled = true
-    ): array
-    {
+    ): array {
         $localized = $dish->toLocalizedArray();
 
         if ($dish->relationLoaded('suggestedDishes')) {

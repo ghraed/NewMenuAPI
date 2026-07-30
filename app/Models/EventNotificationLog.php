@@ -27,4 +27,3 @@ class EventNotificationLog extends Model
         return $this->belongsTo(EventReservation::class);
     }
 }
-

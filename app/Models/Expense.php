@@ -15,8 +15,11 @@ class Expense extends Model
     use SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_APPROVED = 'approved';
+
     public const STATUS_PAID = 'paid';
+
     public const STATUS_VOID = 'void';
 
     protected $fillable = [

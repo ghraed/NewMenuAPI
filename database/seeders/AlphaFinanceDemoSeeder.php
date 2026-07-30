@@ -25,6 +25,7 @@ class AlphaFinanceDemoSeeder extends Seeder
         $restaurant = Restaurant::query()->where('slug', 'alpha')->first();
         if (! $restaurant) {
             $this->command?->warn('Alpha restaurant not found. Seeder skipped.');
+
             return;
         }
 
@@ -84,6 +85,7 @@ class AlphaFinanceDemoSeeder extends Seeder
 
         if ($dishes->isEmpty()) {
             $this->command?->warn('No dishes found for Alpha. Skipping sales invoice seeding.');
+
             return 0.0;
         }
 
@@ -370,6 +372,7 @@ class AlphaFinanceDemoSeeder extends Seeder
     {
         if (! Schema::hasTable('expenses') || ! Schema::hasTable('expense_categories') || ! Schema::hasTable('vendors')) {
             $this->command?->warn('Expense tables are missing. Skipping expense seeding.');
+
             return;
         }
 
@@ -534,7 +537,7 @@ class AlphaFinanceDemoSeeder extends Seeder
                         status: Expense::STATUS_PAID,
                         staffId: $staffId,
                         notes: sprintf(
-                            "Finance demo seed data; source: invoice adjustment; action_type: %s; operational_loss_category: %s; approved_by: Shift Manager; approved_at: %s; adjustment_reference: ADJ-ALP-%s; invoice number: INV-ALP-%s",
+                            'Finance demo seed data; source: invoice adjustment; action_type: %s; operational_loss_category: %s; approved_by: Shift Manager; approved_at: %s; adjustment_reference: ADJ-ALP-%s; invoice number: INV-ALP-%s',
                             $action,
                             $lossCategory,
                             $day->copy()->setTime(18, random_int(0, 59))->toIso8601String(),

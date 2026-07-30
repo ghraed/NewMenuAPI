@@ -320,8 +320,8 @@ class IngredientLibraryController extends Controller
             ]);
 
             $details = trim(implode(' | ', array_filter([
-                $errorType !== '' ? ('type=' . $errorType) : null,
-                $errorCode !== '' ? ('code=' . $errorCode) : null,
+                $errorType !== '' ? ('type='.$errorType) : null,
+                $errorCode !== '' ? ('code='.$errorCode) : null,
                 $errorMessage !== '' ? $errorMessage : null,
             ])));
 
@@ -437,8 +437,8 @@ class IngredientLibraryController extends Controller
             ]);
 
             $details = trim(implode(' | ', array_filter([
-                $errorType !== '' ? ('type=' . $errorType) : null,
-                $errorCode !== '' ? ('code=' . $errorCode) : null,
+                $errorType !== '' ? ('type='.$errorType) : null,
+                $errorCode !== '' ? ('code='.$errorCode) : null,
                 $errorMessage !== '' ? $errorMessage : null,
             ])));
 

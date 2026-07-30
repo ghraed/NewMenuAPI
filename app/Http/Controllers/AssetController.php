@@ -36,7 +36,7 @@ class AssetController extends Controller
                     $type = $request->input('type');
 
                     if ($type === 'glb') {
-                        if (!in_array($ext, ['glb', 'gltf'], true)) {
+                        if (! in_array($ext, ['glb', 'gltf'], true)) {
                             $fail('The file field must be a file of type: glb, gltf.');
                         }
 
@@ -45,10 +45,11 @@ class AssetController extends Controller
 
                     if ($type === 'usdz' && $ext !== 'usdz') {
                         $fail('The file field must be a file of type: usdz.');
+
                         return;
                     }
 
-                    if (in_array($type, ['preview_image', 'ingredient_image'], true) && !in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'], true)) {
+                    if (in_array($type, ['preview_image', 'ingredient_image'], true) && ! in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'], true)) {
                         $fail('The file field must be an image of type: jpg, jpeg, png, webp, heic, heif.');
                     }
                 },
@@ -176,7 +177,7 @@ class AssetController extends Controller
         $request->user()?->loadMissing('restaurant', 'staffRestaurants');
         $ownerRestaurantId = $request->user()?->currentRestaurant()?->id;
 
-        if (!$ownerRestaurantId || $dish->restaurant_id !== $ownerRestaurantId) {
+        if (! $ownerRestaurantId || $dish->restaurant_id !== $ownerRestaurantId) {
             abort(404);
         }
     }
@@ -187,7 +188,7 @@ class AssetController extends Controller
         $request->user()?->loadMissing('restaurant', 'staffRestaurants');
         $ownerRestaurantId = $request->user()?->currentRestaurant()?->id;
 
-        if (!$ownerRestaurantId || $asset->dish->restaurant_id !== $ownerRestaurantId) {
+        if (! $ownerRestaurantId || $asset->dish->restaurant_id !== $ownerRestaurantId) {
             abort(404);
         }
     }
@@ -230,8 +231,7 @@ class AssetController extends Controller
         ?\Illuminate\Http\UploadedFile $file,
         string $type,
         ?Ingredient $sourceIngredient = null
-    ): array
-    {
+    ): array {
         $metadata = [
             'uploaded_at' => now()->toIso8601String(),
             'file_name' => $file?->getClientOriginalName()

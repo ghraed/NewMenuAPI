@@ -16,7 +16,7 @@ class OrderInvoiceCalculatorTest extends TestCase
         float $discountValue,
         array $expected
     ): void {
-        $calculator = new OrderInvoiceCalculator();
+        $calculator = new OrderInvoiceCalculator;
 
         $actual = $calculator->calculate($items, $vatRate, $discountType, $discountValue);
 
@@ -25,7 +25,7 @@ class OrderInvoiceCalculatorTest extends TestCase
 
     public function test_calculator_caps_percentage_discount_and_never_creates_negative_totals(): void
     {
-        $calculator = new OrderInvoiceCalculator();
+        $calculator = new OrderInvoiceCalculator;
 
         $actual = $calculator->calculate([
             ['unit_price' => '4.99', 'quantity' => 1],
@@ -47,7 +47,7 @@ class OrderInvoiceCalculatorTest extends TestCase
 
     public function test_calculator_includes_service_charge_in_exact_cent_totals(): void
     {
-        $calculator = new OrderInvoiceCalculator();
+        $calculator = new OrderInvoiceCalculator;
 
         $actual = $calculator->calculate([
             ['unit_price' => '10.00', 'quantity' => 2],

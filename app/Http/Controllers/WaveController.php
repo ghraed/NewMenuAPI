@@ -7,7 +7,6 @@ use App\Events\TableWaveResolved;
 use App\Models\Restaurant;
 use App\Models\TableSession;
 use App\Models\TableWave;
-use App\Models\User;
 use App\Services\GuestMenuSessionService;
 use App\Services\MobilePushNotificationService;
 use App\Services\StaffCapabilityService;
@@ -18,7 +17,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 class WaveController extends Controller
 {
@@ -27,8 +25,7 @@ class WaveController extends Controller
         private readonly TableSessionAccessService $tableSessionAccessService,
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
         private readonly StaffCapabilityService $staffCapabilityService,
-    ) {
-    }
+    ) {}
 
     public function store(Request $request, ?string $restaurant_slug = null): JsonResponse
     {

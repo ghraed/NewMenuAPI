@@ -20,6 +20,7 @@ use Throwable;
 class FinancePayrollController extends Controller
 {
     private static ?bool $payrollMirrorSchemaReady = null;
+
     private static ?bool $payrollSalarySchemaReady = null;
 
     public function periodsIndex(Request $request): JsonResponse
@@ -317,6 +318,7 @@ class FinancePayrollController extends Controller
                 $period = $existingByRange->get($key);
                 if ($period) {
                     $selected[] = $period;
+
                     continue;
                 }
 
@@ -686,7 +688,7 @@ class FinancePayrollController extends Controller
     }
 
     /**
-     * @param array<string,mixed> $validated
+     * @param  array<string,mixed>  $validated
      * @return array{0:Carbon,1:Carbon}
      */
     private function resolveQueryWindow(array $validated): array
@@ -749,6 +751,7 @@ class FinancePayrollController extends Controller
         }
 
         $normalized = trim($value);
+
         return $normalized === '' ? null : $normalized;
     }
 

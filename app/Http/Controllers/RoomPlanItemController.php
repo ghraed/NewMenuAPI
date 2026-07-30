@@ -13,8 +13,7 @@ class RoomPlanItemController extends Controller
 {
     public function __construct(
         private readonly RoomPlanItemService $roomPlanItemService,
-    ) {
-    }
+    ) {}
 
     public function store(Request $request, RoomPlan $roomPlan): JsonResponse
     {

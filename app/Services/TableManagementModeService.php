@@ -9,6 +9,7 @@ use App\Models\RestaurantFeature;
 class TableManagementModeService
 {
     public const MODE_ROOM_PLAN = 'ROOM_PLAN';
+
     public const MODE_MANUAL = 'MANUAL';
 
     public function resolveMode(Restaurant $restaurant): string
@@ -46,4 +47,3 @@ class TableManagementModeService
             : (bool) $override;
     }
 }
-

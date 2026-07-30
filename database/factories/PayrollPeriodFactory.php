@@ -49,4 +49,3 @@ class PayrollPeriodFactory extends Factory
         ]);
     }
 }
-

@@ -22,8 +22,7 @@ class EnsureRestaurantFeatureEnabled
     public function __construct(
         private readonly FeatureFlagService $featureFlagService,
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
-    ) {
-    }
+    ) {}
 
     public function handle(Request $request, Closure $next, string $featureKey): Response
     {

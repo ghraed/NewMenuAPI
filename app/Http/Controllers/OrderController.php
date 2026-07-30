@@ -7,8 +7,8 @@ use App\Events\AccountingOrderRemoved;
 use App\Events\KitchenOrderCreated;
 use App\Events\KitchenOrderReady;
 use App\Events\KitchenOrderUpdated;
-use App\Models\Dish;
 use App\Models\ChatOrder;
+use App\Models\Dish;
 use App\Models\Ingredient;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -24,19 +24,19 @@ use App\Services\MobilePushNotificationService;
 use App\Services\OrderInventoryDeductionService;
 use App\Services\OrderInvoiceCalculator;
 use App\Services\StaffCapabilityService;
-use App\Services\TenantRestaurantResolver;
 use App\Services\TableSessionAccessService;
+use App\Services\TenantRestaurantResolver;
 use App\Services\WebPushNotificationService;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Throwable;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class OrderController extends Controller
 {
@@ -49,8 +49,7 @@ class OrderController extends Controller
         private readonly DishAlternativeSuggestionService $dishAlternativeSuggestionService,
         private readonly TenantRestaurantResolver $tenantRestaurantResolver,
         private readonly StaffCapabilityService $staffCapabilityService,
-    ) {
-    }
+    ) {}
 
     public function store(
         Request $request,
@@ -545,6 +544,7 @@ class OrderController extends Controller
                     ]);
 
                     $retainedItemIds[] = $existingItem->id;
+
                     continue;
                 }
 
@@ -2301,7 +2301,7 @@ class OrderController extends Controller
     }
 
     /**
-     * @param array{notes?:string|null,items:array<int,array{dish_id:int,quantity:int}>} $validated
+     * @param  array{notes?:string|null,items:array<int,array{dish_id:int,quantity:int}>}  $validated
      * @return array{notes:?string,items:array<int,array{dish_id:int,quantity:int}>}
      */
     private function normalizeOrderIdempotencyPayload(array $validated): array

@@ -13,8 +13,7 @@ class AdminEventReservationController extends Controller
 {
     public function __construct(
         private readonly EventReservationService $eventReservationService,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {

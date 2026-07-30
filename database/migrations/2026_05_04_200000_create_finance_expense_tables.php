@@ -80,4 +80,3 @@ return new class extends Migration
         Schema::dropIfExists('expense_categories');
     }
 };
-

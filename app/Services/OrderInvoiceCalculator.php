@@ -12,8 +12,7 @@ class OrderInvoiceCalculator
         ?string $discountType = null,
         float $discountValue = 0,
         float $serviceChargeRate = 0
-    ): array
-    {
+    ): array {
         $subtotalCents = 0;
 
         foreach ($items as $item) {

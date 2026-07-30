@@ -13,12 +13,19 @@ class Order extends Model
     use HasFactory;
 
     public const STATUS_PENDING_STAFF_CONFIRMATION = 'pending_staff_confirmation';
+
     public const STATUS_STAFF_CONFIRMED = 'staff_confirmed';
+
     public const STATUS_STAFF_CANCELLED = 'staff_cancelled';
+
     public const STATUS_ACCOUNTED = 'accounted';
+
     public const KITCHEN_STATUS_NEW = 'new';
+
     public const KITCHEN_STATUS_IN_PROGRESS = 'in_progress';
+
     public const KITCHEN_STATUS_READY = 'ready';
+
     public const KITCHEN_STATUS_SERVED = 'served';
 
     protected $fillable = [

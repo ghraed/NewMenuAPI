@@ -22,4 +22,3 @@ interface FinanceCalculatorContract
         string $paymentMethod
     ): CashSettlementDTO;
 }
-

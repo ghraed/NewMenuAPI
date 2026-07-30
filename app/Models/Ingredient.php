@@ -14,7 +14,9 @@ class Ingredient extends Model
     use HasFactory;
 
     public const UNIT_GRAM = 'g';
+
     public const UNIT_MILLILITER = 'ml';
+
     public const UNIT_PIECE = 'piece';
 
     protected $fillable = [

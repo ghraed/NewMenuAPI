@@ -58,7 +58,7 @@ class RealRestaurantScenarioSeeder extends Seeder
                 'uuid' => (string) Str::uuid(),
                 'user_id' => $admin->id,
                 'name' => 'Cedar Flame Kitchen',
-                'description' => self::MARKER . ' Levantine-Mediterranean casual dining scenario dataset.',
+                'description' => self::MARKER.' Levantine-Mediterranean casual dining scenario dataset.',
                 'address' => 'Badaro Street, Beirut, Lebanon',
             ]
         );
@@ -188,6 +188,7 @@ class RealRestaurantScenarioSeeder extends Seeder
                         'RealRestaurantScenarioSeeder: ingredient "%s" was not found in existing restaurant inventory and was skipped.',
                         $row['name']
                     ));
+
                     continue;
                 }
 
@@ -228,7 +229,7 @@ class RealRestaurantScenarioSeeder extends Seeder
     }
 
     /**
-     * @param array<string, Ingredient> $ingredientsByCode
+     * @param  array<string, Ingredient>  $ingredientsByCode
      * @return array<string, Dish>
      */
     private function seedDishesAndRecipes(Restaurant $restaurant, array $ingredientsByCode): array
@@ -480,7 +481,7 @@ class RealRestaurantScenarioSeeder extends Seeder
 
             $dish->fill([
                 'name_ar' => $row['name_ar'],
-                'description' => self::MARKER . ' ' . $row['description'],
+                'description' => self::MARKER.' '.$row['description'],
                 'description_ar' => $row['description_ar'],
                 'price' => $row['price'],
                 'calories' => $row['calories'],
@@ -527,7 +528,7 @@ class RealRestaurantScenarioSeeder extends Seeder
     }
 
     /**
-     * @param array<string, Dish> $dishesByCode
+     * @param  array<string, Dish>  $dishesByCode
      */
     private function seedDishRelations(array $dishesByCode): void
     {
@@ -578,7 +579,7 @@ class RealRestaurantScenarioSeeder extends Seeder
     }
 
     /**
-     * @param \Illuminate\Support\Collection<string, \App\Models\RestaurantTable> $tablesByName
+     * @param  \Illuminate\Support\Collection<string, \App\Models\RestaurantTable>  $tablesByName
      * @return array<string, TableSession>
      */
     private function seedTableSessions(Restaurant $restaurant, $tablesByName, User $staffCaptain, User $staffServer): array
@@ -670,9 +671,9 @@ class RealRestaurantScenarioSeeder extends Seeder
     }
 
     /**
-     * @param \Illuminate\Support\Collection<string, \App\Models\RestaurantTable> $tablesByName
-     * @param array<string, TableSession> $sessionsByCode
-     * @param array<string, Dish> $dishesByCode
+     * @param  \Illuminate\Support\Collection<string, \App\Models\RestaurantTable>  $tablesByName
+     * @param  array<string, TableSession>  $sessionsByCode
+     * @param  array<string, Dish>  $dishesByCode
      */
     private function seedOrders(
         Restaurant $restaurant,
@@ -809,7 +810,7 @@ class RealRestaurantScenarioSeeder extends Seeder
                 'guest_phone' => null,
                 'guest_email' => null,
                 'table_reference' => $row['table'],
-                'notes' => self::MARKER . ' ' . $row['notes'],
+                'notes' => self::MARKER.' '.$row['notes'],
                 'vat_rate' => $vatRate,
                 'subtotal' => $subtotal,
                 'discount_type' => $discountType,
@@ -842,8 +843,8 @@ class RealRestaurantScenarioSeeder extends Seeder
     }
 
     /**
-     * @param \Illuminate\Support\Collection<string, \App\Models\RestaurantTable> $tablesByName
-     * @param array<string, TableSession> $sessionsByCode
+     * @param  \Illuminate\Support\Collection<string, \App\Models\RestaurantTable>  $tablesByName
+     * @param  array<string, TableSession>  $sessionsByCode
      */
     private function seedTableWaves(Restaurant $restaurant, $tablesByName, array $sessionsByCode, User $staffCaptain): void
     {
@@ -886,7 +887,6 @@ class RealRestaurantScenarioSeeder extends Seeder
             $wave->save();
         }
     }
-
 
     private function normalizeLooseLookup(?string $value): string
     {

@@ -16,8 +16,7 @@ class ReservationController extends Controller
     public function __construct(
         private readonly ReservationService $reservationService,
         private readonly StaffCapabilityService $staffCapabilityService,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {

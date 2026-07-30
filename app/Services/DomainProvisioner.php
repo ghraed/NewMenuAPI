@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 class DomainProvisioner
 {
     private const TIMEOUT_SECONDS = 300;
+
     private const POLL_INTERVAL_MICROSECONDS = 500000;
 
     public function provision(string $domain): string
