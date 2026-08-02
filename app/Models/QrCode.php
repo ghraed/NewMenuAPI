@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class QRCode extends Model
+class QrCode extends Model
 {
     protected $fillable = [
         'uuid',
