@@ -4,6 +4,7 @@ return [
     'auth' => [
         'invalid_credentials' => 'Invalid email, phone number, or password',
         'missing_restaurant' => 'No restaurant is linked to this account',
+        'account_inactive' => 'This account is inactive. Contact your restaurant administrator.',
         'logged_out' => 'Logged out successfully',
         'unauthenticated' => 'Unauthenticated.',
     ],

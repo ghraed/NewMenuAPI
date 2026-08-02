@@ -6,4 +6,10 @@ if (is_file($cachedConfig) && ! unlink($cachedConfig)) {
     throw new RuntimeException('Unable to clear cached application configuration before running tests.');
 }
 
+foreach (glob(dirname(__DIR__).'/bootstrap/cache/routes-*.php') ?: [] as $cachedRoutes) {
+    if (! unlink($cachedRoutes)) {
+        throw new RuntimeException('Unable to clear cached application routes before running tests.');
+    }
+}
+
 require dirname(__DIR__).'/vendor/autoload.php';

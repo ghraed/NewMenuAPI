@@ -99,7 +99,7 @@ Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
     ->name('api.assets.show');
 Route::post('/analytics/track', [AnalyticsController::class, 'track']);
 
-Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () {
+Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->group(function () {
     Route::prefix('owner')->middleware('saas_owner')->group(function () {
         Route::get('/auth/me', [SuperAdminAuthController::class, 'me']);
         Route::post('/auth/logout', [SuperAdminAuthController::class, 'logout']);
@@ -273,6 +273,7 @@ Route::middleware(['auth:sanctum', 'restrict_chef_surface'])->group(function () 
         Route::patch('/restaurant/currency-settings', [CurrencySettingsController::class, 'update']);
         Route::post('/restaurant/staff', [RestaurantController::class, 'storeStaff']);
         Route::patch('/restaurant/staff/{staff}/tables', [RestaurantController::class, 'updateStaffTables']);
+        Route::patch('/restaurant/staff/{staff}/status', [RestaurantController::class, 'updateStaffStatus']);
         Route::get('/restaurant/table-management', [RestaurantController::class, 'tableManagement']);
         Route::put('/restaurant/table-management/manual-count', [RestaurantController::class, 'updateManualTableCount']);
 

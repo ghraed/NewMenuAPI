@@ -17,7 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         __DIR__.'/../routes/channels.php',
         [
             'prefix' => 'api',
-            'middleware' => ['api', 'auth:sanctum'],
+            'middleware' => ['api', 'auth:sanctum', 'active.user'],
         ]
     )
     ->withMiddleware(function (Middleware $middleware): void {
@@ -30,6 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'saas_owner' => \App\Http\Middleware\EnsureSaasOwner::class,
             'feature' => \App\Http\Middleware\EnsureRestaurantFeatureEnabled::class,
             'restrict_chef_surface' => \App\Http\Middleware\RestrictChefApiSurface::class,
+            'active.user' => \App\Http\Middleware\EnsureActiveUser::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

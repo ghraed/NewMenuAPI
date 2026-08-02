@@ -318,6 +318,32 @@ class RestaurantController extends Controller
         ]);
     }
 
+    public function updateStaffStatus(Request $request, User $staff): JsonResponse
+    {
+        $restaurant = $this->getOwnedRestaurant($request);
+
+        if (! $staff->hasRole(User::ROLE_STAFF, User::ROLE_CHEF, User::ROLE_STOCK_MANAGER, User::ROLE_ACCOUNTANT)
+            || ! $restaurant->staffUsers()->where('users.id', $staff->id)->exists()) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'is_active' => 'required|boolean',
+        ]);
+
+        $staff->is_active = (bool) $validated['is_active'];
+        $staff->save();
+
+        if (! $staff->is_active) {
+            $staff->tokens()->delete();
+        }
+
+        return response()->json([
+            'message' => $staff->is_active ? 'Staff member activated successfully.' : 'Staff member deactivated successfully.',
+            'staff' => $this->formatStaffMember($staff),
+        ]);
+    }
+
     public function tableManagement(Request $request): JsonResponse
     {
         $restaurant = $this->getOwnedRestaurant($request);
@@ -430,6 +456,7 @@ class RestaurantController extends Controller
             'email' => $staff->email,
             'phone' => $staff->phone,
             'role' => $staff->role,
+            'is_active' => $staff->is_active,
             'assigned_tables' => $staff->assignedTables
                 ->map(fn (RestaurantTable $table) => [
                     'id' => $table->id,

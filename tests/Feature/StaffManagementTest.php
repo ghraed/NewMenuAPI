@@ -153,6 +153,28 @@ class StaffManagementTest extends TestCase
         }
     }
 
+    public function test_admin_can_deactivate_staff_and_revoke_their_tokens(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $restaurant = $this->createRestaurant($admin);
+        $staff = User::factory()->staff()->create();
+        $restaurant->staffUsers()->attach($staff->id);
+        $token = $staff->createToken('staff-session')->plainTextToken;
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson("/api/restaurant/staff/{$staff->id}/status", [
+            'is_active' => false,
+        ])->assertOk()
+            ->assertJsonPath('staff.is_active', false);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $staff->id,
+            'is_active' => false,
+        ]);
+        $this->assertNull(\Laravel\Sanctum\PersonalAccessToken::findToken($token));
+    }
+
     private function createRestaurant(User $owner): Restaurant
     {
         return Restaurant::query()->create([

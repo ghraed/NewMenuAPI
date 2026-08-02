@@ -41,6 +41,43 @@ class AuthSecurityTest extends TestCase
         ])->assertUnauthorized();
     }
 
+    public function test_inactive_user_cannot_log_in(): void
+    {
+        $user = $this->createUserWithRestaurant('inactive-login@example.com', 'secret-pass');
+        $user->update(['is_active' => false]);
+
+        $this->postJson('/api/auth/login', [
+            'email' => $user->email,
+            'password' => 'secret-pass',
+        ])->assertForbidden();
+    }
+
+    public function test_inactive_user_token_is_revoked_and_cannot_access_protected_routes(): void
+    {
+        $user = $this->createUserWithRestaurant('inactive-token@example.com', 'secret-pass');
+        $token = $user->createToken('inactive-token')->plainTextToken;
+        $user->update(['is_active' => false]);
+
+        $this->withToken($token)
+            ->getJson('/api/auth/me')
+            ->assertForbidden();
+
+        $this->assertNull(PersonalAccessToken::findToken($token));
+    }
+
+    public function test_expired_token_cannot_access_protected_routes(): void
+    {
+        config()->set('sanctum.expiration', 1);
+        $user = $this->createUserWithRestaurant('expired-token@example.com', 'secret-pass');
+        $token = $user->createToken('expired-token')->plainTextToken;
+
+        $this->travel(2)->minutes();
+
+        $this->withToken($token)
+            ->getJson('/api/auth/me')
+            ->assertUnauthorized();
+    }
+
     public function test_logout_revokes_current_token(): void
     {
         $user = $this->createUserWithRestaurant('logout@example.com', 'secret-pass');

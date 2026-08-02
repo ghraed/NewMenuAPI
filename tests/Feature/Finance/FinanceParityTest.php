@@ -10,20 +10,11 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
- * Finance parity regression test skeleton.
+ * Finance parity regression test.
  *
  * Goal:
  * - Keep backend invoice math aligned with locked frontend fixtures.
  * - Fail fast when rounding/discount/VAT behavior drifts.
- *
- * Setup:
- * 1) Copy this file to your Laravel backend repo:
- *    tests/Feature/Finance/FinanceParityTest.php
- * 2) Copy fixture JSON from frontend repo:
- *    tests/unit/fixtures/financeBackendParity.json
- *    into backend path:
- *    tests/Fixtures/financeBackendParity.json
- * 3) Wire `calculateWithBackendService(...)` to your real domain service.
  */
 final class FinanceParityTest extends TestCase
 {
@@ -35,25 +26,6 @@ final class FinanceParityTest extends TestCase
         $input = $fixture['input'];
         $expected = $fixture['expected'];
 
-        // TODO: Replace with your real service call.
-        // Must return array shape:
-        // [
-        //   'invoice' => [
-        //      'discountAmountCents' => int,
-        //      'discountType' => string,
-        //      'discountValue' => float|int,
-        //      'subtotalCents' => int,
-        //      'taxableSubtotalCents' => int,
-        //      'totalCents' => int,
-        //      'vatAmountCents' => int,
-        //      'vatRate' => float|int,
-        //   ],
-        //   'settlement' => [
-        //      'changeDue' => float|int,
-        //      'receivedAmount' => float|int,
-        //      'remainingDue' => float|int,
-        //   ],
-        // ]
         $actual = $this->calculateWithBackendService($input);
 
         // 1) Hard correctness: cents fields must match exactly.
@@ -154,9 +126,6 @@ final class FinanceParityTest extends TestCase
         return $rows;
     }
 
-    /**
-     * Replace this with your backend domain service call.
-     */
     private function calculateWithBackendService(array $input): array
     {
         $service = app()->bound(FinanceCalculatorContract::class)

@@ -42,6 +42,12 @@ class AuthController extends Controller
             ], 401);
         }
 
+        if (! $user->is_active) {
+            return response()->json([
+                'message' => __('messages.auth.account_inactive'),
+            ], 403);
+        }
+
         if ($user->hasRole(User::ROLE_SAAS_OWNER)) {
             return response()->json([
                 'message' => 'Use /super-admin/login for Super Admin access.',
