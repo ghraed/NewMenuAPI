@@ -596,6 +596,7 @@ class OrderController extends Controller
 
                 $lockedOrder->update([
                     'status' => Order::STATUS_STAFF_CONFIRMED,
+                    'invoice_number' => $lockedOrder->invoice_number ?: $this->formatInvoiceNumber($lockedOrder),
                     'confirmed_by' => $request->user()->id,
                     'confirmed_at' => now(),
                     'kitchen_status' => Order::KITCHEN_STATUS_NEW,

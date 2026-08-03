@@ -362,7 +362,9 @@ class TableSessionAccessService
             ->filter()
             ->max();
 
-        $invoiceNumber = $this->generateFinanceInvoiceNumber($session->restaurant);
+        $invoiceNumber = is_string($existingInvoiceNumber) && trim($existingInvoiceNumber) !== ''
+            ? trim($existingInvoiceNumber)
+            : $this->generateFinanceInvoiceNumber($session->restaurant);
         $tableLabel = $session->restaurantTable?->name
             ? 'Table '.$session->restaurantTable->name
             : 'Table #'.$session->table_number;

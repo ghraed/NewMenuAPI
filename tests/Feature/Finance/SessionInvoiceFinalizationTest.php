@@ -55,7 +55,7 @@ class SessionInvoiceFinalizationTest extends TestCase
         ]);
 
         $finalizeResponse->assertOk()
-            ->assertJsonPath('invoice_number', 'INV-20260115-0001')
+            ->assertJsonPath('invoice_number', 'INV-20260115-000001')
             ->assertJsonPath('invoice_status', Invoice::STATUS_PAID);
 
         $invoiceId = $finalizeResponse->json('invoice_id');
@@ -123,7 +123,7 @@ class SessionInvoiceFinalizationTest extends TestCase
         ]);
 
         $firstFinalize->assertOk()
-            ->assertJsonPath('invoice_number', 'INV-20260115-0001');
+            ->assertJsonPath('invoice_number', 'INV-20260115-000001');
         $secondFinalize->assertOk()
             ->assertJsonPath('invoice_id', $firstFinalize->json('invoice_id'))
             ->assertJsonPath('invoice_number', $firstFinalize->json('invoice_number'));
@@ -141,16 +141,16 @@ class SessionInvoiceFinalizationTest extends TestCase
 
         $this->assertDatabaseHas('orders', [
             'id' => $firstOrderId,
-            'invoice_number' => 'INV-20260115-0001',
+            'invoice_number' => 'INV-20260115-000001',
         ]);
         $this->assertDatabaseHas('orders', [
             'id' => $secondOrderId,
-            'invoice_number' => 'INV-20260115-0001',
+            'invoice_number' => 'INV-20260115-000001',
         ]);
         $this->assertDatabaseHas('orders', [
             'id' => $unpaidOrderId,
             'status' => Order::STATUS_STAFF_CONFIRMED,
-            'invoice_number' => null,
+            'invoice_number' => 'INV-20260115-000003',
         ]);
     }
 

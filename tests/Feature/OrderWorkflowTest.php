@@ -213,6 +213,7 @@ class OrderWorkflowTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('order.status', Order::STATUS_STAFF_CONFIRMED)
             ->assertJsonPath('order.table_reference', 'T04')
+            ->assertJsonPath('order.invoice_number', 'INV-20260115-000001')
             ->assertJsonPath('order.invoice.discount_amount', '0.00')
             ->assertJsonPath('order.invoice.vat_amount', '0.00')
             ->assertJsonPath('order.invoice.total', '25.00')
@@ -222,6 +223,7 @@ class OrderWorkflowTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'status' => Order::STATUS_STAFF_CONFIRMED,
+            'invoice_number' => 'INV-20260115-000001',
             'confirmed_by' => $staff->id,
             'discount_amount' => '0.00',
             'vat_amount' => '0.00',
