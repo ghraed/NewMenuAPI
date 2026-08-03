@@ -312,10 +312,6 @@ class TableSessionAccessService
                 ->where('invoice_number', trim($existingInvoiceNumber))
                 ->with('items')
                 ->first();
-
-            if ($existingInvoice) {
-                return $existingInvoice;
-            }
         }
 
         $status = $this->resolveFinalizedInvoiceStatus($payment);
@@ -375,9 +371,7 @@ class TableSessionAccessService
             $orders->count()
         );
 
-        $invoice = $session->restaurant->invoices()->create([
-            'uuid' => (string) Str::uuid(),
-            'invoice_number' => $invoiceNumber,
+        $invoicePayload = [
             'invoice_date' => ($invoiceDate instanceof \DateTimeInterface ? $invoiceDate : now())->format('Y-m-d'),
             'status' => $status,
             'subtotal' => Money::formatCents($subtotalCents),
@@ -400,7 +394,20 @@ class TableSessionAccessService
                 : null,
             'notes' => $notes,
             'paid_at' => $status === Invoice::STATUS_PAID ? now() : null,
-        ]);
+            'pdf_disk' => null,
+            'pdf_path' => null,
+            'pdf_generated_at' => null,
+        ];
+
+        $invoice = $existingInvoice
+            ? tap($existingInvoice)->update($invoicePayload)
+            : $session->restaurant->invoices()->create([
+                'uuid' => (string) Str::uuid(),
+                'invoice_number' => $invoiceNumber,
+                ...$invoicePayload,
+            ]);
+
+        $invoice->items()->delete();
 
         $invoiceItems = [];
         $itemOrder = 0;

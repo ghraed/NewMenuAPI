@@ -594,9 +594,11 @@ class OrderController extends Controller
                     ]);
                 }
 
+                $invoiceNumber = $this->resolveInvoiceNumberForOrder($lockedOrder);
+
                 $lockedOrder->update([
                     'status' => Order::STATUS_STAFF_CONFIRMED,
-                    'invoice_number' => $lockedOrder->invoice_number ?: $this->formatInvoiceNumber($lockedOrder),
+                    'invoice_number' => $invoiceNumber,
                     'confirmed_by' => $request->user()->id,
                     'confirmed_at' => now(),
                     'kitchen_status' => Order::KITCHEN_STATUS_NEW,
@@ -612,6 +614,8 @@ class OrderController extends Controller
                         $request->user()->id
                     );
                 }
+
+                $this->syncFinanceInvoiceForOrderGroup($lockedOrder->fresh(['restaurant', 'items']));
 
                 return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy']);
             });
@@ -695,6 +699,8 @@ class OrderController extends Controller
                         $request->user()->id
                     );
                 }
+
+                $this->syncFinanceInvoiceForOrderGroup($lockedOrder->fresh(['restaurant', 'items']));
 
                 return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'cancelledBy']);
             });
@@ -1096,6 +1102,8 @@ class OrderController extends Controller
                 'exchange_rate' => (string) ($lockedOrder->restaurant->dollar_rate ?? 1),
             ]);
 
+            $this->syncFinanceInvoiceForOrderGroup($lockedOrder->fresh(['restaurant', 'items']));
+
             return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
         });
 
@@ -1352,6 +1360,8 @@ class OrderController extends Controller
                 ...$invoice,
             ]);
 
+            $this->syncFinanceInvoiceForOrderGroup($lockedOrder->fresh(['restaurant', 'items']));
+
             return $lockedOrder->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
         });
 
@@ -1481,6 +1491,8 @@ class OrderController extends Controller
                             'accounted_at' => now(),
                             'payment_method' => $validated['payment_method'],
                         ]);
+
+                        $this->syncFinanceInvoiceForOrderGroup($order->fresh(['restaurant', 'items']));
 
                         return $order->fresh(['restaurant', 'restaurantTable', 'items', 'confirmedBy', 'accountedBy']);
                     });
@@ -2089,9 +2101,201 @@ class OrderController extends Controller
         return 'ORD-'.now()->format('Ymd').'-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT);
     }
 
+    private function resolveInvoiceNumberForOrder(Order $order): string
+    {
+        if (is_string($order->invoice_number) && trim($order->invoice_number) !== '') {
+            return trim($order->invoice_number);
+        }
+
+        if ($order->table_session_id) {
+            $existingSessionInvoiceNumber = Order::query()
+                ->where('restaurant_id', $order->restaurant_id)
+                ->where('table_session_id', $order->table_session_id)
+                ->whereKeyNot($order->id)
+                ->whereIn('status', [Order::STATUS_STAFF_CONFIRMED, Order::STATUS_ACCOUNTED])
+                ->whereNotNull('invoice_number')
+                ->orderBy('confirmed_at')
+                ->orderBy('created_at')
+                ->orderBy('id')
+                ->value('invoice_number');
+
+            if (is_string($existingSessionInvoiceNumber) && trim($existingSessionInvoiceNumber) !== '') {
+                return trim($existingSessionInvoiceNumber);
+            }
+        }
+
+        return $this->formatInvoiceNumber($order);
+    }
+
     private function formatInvoiceNumber(Order $order): string
     {
         return 'INV-'.now()->format('Ymd').'-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT);
+    }
+
+    private function syncFinanceInvoiceForOrderGroup(Order $order): void
+    {
+        $invoiceNumber = is_string($order->invoice_number) ? trim($order->invoice_number) : '';
+        if ($invoiceNumber === '') {
+            return;
+        }
+
+        $order->loadMissing('restaurant');
+
+        $groupedOrders = Order::query()
+            ->with('items')
+            ->where('restaurant_id', $order->restaurant_id)
+            ->where('invoice_number', $invoiceNumber)
+            ->whereIn('status', [Order::STATUS_STAFF_CONFIRMED, Order::STATUS_ACCOUNTED])
+            ->orderBy('confirmed_at')
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
+
+        $existingInvoice = Invoice::query()
+            ->where('restaurant_id', $order->restaurant_id)
+            ->where('invoice_number', $invoiceNumber)
+            ->with('items')
+            ->first();
+
+        if ($groupedOrders->isEmpty()) {
+            if ($existingInvoice) {
+                $existingInvoice->update([
+                    'status' => Invoice::STATUS_CANCELLED,
+                    'paid_at' => null,
+                ]);
+            }
+
+            return;
+        }
+
+        $allAccounted = $groupedOrders->every(fn (Order $groupedOrder): bool => $groupedOrder->status === Order::STATUS_ACCOUNTED);
+        $hasImmediatePayment = $allAccounted
+            && $groupedOrders->every(fn (Order $groupedOrder): bool => is_string($groupedOrder->payment_method) && trim($groupedOrder->payment_method) !== '');
+
+        $status = $hasImmediatePayment
+            ? Invoice::STATUS_PAID
+            : ($allAccounted ? Invoice::STATUS_ISSUED : Invoice::STATUS_DRAFT);
+
+        $invoiceDate = $groupedOrders
+            ->map(fn (Order $groupedOrder) => $groupedOrder->accounted_at ?? $groupedOrder->confirmed_at ?? $groupedOrder->created_at)
+            ->filter()
+            ->min();
+
+        $discountTypes = $groupedOrders
+            ->pluck('discount_type')
+            ->filter(fn ($value): bool => is_string($value) && trim($value) !== '')
+            ->unique()
+            ->values();
+        $discountType = $discountTypes->count() === 1 ? (string) $discountTypes->first() : null;
+
+        $payload = [
+            'invoice_date' => ($invoiceDate ?? now())->format('Y-m-d'),
+            'status' => $status,
+            'subtotal' => Money::formatCents($groupedOrders->reduce(
+                fn (int $carry, Order $groupedOrder): int => $carry + Money::toCents($groupedOrder->subtotal),
+                0
+            )),
+            'discount_type' => $discountType,
+            'discount_value' => Money::formatCents($groupedOrders->reduce(
+                fn (int $carry, Order $groupedOrder): int => $carry + Money::toCents($groupedOrder->discount_value),
+                0
+            )),
+            'discount_amount' => Money::formatCents($groupedOrders->reduce(
+                fn (int $carry, Order $groupedOrder): int => $carry + Money::toCents($groupedOrder->discount_amount),
+                0
+            )),
+            'taxable_subtotal' => Money::formatCents($groupedOrders->reduce(
+                fn (int $carry, Order $groupedOrder): int => $carry + Money::toCents($groupedOrder->taxable_subtotal),
+                0
+            )),
+            'service_charge_rate' => Money::formatScaledInt(
+                (int) $groupedOrders->map(fn (Order $groupedOrder): int => Money::toScaledInt($groupedOrder->service_charge_rate ?? 0, 2))->max(),
+                2
+            ),
+            'service_charge_amount' => Money::formatCents($groupedOrders->reduce(
+                fn (int $carry, Order $groupedOrder): int => $carry + Money::toCents($groupedOrder->service_charge_amount),
+                0
+            )),
+            'vat_rate' => Money::formatScaledInt(
+                (int) $groupedOrders->map(fn (Order $groupedOrder): int => Money::toScaledInt($groupedOrder->vat_rate ?? 0, 2))->max(),
+                2
+            ),
+            'vat_amount' => Money::formatCents($groupedOrders->reduce(
+                fn (int $carry, Order $groupedOrder): int => $carry + Money::toCents($groupedOrder->vat_amount),
+                0
+            )),
+            'total' => Money::formatCents($groupedOrders->reduce(
+                fn (int $carry, Order $groupedOrder): int => $carry + Money::toCents($groupedOrder->total),
+                0
+            )),
+            'currency' => (string) ($order->restaurant->currency ?? 'USD'),
+            'exchange_rate' => Money::formatScaledInt(Money::toScaledInt($order->restaurant->dollar_rate ?? 1, 4), 4),
+            'payment_method' => $hasImmediatePayment
+                ? (string) $groupedOrders->pluck('payment_method')->filter()->last()
+                : null,
+            'payment_reference' => $hasImmediatePayment
+                ? (string) $groupedOrders->pluck('payment_reference')->filter()->last()
+                : null,
+            'notes' => sprintf('Synced from %d order(s) for invoice %s.', $groupedOrders->count(), $invoiceNumber),
+            'paid_at' => $status === Invoice::STATUS_PAID ? ($groupedOrders->pluck('accounted_at')->filter()->last() ?? now()) : null,
+            'pdf_disk' => null,
+            'pdf_path' => null,
+            'pdf_generated_at' => null,
+        ];
+
+        $invoice = $existingInvoice
+            ? tap($existingInvoice)->update($payload)
+            : $order->restaurant->invoices()->create([
+                'uuid' => (string) Str::uuid(),
+                'invoice_number' => $invoiceNumber,
+                ...$payload,
+            ]);
+
+        $invoice->items()->delete();
+
+        $invoiceItems = [];
+        $itemOrder = 0;
+        foreach ($groupedOrders as $groupedOrder) {
+            foreach ($groupedOrder->items as $item) {
+                $itemOrder += 1;
+                $quantity = (float) $item->quantity;
+                $originalUnitPrice = (float) ($item->original_unit_price ?? $item->unit_price ?? 0);
+                $finalUnitPrice = (float) ($item->final_unit_price ?? $item->unit_price ?? 0);
+
+                $invoiceItems[] = [
+                    'name' => $item->dish_name,
+                    'quantity' => $item->quantity,
+                    'unit_price' => Money::normalizeDecimal($finalUnitPrice, 2),
+                    'line_total' => $item->line_subtotal,
+                    'order_index' => $itemOrder,
+                    'order_item_id' => $item->id,
+                    'status' => $item->status ?? 'normal',
+                    'compensation_type' => $item->compensation_type ?? 'none',
+                    'compensation_reason' => $item->compensation_reason,
+                    'complaint_category' => $item->complaint_category,
+                    'operational_loss_category' => $item->operational_loss_category,
+                    'adjustment_action_type' => $item->adjustment_action_type,
+                    'compensation_note' => $item->compensation_note,
+                    'approved_by_staff_name' => $item->approved_by_staff_name,
+                    'approved_by_staff_role' => $item->approved_by_staff_role,
+                    'approved_at' => $item->approved_at,
+                    'original_unit_price' => Money::normalizeDecimal($originalUnitPrice, 2),
+                    'final_unit_price' => Money::normalizeDecimal($finalUnitPrice, 2),
+                    'original_line_total' => Money::formatCents(Money::multiplyToCents($quantity, $originalUnitPrice, 3)),
+                    'partial_discount_percentage' => $item->partial_discount_percentage,
+                    'partial_discount_type' => $item->partial_discount_type,
+                    'partial_discount_value' => $item->partial_discount_value,
+                    'is_complimentary' => (bool) ($item->is_complimentary ?? false),
+                    'accounting_bucket' => $item->accounting_bucket,
+                    'customer_satisfaction_rating' => $item->customer_satisfaction_rating,
+                    'evidence_photo_url' => $item->evidence_photo_url,
+                ];
+            }
+        }
+
+        if ($invoiceItems !== []) {
+            $invoice->items()->createMany($invoiceItems);
+        }
     }
 
     private function normalizeOptionalString(mixed $value): ?string
