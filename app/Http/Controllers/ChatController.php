@@ -243,7 +243,10 @@ class ChatController extends Controller
             fn (array $item): bool => trim((string) ($item['recommendation_priority'] ?? '')) === 'preferred'
         ));
         $list = implode("\n", array_map(
-            fn (array $item): string => $this->formatCategoryListItem($item),
+            fn (array $item): string => $this->formatCategoryListItem(
+                $item,
+                trim((string) ($item['recommendation_priority'] ?? '')) === 'preferred'
+            ),
             $items
         ));
 
@@ -257,17 +260,16 @@ class ChatController extends Controller
 
         $recommendedDish = $preferredItems[0];
         $recommendedName = trim((string) ($recommendedDish['name'] ?? ''));
-        $recommendedDescription = $this->dishTastingDescription($recommendedDish);
 
         if ($language === 'fr') {
-            return "Bien sûr — voici nos {$categoryLabel} :\n{$list}\n\nPour une touche fumée et généreuse, **{$recommendedName}** est un très joli choix : {$recommendedDescription}";
+            return "Bien sûr — voici nos {$categoryLabel} :\n{$list}\n\nPour une touche fumée et généreuse, **{$recommendedName}** est un très joli choix.";
         }
 
         if ($language === 'ar') {
-            return "أكيد — هذه خيارات {$categoryLabel} لدينا:\n{$list}\n\nلنكهة غنية وشهية، **{$recommendedName}** خيار جميل جدًا: {$recommendedDescription}";
+            return "أكيد — هذه خيارات {$categoryLabel} لدينا:\n{$list}\n\nلنكهة غنية وشهية، **{$recommendedName}** خيار جميل جدًا.";
         }
 
-        return "Of course — here are our {$categoryLabel} options:\n{$list}\n\nFor a rich, delicious bite, **{$recommendedName}** is a lovely choice — {$recommendedDescription}";
+        return "Of course — here are our {$categoryLabel} options:\n{$list}\n\nFor a rich, delicious bite, **{$recommendedName}** is a lovely choice.";
     }
 
     private function isCategoryAvailabilityQuestion(string $message): bool
@@ -307,14 +309,17 @@ class ChatController extends Controller
     }
 
     /** @param array<string,mixed> $item */
-    private function formatCategoryListItem(array $item): string
+    private function formatCategoryListItem(array $item, bool $isPreferred): string
     {
         $name = trim((string) ($item['name'] ?? ''));
         $price = trim((string) ($item['price'] ?? ''));
-        $description = $this->dishTastingDescription($item);
         $priceText = $price !== '' ? " — {$price}" : '';
 
-        return "• **{$name}**{$priceText}: {$description}";
+        if (! $isPreferred) {
+            return "• **{$name}**{$priceText}";
+        }
+
+        return "• **{$name}**{$priceText}: {$this->dishTastingDescription($item)}";
     }
 
     /** @param array<string,mixed> $item */

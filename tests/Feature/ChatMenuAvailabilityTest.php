@@ -59,6 +59,8 @@ class ChatMenuAvailabilityTest extends TestCase
         $this->assertStringContainsString('Four Cheese Pizza', $reply);
         $this->assertStringContainsString('BBQ Chicken Pizza', $reply);
         $this->assertStringContainsString('Smoky barbecue chicken', $reply);
+        $this->assertStringNotContainsString('Tomato, mozzarella, and fresh basil', $reply);
+        $this->assertStringNotContainsString('gooey blend of four cheeses', $reply);
         $this->assertStringContainsString('lovely choice', $reply);
         $this->assertDoesNotMatchRegularExpression('/profit|priority|margin|internal ranking/i', $reply);
     }
