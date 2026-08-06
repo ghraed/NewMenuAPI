@@ -114,13 +114,26 @@ class ChatController extends Controller
         $chatContext = $this->resolveChatContext($validated, $request);
 
         try {
-            $assistant = $this->deepSeekChatService->chat($chatMessages, $resolvedLanguage, $chatContext);
-            if (isset($assistant['reply']) && is_string($assistant['reply'])) {
-                $assistant['reply'] = $this->appendNaturalRecommendation(
-                    $assistant['reply'],
-                    $message,
-                    $chatContext
-                );
+            // Category availability questions should always return the complete
+            // menu selection. Relying on the model here can lead to a partial
+            // list even though the restaurant menu is already available to us.
+            $categoryAvailabilityReply = $this->buildCategoryAvailabilityReply(
+                $message,
+                $resolvedLanguage,
+                $chatContext
+            );
+
+            if ($categoryAvailabilityReply !== null) {
+                $assistant = ['reply' => $categoryAvailabilityReply];
+            } else {
+                $assistant = $this->deepSeekChatService->chat($chatMessages, $resolvedLanguage, $chatContext);
+                if (isset($assistant['reply']) && is_string($assistant['reply'])) {
+                    $assistant['reply'] = $this->appendNaturalRecommendation(
+                        $assistant['reply'],
+                        $message,
+                        $chatContext
+                    );
+                }
             }
         } catch (Throwable $e) {
             report($e);
@@ -151,6 +164,176 @@ class ChatController extends Controller
         }
 
         return response()->json($response);
+    }
+
+    /**
+     * Build a dependable answer for questions such as "What pizza do you have?".
+     *
+     * @param  array<string,mixed>  $chatContext
+     */
+    private function buildCategoryAvailabilityReply(string $message, string $language, array $chatContext): ?string
+    {
+        if (! $this->isCategoryAvailabilityQuestion($message)) {
+            return null;
+        }
+
+        $menuItems = is_array($chatContext['menu_items'] ?? null) ? $chatContext['menu_items'] : [];
+        if ($menuItems === []) {
+            return null;
+        }
+
+        $messageLower = $this->normalizeComparableText($message);
+        $buckets = [];
+
+        foreach ($menuItems as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $category = trim((string) ($item['category'] ?? ''));
+            $name = trim((string) ($item['name'] ?? ''));
+            if ($category === '' || $name === '') {
+                continue;
+            }
+
+            $key = $this->normalizeComparableText($category);
+            if ($key === '') {
+                continue;
+            }
+
+            $buckets[$key] ??= ['label' => $category, 'items' => [], 'aliases' => []];
+            $buckets[$key]['items'][] = $item;
+            $buckets[$key]['aliases'] = array_values(array_unique([
+                ...$buckets[$key]['aliases'],
+                ...$this->categoryAliases($key),
+            ]));
+        }
+
+        $bestAlias = '';
+        foreach ($buckets as $bucket) {
+            foreach ($bucket['aliases'] as $alias) {
+                if ($alias !== '' && str_contains($messageLower, $alias) && strlen($alias) > strlen($bestAlias)) {
+                    $bestAlias = $alias;
+                }
+            }
+        }
+
+        if ($bestAlias === '') {
+            return null;
+        }
+
+        $matchedBuckets = array_values(array_filter(
+            $buckets,
+            fn (array $bucket): bool => in_array($bestAlias, $bucket['aliases'], true)
+        ));
+        $items = array_values(array_merge(...array_map(
+            fn (array $bucket): array => $bucket['items'],
+            $matchedBuckets
+        )));
+
+        if ($items === []) {
+            return null;
+        }
+
+        $categoryLabel = count($matchedBuckets) === 1
+            ? (string) $matchedBuckets[0]['label']
+            : ucfirst($bestAlias);
+        $preferredItems = array_values(array_filter(
+            $items,
+            fn (array $item): bool => trim((string) ($item['recommendation_priority'] ?? '')) === 'preferred'
+        ));
+        $list = implode("\n", array_map(
+            fn (array $item): string => $this->formatCategoryListItem($item),
+            $items
+        ));
+
+        if ($preferredItems === []) {
+            return match ($language) {
+                'fr' => "Bien sûr — voici nos {$categoryLabel} :\n{$list}",
+                'ar' => "أكيد — هذه خيارات {$categoryLabel} لدينا:\n{$list}",
+                default => "Of course — here are our {$categoryLabel} options:\n{$list}",
+            };
+        }
+
+        $recommendedDish = $preferredItems[0];
+        $recommendedName = trim((string) ($recommendedDish['name'] ?? ''));
+        $recommendedDescription = $this->dishTastingDescription($recommendedDish);
+
+        if ($language === 'fr') {
+            return "Bien sûr — voici nos {$categoryLabel} :\n{$list}\n\nPour une touche fumée et généreuse, **{$recommendedName}** est un très joli choix : {$recommendedDescription}";
+        }
+
+        if ($language === 'ar') {
+            return "أكيد — هذه خيارات {$categoryLabel} لدينا:\n{$list}\n\nلنكهة غنية وشهية، **{$recommendedName}** خيار جميل جدًا: {$recommendedDescription}";
+        }
+
+        return "Of course — here are our {$categoryLabel} options:\n{$list}\n\nFor a rich, delicious bite, **{$recommendedName}** is a lovely choice — {$recommendedDescription}";
+    }
+
+    private function isCategoryAvailabilityQuestion(string $message): bool
+    {
+        return preg_match(
+            '/(?:\b(?:what|which)\b.*\b(?:do you have|are available|is available|can i get)\b|\b(?:show|list|browse)\b.*\b(?:menu|options|choices)?\b|\bmenu\b.*\b(?:for|of)\b|شو.*(?:عندكم|في)|ما.*(?:عندكم|في)|quels?.*avez|montrez.*(?:menu|options))/iu',
+            $message
+        ) === 1;
+    }
+
+    /** @return array<int,string> */
+    private function categoryAliases(string $category): array
+    {
+        $aliases = [$category];
+        if (str_ends_with($category, 'ies')) {
+            $aliases[] = substr($category, 0, -3).'y';
+        } elseif (str_ends_with($category, 'es')) {
+            $aliases[] = substr($category, 0, -2);
+        } elseif (str_ends_with($category, 's')) {
+            $aliases[] = substr($category, 0, -1);
+        }
+
+        $parts = array_values(array_filter(explode(' ', $category)));
+        if ($parts !== []) {
+            $lastPart = (string) end($parts);
+            $aliases[] = $lastPart;
+            if (str_ends_with($lastPart, 'ies')) {
+                $aliases[] = substr($lastPart, 0, -3).'y';
+            } elseif (str_ends_with($lastPart, 'es')) {
+                $aliases[] = substr($lastPart, 0, -2);
+            } elseif (str_ends_with($lastPart, 's')) {
+                $aliases[] = substr($lastPart, 0, -1);
+            }
+        }
+
+        return array_values(array_unique(array_filter($aliases)));
+    }
+
+    /** @param array<string,mixed> $item */
+    private function formatCategoryListItem(array $item): string
+    {
+        $name = trim((string) ($item['name'] ?? ''));
+        $price = trim((string) ($item['price'] ?? ''));
+        $description = $this->dishTastingDescription($item);
+        $priceText = $price !== '' ? " — {$price}" : '';
+
+        return "• **{$name}**{$priceText}: {$description}";
+    }
+
+    /** @param array<string,mixed> $item */
+    private function dishTastingDescription(array $item): string
+    {
+        $description = trim((string) ($item['description'] ?? ''));
+        if ($description !== '') {
+            return $description;
+        }
+
+        $ingredients = array_values(array_filter(
+            is_array($item['ingredients'] ?? null) ? $item['ingredients'] : [],
+            fn ($ingredient): bool => is_string($ingredient) && trim($ingredient) !== ''
+        ));
+        if ($ingredients !== []) {
+            return 'made with '.implode(', ', array_slice($ingredients, 0, 4));
+        }
+
+        return 'a warm, satisfying choice from our kitchen';
     }
 
     private function normalizeLanguage(?string $language): ?string
