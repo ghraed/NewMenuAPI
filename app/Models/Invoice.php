@@ -73,4 +73,9 @@ class Invoice extends Model
     {
         return $this->hasMany(InvoiceItem::class);
     }
+
+    public function complaintAdjustments(): HasMany
+    {
+        return $this->hasMany(PosComplaintAdjustment::class, 'original_invoice_id');
+    }
 }

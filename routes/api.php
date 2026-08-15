@@ -22,6 +22,7 @@ use App\Http\Controllers\InventoryStockHistoryController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MenuController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\PosComplaintAdjustmentController;
 use App\Http\Controllers\PublicReservationController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\QRCodeController;
@@ -161,6 +162,14 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
             Route::get('/room-plans', [RoomPlanController::class, 'index']);
             Route::get('/room-plans/{roomPlan}', [RoomPlanController::class, 'show']);
         });
+    });
+
+    Route::middleware(['role:admin,accountant,staff', 'feature:table_ordering'])->group(function () {
+        Route::get('/pos/completed-sales', [PosComplaintAdjustmentController::class, 'searchSales']);
+        Route::get('/pos/orders/{order}/complaint-adjustments', [PosComplaintAdjustmentController::class, 'index']);
+        Route::post('/pos/orders/{order}/complaint-adjustments', [PosComplaintAdjustmentController::class, 'store']);
+        Route::post('/pos/complaint-adjustments/{adjustment}/post', [PosComplaintAdjustmentController::class, 'post']);
+        Route::post('/pos/complaint-adjustments/{adjustment}/void', [PosComplaintAdjustmentController::class, 'void']);
     });
 
     Route::middleware('role:admin,staff')->group(function () {

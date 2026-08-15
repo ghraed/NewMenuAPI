@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\PosComplaintAdjustment;
 use App\Models\Restaurant;
 use App\Models\StockMovement;
 use App\Services\InvoicePdfService;
@@ -32,7 +33,7 @@ class InvoiceController extends Controller
 
         $query = Invoice::query()
             ->where('restaurant_id', $restaurant->id)
-            ->with('items')
+            ->with(['items', 'complaintAdjustments.gifts'])
             ->orderByDesc('invoice_date')
             ->orderByDesc('id');
 
@@ -120,8 +121,25 @@ class InvoiceController extends Controller
         $this->assertInvoiceBelongsToRestaurant($invoice, $restaurant);
         $invoice->loadMissing('items');
 
+        $complaintAdjustments = PosComplaintAdjustment::query()
+                ->where('restaurant_id', $restaurant->id)
+                ->where('original_invoice_id', $invoice->id)
+                ->with('gifts')
+                ->latest()
+                ->get()
+                ->map(fn (PosComplaintAdjustment $adjustment): array => [
+                    'id' => $adjustment->id, 'status' => $adjustment->status, 'reason' => $adjustment->complaint_reason,
+                    'category' => $adjustment->complaint_category, 'note' => $adjustment->complaint_note,
+                    'refund_amount' => $adjustment->refund_amount, 'accounting_bucket' => $adjustment->accounting_bucket,
+                    'posted_at' => $adjustment->posted_at?->toIso8601String(),
+                    'gifts' => $adjustment->gifts->map(fn ($gift): array => ['dish_name' => $gift->dish_name_snapshot, 'quantity' => $gift->quantity, 'line_value' => $gift->line_value])->values(),
+                ])->values();
+
         return response()->json([
-            'invoice' => $this->formatInvoice($invoice),
+            'invoice' => [
+                ...$this->formatInvoice($invoice),
+                'complaint_adjustments' => $complaintAdjustments,
+            ],
         ]);
     }
 
@@ -327,11 +345,15 @@ class InvoiceController extends Controller
             ? (string) $validated['group_by']
             : 'monthly';
 
-        $revenue = (float) Invoice::query()
+        $grossRevenue = (float) Invoice::query()
             ->where('restaurant_id', $restaurant->id)
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
             ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()])
             ->sum('total');
+        $complaintRefunds = (float) PosComplaintAdjustment::query()
+            ->where('restaurant_id', $restaurant->id)->where('status', 'posted')
+            ->whereBetween('posted_at', [$from->toDateTimeString(), $to->toDateTimeString()])->sum('refund_amount');
+        $revenue = round($grossRevenue - $complaintRefunds, 2);
 
         $expenseStatuses = ($validated['expense_status'] ?? 'approved_paid') === 'all_non_void'
             ? ['draft', 'approved', 'paid']
@@ -377,6 +399,7 @@ class InvoiceController extends Controller
             'date_to' => $to->toDateString(),
             'group_by' => $groupBy,
             'revenue' => round($revenue, 2),
+            'complaint_refunds' => round($complaintRefunds, 2),
             'cogs' => $cogs,
             'gross_profit' => round($revenue - $cogs, 2),
             'operating_expenses' => $expenseTotal,
@@ -736,7 +759,11 @@ class InvoiceController extends Controller
             ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
             ->whereBetween('invoice_date', [$from->toDateString(), $to->toDateString()]);
 
-        $revenue = round((float) (clone $invoicesQuery)->sum('total'), 2);
+        $grossRevenue = round((float) (clone $invoicesQuery)->sum('total'), 2);
+        $complaintRefunds = round((float) PosComplaintAdjustment::query()
+            ->where('restaurant_id', $restaurantId)->where('status', 'posted')
+            ->whereBetween('posted_at', [$from->toDateTimeString(), $to->toDateTimeString()])->sum('refund_amount'), 2);
+        $revenue = round($grossRevenue - $complaintRefunds, 2);
         $invoiceCount = (int) (clone $invoicesQuery)->count();
         $averageInvoiceValue = $invoiceCount > 0
             ? round($revenue / $invoiceCount, 2)
@@ -917,6 +944,11 @@ class InvoiceController extends Controller
             'pdf_available' => is_string($invoice->pdf_path) && trim($invoice->pdf_path) !== '',
             'created_at' => $invoice->created_at?->toIso8601String(),
             'updated_at' => $invoice->updated_at?->toIso8601String(),
+            'has_complaint_adjustment' => $invoice->complaintAdjustments
+                ->contains(fn (PosComplaintAdjustment $adjustment): bool => $adjustment->status !== 'void'),
+            'has_gift_adjustment' => $invoice->complaintAdjustments
+                ->where('status', '!=', 'void')
+                ->contains(fn (PosComplaintAdjustment $adjustment): bool => $adjustment->gifts->isNotEmpty()),
             'items' => $invoice->items
                 ->sortBy('order_index')
                 ->values()
