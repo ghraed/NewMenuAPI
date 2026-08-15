@@ -1390,7 +1390,6 @@ class OrderController extends Controller
             'discount_type' => 'nullable|in:fixed,percentage',
             'discount_value' => 'nullable|numeric|min:0',
             'payment_method' => 'required|in:cash,card,wallet',
-            'amount_received' => 'nullable|numeric|min:0',
         ]);
 
         $discountType = $validated['discount_type'] ?? null;
@@ -1418,13 +1417,6 @@ class OrderController extends Controller
 
         $paymentMethod = (string) $validated['payment_method'];
         $totalAmount = (float) $invoice['total'];
-        $amountReceived = (float) ($validated['amount_received'] ?? 0);
-
-        if ($paymentMethod === 'cash' && ($amountReceived + 0.0005) < $totalAmount) {
-            return response()->json([
-                'message' => __('messages.orders.pos_cash_insufficient'),
-            ], 422);
-        }
 
         $userId = (int) $request->user()->id;
 
@@ -1521,10 +1513,9 @@ class OrderController extends Controller
             ], 422);
         }
 
-        $effectiveAmountReceived = $paymentMethod === 'cash' ? $amountReceived : $totalAmount;
-        $changeDue = $paymentMethod === 'cash'
-            ? max($effectiveAmountReceived - $totalAmount, 0)
-            : 0.0;
+        // POS checkout is always settled in full against the calculated invoice total.
+        $effectiveAmountReceived = $totalAmount;
+        $changeDue = 0.0;
 
         return response()->json([
             'message' => __('messages.orders.pos_checkout_completed'),

@@ -242,7 +242,6 @@ class OrderWorkflowTest extends TestCase
         $response = $this->postJson('/api/pos/checkout', [
             'table_reference' => 'T02',
             'payment_method' => 'cash',
-            'amount_received' => 30,
             'vat_rate' => 10,
             'discount_type' => 'fixed',
             'discount_value' => 5,
@@ -265,8 +264,8 @@ class OrderWorkflowTest extends TestCase
             ->assertJsonPath('order.invoice.vat_amount', '2.00')
             ->assertJsonPath('order.invoice.total', '22.00')
             ->assertJsonPath('payment.method', 'cash')
-            ->assertJsonPath('payment.amount_received', '30.00')
-            ->assertJsonPath('payment.change_due', '8.00');
+            ->assertJsonPath('payment.amount_received', '22.00')
+            ->assertJsonPath('payment.change_due', '0.00');
 
         $orderId = $response->json('order.id');
         $this->assertIsInt($orderId);
@@ -285,7 +284,7 @@ class OrderWorkflowTest extends TestCase
         ]);
     }
 
-    public function test_pos_checkout_rejects_cash_payment_when_received_amount_is_too_low(): void
+    public function test_pos_checkout_always_settles_cash_to_the_invoice_total(): void
     {
         $restaurant = $this->createRestaurant();
         $staff = $this->createStaffUser($restaurant, ['T03']);
@@ -296,7 +295,6 @@ class OrderWorkflowTest extends TestCase
         $response = $this->postJson('/api/pos/checkout', [
             'table_reference' => 'T03',
             'payment_method' => 'cash',
-            'amount_received' => 5,
             'items' => [
                 [
                     'dish_id' => $dish->id,
@@ -305,10 +303,12 @@ class OrderWorkflowTest extends TestCase
             ],
         ]);
 
-        $response->assertStatus(422)
-            ->assertJsonPath('message', 'Cash received is less than the order total.');
+        $response->assertCreated()
+            ->assertJsonPath('payment.amount_received', '9.00')
+            ->assertJsonPath('payment.change_due', '0.00')
+            ->assertJsonPath('payment.total', '9.00');
 
-        $this->assertDatabaseMissing('orders', [
+        $this->assertDatabaseHas('orders', [
             'restaurant_id' => $restaurant->id,
             'status' => Order::STATUS_ACCOUNTED,
             'table_reference' => 'T03',
