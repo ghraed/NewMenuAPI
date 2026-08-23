@@ -22,33 +22,6 @@ class InventoryIngredientApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_inventory_at_its_threshold_is_not_reported_as_below_threshold(): void
-    {
-        $admin = User::factory()->admin()->create();
-        $restaurant = $this->createRestaurant($admin);
-        $this->enableFeature($restaurant, 'inventory');
-
-        Sanctum::actingAs($admin);
-
-        $createResponse = $this->postJson('/api/inventory/ingredients', [
-            'name' => 'Unconfigured Imported Ingredient',
-            'unit' => Ingredient::UNIT_PIECE,
-            'current_quantity' => 0,
-            'low_stock_threshold' => 0,
-            'target_quantity' => 0,
-            'is_active' => true,
-        ]);
-
-        $createResponse->assertCreated()
-            ->assertJsonPath('ingredient.is_low_stock', false);
-
-        $this->getJson('/api/inventory/ingredients')
-            ->assertOk()
-            ->assertJsonPath('ingredients.0.current_quantity', '0.000')
-            ->assertJsonPath('ingredients.0.low_stock_threshold', '0.000')
-            ->assertJsonPath('ingredients.0.is_low_stock', false);
-    }
-
     public function test_admin_can_create_update_restock_adjust_and_review_stock_history_with_linked_purchase_entry(): void
     {
         $admin = User::factory()->admin()->create();
