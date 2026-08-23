@@ -115,6 +115,27 @@ class OrderInventoryDeductionTest extends TestCase
             ->assertJsonPath('inventory.low_stock_ingredients.0.low_stock_threshold', '6.000');
     }
 
+    public function test_confirmation_does_not_report_stock_equal_to_the_threshold_as_below_threshold(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $this->enableFeature($restaurant, 'realtime_staff_orders');
+        $this->enableFeature($restaurant, 'ingredient_stock_deduction');
+        $staff = $this->createStaffUser($restaurant, ['T01']);
+        $mint = $this->createIngredient($restaurant, 'Mint', 10, Ingredient::UNIT_GRAM, 5.000);
+
+        $dish = $this->createDish($restaurant, 'Mint Lemonade', 7.50);
+        $this->attachRecipe($dish, $mint, 5.000);
+
+        $order = $this->createPendingOrderWithDish($restaurant, 'T01', $dish, 1);
+
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/orders/{$order->id}/confirm")
+            ->assertOk()
+            ->assertJsonPath('inventory.has_low_stock_ingredients', false)
+            ->assertJsonCount(0, 'inventory.low_stock_ingredients');
+    }
+
     public function test_pending_order_does_not_deduct_until_confirmation_and_duplicate_confirm_requests_do_not_deduct_twice(): void
     {
         $restaurant = $this->createRestaurant();

@@ -650,7 +650,7 @@ class InventoryIngredientController extends Controller
             'low_stock_threshold' => $this->formatQuantity($lowStockThreshold),
             'target_quantity' => $this->formatQuantity($targetQuantity),
             'is_active' => (bool) $ingredient->is_active,
-            'is_low_stock' => $ingredient->is_active && $currentQuantity <= $lowStockThreshold,
+            'is_low_stock' => $ingredient->is_active && $currentQuantity < $lowStockThreshold,
             'created_at' => $ingredient->created_at?->toIso8601String(),
             'updated_at' => $ingredient->updated_at?->toIso8601String(),
         ];

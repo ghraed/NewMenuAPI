@@ -1865,7 +1865,7 @@ class OrderController extends Controller
             ->get()
             ->filter(function (Ingredient $ingredient): bool {
                 return $ingredient->is_active
-                    && (float) $ingredient->current_stock_quantity <= (float) $ingredient->low_stock_threshold;
+                    && (float) $ingredient->current_stock_quantity < (float) $ingredient->low_stock_threshold;
             })
             ->sortBy('name')
             ->values();
