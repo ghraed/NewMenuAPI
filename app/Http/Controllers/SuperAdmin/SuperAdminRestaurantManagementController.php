@@ -191,7 +191,7 @@ class SuperAdminRestaurantManagementController extends Controller
             'status' => ['required', 'string', Rule::in(['active', 'inactive'])],
             'currency' => ['required', Rule::in(['USD', 'LBP', 'SYP', 'SAR', 'AED', 'EUR', 'QAR'])],
             'custom_domain' => ['nullable', 'string', 'max:255'],
-            'menu_categories' => ['required', 'array', 'min:1'],
+            'menu_categories' => ['sometimes', 'array'],
             'menu_categories.*' => ['required', 'string', Rule::in($categoryValues)],
         ]);
 
@@ -227,7 +227,7 @@ class SuperAdminRestaurantManagementController extends Controller
                 'profile' => [
                     'menu_categories' => array_values(array_unique(array_map(
                         fn (string $value): string => trim($value),
-                        $validated['menu_categories']
+                        $validated['menu_categories'] ?? []
                     ))),
                 ],
             ]);
@@ -268,7 +268,7 @@ class SuperAdminRestaurantManagementController extends Controller
             'status' => ['required', 'string', Rule::in(['active', 'inactive'])],
             'currency' => ['required', Rule::in(['USD', 'LBP', 'SYP', 'SAR', 'AED', 'EUR', 'QAR'])],
             'custom_domain' => ['nullable', 'string', 'max:255'],
-            'menu_categories' => ['required', 'array', 'min:1'],
+            'menu_categories' => ['sometimes', 'array'],
             'menu_categories.*' => ['required', 'string', Rule::in($categoryValues)],
             'profile' => ['sometimes', 'array'],
             'profile.legal_business_name' => ['nullable', 'string', 'max:255'],
@@ -328,10 +328,15 @@ class SuperAdminRestaurantManagementController extends Controller
                 'custom_domain' => $customDomain,
                 'profile' => [
                     ...$profile,
-                    'menu_categories' => array_values(array_unique(array_map(
-                        fn (string $value): string => trim($value),
-                        $validated['menu_categories']
-                    ))),
+                    'menu_categories' => array_key_exists('menu_categories', $validated)
+                        ? array_values(array_unique(array_map(
+                            fn (string $value): string => trim($value),
+                            $validated['menu_categories']
+                        )))
+                        : array_values(array_filter(
+                            $existingProfile['menu_categories'] ?? [],
+                            fn ($value): bool => is_string($value) && trim($value) !== ''
+                        )),
                 ],
             ];
 

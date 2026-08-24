@@ -114,6 +114,30 @@ class RestaurantController extends Controller
         ]);
     }
 
+    public function updateMenuCategories(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'menu_categories' => ['required', 'array', 'min:1'],
+            'menu_categories.*' => ['required', 'string', Rule::in(config('menu_categories.values', []))],
+        ]);
+
+        $restaurant = $this->getOwnedRestaurant($request);
+        $profile = is_array($restaurant->profile) ? $restaurant->profile : [];
+        $profile['menu_categories'] = array_values(array_unique(array_map(
+            fn (string $value): string => trim($value),
+            $validated['menu_categories']
+        )));
+
+        $restaurant->update(['profile' => $profile]);
+        $restaurant->refresh();
+
+        return response()->json([
+            'message' => 'Menu categories updated successfully.',
+            'restaurant' => $this->formatRestaurant($restaurant),
+            'profile' => $restaurant->profile,
+        ]);
+    }
+
     public function updateName(Request $request): JsonResponse
     {
         $validated = $request->validate([

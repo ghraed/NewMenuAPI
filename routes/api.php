@@ -277,6 +277,7 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
         Route::patch('/restaurant/name', [RestaurantController::class, 'updateName']);
         Route::get('/restaurant/profile', [RestaurantController::class, 'showProfile']);
         Route::patch('/restaurant/profile', [RestaurantController::class, 'updateProfile']);
+        Route::patch('/restaurant/profile/categories', [RestaurantController::class, 'updateMenuCategories']);
         Route::post('/restaurant/profile/logo', [RestaurantController::class, 'uploadLogo']);
         Route::get('/restaurant/currency-settings', [CurrencySettingsController::class, 'show']);
         Route::patch('/restaurant/currency-settings', [CurrencySettingsController::class, 'update']);

@@ -60,6 +60,31 @@ class RestaurantConfigurationApiTest extends TestCase
         $this->assertSame(['Main Courses', 'Desserts'], $restaurant->profile['menu_categories']);
     }
 
+    public function test_admin_can_update_its_menu_categories_independently_from_the_restaurant_profile(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $restaurant = Restaurant::factory()->for($admin, 'user')->create([
+            'profile' => [
+                'menu_categories' => ['Main Courses'],
+                'short_description' => 'Profile details stay intact.',
+            ],
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->patchJson('/api/restaurant/profile/categories', [
+            'menu_categories' => ['Drinks', 'Desserts', 'Drinks'],
+        ])->assertOk()
+            ->assertJsonPath('restaurant.menu_categories.0', 'Drinks')
+            ->assertJsonPath('restaurant.menu_categories.1', 'Desserts')
+            ->assertJsonPath('profile.short_description', 'Profile details stay intact.');
+
+        $restaurant->refresh();
+
+        $this->assertSame(['Drinks', 'Desserts'], $restaurant->profile['menu_categories']);
+        $this->assertSame('Profile details stay intact.', $restaurant->profile['short_description']);
+    }
+
     public function test_admin_can_update_currency_settings_with_secondary_currency_and_exchange_rate(): void
     {
         $admin = User::factory()->admin()->create();
