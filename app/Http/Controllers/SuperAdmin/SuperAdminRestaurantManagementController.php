@@ -270,12 +270,56 @@ class SuperAdminRestaurantManagementController extends Controller
             'custom_domain' => ['nullable', 'string', 'max:255'],
             'menu_categories' => ['required', 'array', 'min:1'],
             'menu_categories.*' => ['required', 'string', Rule::in($categoryValues)],
+            'profile' => ['sometimes', 'array'],
+            'profile.legal_business_name' => ['nullable', 'string', 'max:255'],
+            'profile.cuisine_specialty' => ['nullable', 'string', 'max:120'],
+            'profile.primary_phone' => ['nullable', 'string', 'max:40'],
+            'profile.whatsapp_phone' => ['nullable', 'string', 'max:40'],
+            'profile.contact_email' => ['nullable', 'email', 'max:255'],
+            'profile.website_url' => ['nullable', 'string', 'max:255'],
+            'profile.address_line_1' => ['nullable', 'string', 'max:255'],
+            'profile.address_line_2' => ['nullable', 'string', 'max:255'],
+            'profile.city' => ['nullable', 'string', 'max:120'],
+            'profile.state_province' => ['nullable', 'string', 'max:120'],
+            'profile.postal_code' => ['nullable', 'string', 'max:40'],
+            'profile.country' => ['nullable', 'string', 'max:120'],
+            'profile.tax_registration_number' => ['nullable', 'string', 'max:120'],
+            'profile.vat_registration_number' => ['nullable', 'string', 'max:120'],
+            'profile.service_hours' => ['nullable', 'string', 'max:255'],
+            'profile.short_description' => ['nullable', 'string', 'max:1200'],
         ]);
 
         $customDomain = $this->customDomainService->validateOrFail($validated['custom_domain'] ?? null, $restaurant);
         $domainChanged = $customDomain !== $restaurant->primaryCustomDomain();
 
         $restaurant = DB::transaction(function () use ($restaurant, $validated, $customDomain, $domainChanged): Restaurant {
+            $existingProfile = is_array($restaurant->profile) ? $restaurant->profile : [];
+            $profileInput = is_array($validated['profile'] ?? null) ? $validated['profile'] : [];
+            $profile = $existingProfile;
+
+            foreach ([
+                'legal_business_name',
+                'cuisine_specialty',
+                'primary_phone',
+                'whatsapp_phone',
+                'contact_email',
+                'website_url',
+                'address_line_1',
+                'address_line_2',
+                'city',
+                'state_province',
+                'postal_code',
+                'country',
+                'tax_registration_number',
+                'vat_registration_number',
+                'service_hours',
+                'short_description',
+            ] as $field) {
+                if (array_key_exists($field, $profileInput)) {
+                    $profile[$field] = $this->normalizeOptionalString($profileInput[$field]);
+                }
+            }
+
             $attributes = [
                 'name' => trim((string) $validated['name']),
                 'slug' => strtolower(trim((string) $validated['slug'])),
@@ -283,7 +327,7 @@ class SuperAdminRestaurantManagementController extends Controller
                 'currency' => trim((string) $validated['currency']),
                 'custom_domain' => $customDomain,
                 'profile' => [
-                    ...(is_array($restaurant->profile) ? $restaurant->profile : []),
+                    ...$profile,
                     'menu_categories' => array_values(array_unique(array_map(
                         fn (string $value): string => trim($value),
                         $validated['menu_categories']
@@ -384,6 +428,7 @@ class SuperAdminRestaurantManagementController extends Controller
             'custom_domain_status' => $restaurant->custom_domain_status,
             'custom_domain_error' => $restaurant->custom_domain_error,
             'ssl_issued_at' => $restaurant->ssl_issued_at?->toIso8601String(),
+            'profile' => $profile,
             'menu_categories' => array_values(array_filter(
                 $profile['menu_categories'] ?? [],
                 fn ($value): bool => is_string($value) && trim($value) !== ''

@@ -182,15 +182,24 @@ class SuperAdminCustomDomainProvisioningTest extends TestCase
             'currency' => 'USD',
             'custom_domain' => 'new.example.com',
             'menu_categories' => ['Main Courses'],
+            'profile' => [
+                'legal_business_name' => 'Update Domain LLC',
+                'contact_email' => 'hello@new.example.com',
+                'address_line_1' => '1 Main Street',
+                'short_description' => 'A full-service neighbourhood restaurant.',
+            ],
         ]);
 
         $response->assertOk()
             ->assertJsonPath('restaurant.custom_domain', 'new.example.com')
-            ->assertJsonPath('restaurant.custom_domain_status', 'pending_dns');
+            ->assertJsonPath('restaurant.custom_domain_status', 'pending_dns')
+            ->assertJsonPath('restaurant.profile.legal_business_name', 'Update Domain LLC')
+            ->assertJsonPath('restaurant.profile.contact_email', 'hello@new.example.com');
 
         $restaurant->refresh();
 
         $this->assertSame('new.example.com', $restaurant->custom_domain);
+        $this->assertSame('Update Domain LLC', $restaurant->profile['legal_business_name']);
         Queue::assertPushed(ProvisionRestaurantDomainJob::class, 1);
     }
 
