@@ -18,6 +18,7 @@ use App\Http\Controllers\GuestController;
 use App\Http\Controllers\GuestTableAccessController;
 use App\Http\Controllers\IngredientLibraryController;
 use App\Http\Controllers\InventoryIngredientController;
+use App\Http\Controllers\InventoryShareContactController;
 use App\Http\Controllers\InventoryStockHistoryController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MenuController;
@@ -353,6 +354,10 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
         Route::post('/inventory/ingredients/{ingredient}/deactivate', [InventoryIngredientController::class, 'deactivate']);
         Route::post('/inventory/ingredients/{ingredient}/restock', [InventoryIngredientController::class, 'restock']);
         Route::post('/inventory/ingredients/{ingredient}/adjust', [InventoryIngredientController::class, 'adjust']);
+        Route::get('/inventory/share-contacts', [InventoryShareContactController::class, 'index']);
+        Route::post('/inventory/share-contacts', [InventoryShareContactController::class, 'store']);
+        Route::patch('/inventory/share-contacts/{shareContact}', [InventoryShareContactController::class, 'update']);
+        Route::delete('/inventory/share-contacts/{shareContact}', [InventoryShareContactController::class, 'destroy']);
     });
 
     Route::middleware('role:admin,accountant')->group(function () {
