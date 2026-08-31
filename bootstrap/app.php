@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Avoid route('login') dependency for unauthenticated requests.
         $middleware->redirectGuestsTo('/');
+        $middleware->prependToGroup('api', \App\Http\Middleware\AuthenticateFromHttpOnlyCookie::class);
         $middleware->appendToGroup('api', \App\Http\Middleware\SetRequestLocale::class);
         $middleware->alias([
             'guest.table.access' => \App\Http\Middleware\EnsureGuestTableAccess::class,

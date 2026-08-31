@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\FeatureFlagService;
+use App\Support\AuthCredentialCookie;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -68,7 +69,7 @@ class AuthController extends Controller
         return response()->json([
             'token' => $token,
             'user' => $this->formatAuthenticatedUser($user, $restaurant),
-        ]);
+        ])->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::RESTAURANT, $token));
     }
 
     public function me(Request $request): JsonResponse
@@ -91,7 +92,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => __('messages.auth.logged_out'),
-        ]);
+        ])->withCookie(AuthCredentialCookie::forget($request, AuthCredentialCookie::RESTAURANT));
     }
 
     private function formatAuthenticatedUser(User $user, mixed $restaurant): array

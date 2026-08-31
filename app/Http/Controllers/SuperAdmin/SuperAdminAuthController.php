@@ -5,6 +5,7 @@ namespace App\Http\Controllers\SuperAdmin;
 use App\Http\Controllers\Controller;
 use App\Models\SuperAdmin;
 use App\Models\User;
+use App\Support\AuthCredentialCookie;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -53,7 +54,7 @@ class SuperAdminAuthController extends Controller
                 'email' => $user->email,
                 'role' => $user->role,
             ],
-        ]);
+        ])->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::OWNER, $token));
     }
 
     public function me(Request $request): JsonResponse
@@ -80,6 +81,6 @@ class SuperAdminAuthController extends Controller
 
         return response()->json([
             'message' => 'Super Admin logged out successfully.',
-        ]);
+        ])->withCookie(AuthCredentialCookie::forget($request, AuthCredentialCookie::OWNER));
     }
 }

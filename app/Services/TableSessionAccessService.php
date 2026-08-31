@@ -8,6 +8,7 @@ use App\Models\Restaurant;
 use App\Models\TableGuestAccess;
 use App\Models\TableSession;
 use App\Models\TableWave;
+use App\Support\AuthCredentialCookie;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -112,7 +113,7 @@ class TableSessionAccessService
 
     public function findRequestGuestAccess(Request $request, TableSession $expectedSession, bool $touch = true): ?TableGuestAccess
     {
-        $token = $this->extractAccessToken($request);
+        $token = $this->extractAccessToken($request, $expectedSession);
 
         if (! $token) {
             return null;
@@ -123,7 +124,7 @@ class TableSessionAccessService
 
     public function authorizeRequestForSession(Request $request, TableSession $expectedSession): TableGuestAccess
     {
-        $token = $this->extractAccessToken($request);
+        $token = $this->extractAccessToken($request, $expectedSession);
 
         if (! $token) {
             throw $this->authorizationException();
@@ -623,9 +624,16 @@ class TableSessionAccessService
             ]);
     }
 
-    private function extractAccessToken(Request $request): ?string
+    private function extractAccessToken(Request $request, ?TableSession $expectedSession = null): ?string
     {
         $token = trim((string) $request->header(self::TOKEN_HEADER, ''));
+
+        if ($token === '') {
+            $tableSession = $expectedSession ?? $request->route('tableSession');
+            if ($tableSession instanceof TableSession) {
+                $token = trim((string) $request->cookie(AuthCredentialCookie::guest($tableSession->id), ''));
+            }
+        }
 
         return $token === '' ? null : $token;
     }

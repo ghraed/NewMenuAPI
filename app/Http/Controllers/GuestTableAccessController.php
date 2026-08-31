@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\GuestMenuSessionService;
 use App\Services\TableSessionAccessService;
+use App\Support\AuthCredentialCookie;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -34,6 +35,10 @@ class GuestTableAccessController extends Controller
                 'can_call_waiter' => feature_enabled('waiter_call', $result['restaurant']),
                 'can_request_bill' => feature_enabled('request_bill', $result['restaurant']),
             ],
-        ]);
+        ])->withCookie(AuthCredentialCookie::make(
+            $request,
+            AuthCredentialCookie::guest($result['session']->id),
+            $result['token']
+        ));
     }
 }
