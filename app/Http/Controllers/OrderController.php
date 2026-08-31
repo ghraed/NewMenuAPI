@@ -30,6 +30,7 @@ use App\Services\TenantRestaurantResolver;
 use App\Services\WebPushNotificationService;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -2430,65 +2431,109 @@ class OrderController extends Controller
             'sha256',
             json_encode($this->normalizeOrderIdempotencyPayload($validated), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
         );
-        $scope = sprintf(
-            'guest-order:idempotency:%d:%s',
-            $tableSession->id,
-            hash('sha256', $idempotencyKey)
-        );
-        $lock = Cache::lock($scope.':lock', 10);
+        $keyHash = hash('sha256', $idempotencyKey);
+        $legacyCacheScope = sprintf('guest-order:idempotency:%d:%s', $tableSession->id, $keyHash);
 
-        $result = $lock->get(function () use (
-            $scope,
-            $payloadHash,
-            $restaurant,
-            $restaurantTable,
-            $tableSession,
-            $validated,
-            $invoiceCalculator
-        ): array {
-            $cached = Cache::get($scope);
-
-            if (is_array($cached) && isset($cached['payload_hash'], $cached['order_id'])) {
-                if (! hash_equals((string) $cached['payload_hash'], $payloadHash)) {
-                    throw new HttpResponseException(response()->json([
-                        'message' => 'The idempotency key was already used for a different guest order payload.',
-                    ], 409));
-                }
-
-                $order = Order::query()->findOrFail((int) $cached['order_id']);
-
-                return [
-                    'order' => $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']),
-                    'replayed' => true,
-                ];
-            }
-
-            $order = $this->createOrderForTableContext(
+        try {
+            return DB::transaction(function () use (
+                $keyHash,
+                $legacyCacheScope,
+                $payloadHash,
                 $restaurant,
                 $restaurantTable,
                 $tableSession,
                 $validated,
                 $invoiceCalculator
-            );
+            ): array {
+                DB::table('guest_order_idempotencies')->insert([
+                    'table_session_id' => $tableSession->id,
+                    'key_hash' => $keyHash,
+                    'payload_hash' => $payloadHash,
+                    'order_id' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-            Cache::put($scope, [
-                'order_id' => $order->id,
-                'payload_hash' => $payloadHash,
-            ], now()->addDay());
+                // Preserve retry safety for requests completed shortly before this
+                // durable implementation was deployed.
+                $legacyCached = Cache::get($legacyCacheScope);
+                if (is_array($legacyCached) && isset($legacyCached['payload_hash'], $legacyCached['order_id'])) {
+                    if (! hash_equals((string) $legacyCached['payload_hash'], $payloadHash)) {
+                        throw $this->idempotencyPayloadConflict();
+                    }
+
+                    $legacyOrder = Order::query()->findOrFail((int) $legacyCached['order_id']);
+                    DB::table('guest_order_idempotencies')
+                        ->where('table_session_id', $tableSession->id)
+                        ->where('key_hash', $keyHash)
+                        ->update([
+                            'order_id' => $legacyOrder->id,
+                            'updated_at' => now(),
+                        ]);
+
+                    return [
+                        'order' => $legacyOrder->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']),
+                        'replayed' => true,
+                    ];
+                }
+
+                $order = $this->createOrderForTableContext(
+                    $restaurant,
+                    $restaurantTable,
+                    $tableSession,
+                    $validated,
+                    $invoiceCalculator
+                );
+
+                DB::table('guest_order_idempotencies')
+                    ->where('table_session_id', $tableSession->id)
+                    ->where('key_hash', $keyHash)
+                    ->update([
+                        'order_id' => $order->id,
+                        'updated_at' => now(),
+                    ]);
+
+                return [
+                    'order' => $order,
+                    'replayed' => false,
+                ];
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            $reservation = DB::table('guest_order_idempotencies')
+                ->where('table_session_id', $tableSession->id)
+                ->where('key_hash', $keyHash)
+                ->first();
+
+            // If a different constraint failed while creating the order, do not
+            // misreport it as an idempotency replay.
+            if (! $reservation) {
+                throw $exception;
+            }
+
+            if (! hash_equals((string) $reservation->payload_hash, $payloadHash)) {
+                throw $this->idempotencyPayloadConflict();
+            }
+
+            if (! $reservation->order_id) {
+                throw new HttpResponseException(response()->json([
+                    'message' => 'Another guest order with the same idempotency key is still being processed.',
+                ], 409));
+            }
+
+            $order = Order::query()->findOrFail((int) $reservation->order_id);
 
             return [
-                'order' => $order,
-                'replayed' => false,
+                'order' => $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']),
+                'replayed' => true,
             ];
-        });
-
-        if ($result === false) {
-            throw new HttpResponseException(response()->json([
-                'message' => 'Another guest order with the same idempotency key is already being processed.',
-            ], 409));
         }
+    }
 
-        return $result;
+    private function idempotencyPayloadConflict(): HttpResponseException
+    {
+        return new HttpResponseException(response()->json([
+            'message' => 'The idempotency key was already used for a different guest order payload.',
+        ], 409));
     }
 
     private function extractIdempotencyKey(Request $request): ?string
