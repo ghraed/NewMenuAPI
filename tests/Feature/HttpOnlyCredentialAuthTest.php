@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\EnforceCredentialedOrigin;
 use App\Models\User;
 use App\Support\AuthCredentialCookie;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -156,5 +158,24 @@ class HttpOnlyCredentialAuthTest extends TestCase
         $cleared = collect($response->headers->getCookies())->first(fn ($candidate) => $candidate->getName() === $cookieName);
         $this->assertNotNull($cleared);
         $this->assertTrue($cleared->isCleared());
+    }
+
+    public function test_custom_restaurant_domain_accepts_a_true_same_origin_cookie_post(): void
+    {
+        $request = Request::create(
+            'https://orders.qa-run-sec.example/api/orders/1/confirm',
+            'POST',
+            cookies: [AuthCredentialCookie::RESTAURANT => 'QA_RUN_SEC-cookie'],
+            server: [
+                'HTTP_ORIGIN' => 'https://orders.qa-run-sec.example',
+                'HTTP_SEC_FETCH_SITE' => 'same-origin',
+            ]
+        );
+        $response = app(EnforceCredentialedOrigin::class)->handle(
+            $request,
+            fn () => response()->noContent()
+        );
+
+        $this->assertSame(204, $response->getStatusCode());
     }
 }

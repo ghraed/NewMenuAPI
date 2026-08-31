@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
 use Tests\Feature\Concerns\BuildsRestaurantOrderFlow;
 use Tests\TestCase;
 
@@ -55,9 +56,9 @@ class GuestOrderIdempotencyDurabilityTest extends TestCase
         ['session' => $session, 'token' => $token] = $this->openGuestAccess($restaurant, 1);
 
         $webPush = $this->mock(WebPushNotificationService::class);
-        $webPush->shouldReceive('notifyPendingOrderCreated')->once();
+        $webPush->shouldReceive('notifyPendingOrderCreated')->once()->andReturn(['delivered' => [], 'retryable' => []]);
         $mobilePush = $this->mock(MobilePushNotificationService::class);
-        $mobilePush->shouldReceive('notifyPendingOrderCreated')->once();
+        $mobilePush->shouldReceive('notifyPendingOrderCreated')->once()->andReturn(['delivered' => [], 'retryable' => []]);
 
         $payload = [
             'notes' => 'QA_RUN_REL response dropped after commit',
@@ -144,7 +145,7 @@ class GuestOrderIdempotencyDurabilityTest extends TestCase
         )->count());
     }
 
-    public function test_failed_alert_delivery_is_durable_and_retry_delivers_each_channel_once(): void
+    public function test_timeout_after_provider_accept_remains_retryable_and_uses_one_outbox_effect(): void
     {
         $owner = User::factory()->admin()->create([
             'name' => 'QA_RUN_REL outbox owner',
@@ -157,10 +158,10 @@ class GuestOrderIdempotencyDurabilityTest extends TestCase
         $dish = $this->createDish($restaurant, 'QA_RUN_REL outbox dish', 7.00);
         ['session' => $session, 'token' => $token] = $this->openGuestAccess($restaurant, 1);
         $web = $this->mock(WebPushNotificationService::class);
-        $web->shouldReceive('notifyPendingOrderCreated')->once()->andThrow(new \RuntimeException('QA_RUN_REL simulated transport failure'));
-        $web->shouldReceive('notifyPendingOrderCreated')->once();
+        $web->shouldReceive('notifyPendingOrderCreated')->once()->andThrow(new \RuntimeException('QA_RUN_REL timeout after provider accept'));
+        $web->shouldReceive('notifyPendingOrderCreated')->once()->andReturn(['delivered' => ['recipient-a'], 'retryable' => []]);
         $mobile = $this->mock(MobilePushNotificationService::class);
-        $mobile->shouldReceive('notifyPendingOrderCreated')->once();
+        $mobile->shouldReceive('notifyPendingOrderCreated')->once()->andReturn(['delivered' => ['recipient-b'], 'retryable' => []]);
         $headers = array_merge($this->guestHeaders($token), ['X-Idempotency-Key' => 'QA_RUN_REL-outbox-key']);
         $payload = ['items' => [['dish_id' => $dish->id, 'quantity' => 1]]];
 
@@ -176,5 +177,34 @@ class GuestOrderIdempotencyDurabilityTest extends TestCase
         $this->assertNotNull($outbox->web_push_delivered_at);
         $this->assertNotNull($outbox->mobile_push_delivered_at);
         $this->assertSame(1, Order::query()->where('table_session_id', $session->id)->count());
+    }
+
+    public function test_partial_recipient_failure_retries_only_the_failed_recipient(): void
+    {
+        $owner = User::factory()->admin()->create(['name' => 'QA_RUN_REL partial owner']);
+        $restaurant = $this->createRestaurant($owner, attributes: [
+            'name' => 'QA_RUN_REL partial restaurant',
+            'slug' => 'qa-run-rel-partial-'.Str::lower(Str::random(8)),
+        ]);
+        $dish = $this->createDish($restaurant, 'QA_RUN_REL partial dish', 7.00);
+        ['session' => $session, 'token' => $token] = $this->openGuestAccess($restaurant, 1);
+        $web = $this->mock(WebPushNotificationService::class);
+        $web->shouldReceive('notifyPendingOrderCreated')->once()->with(Mockery::type(Order::class), null)
+            ->andReturn(['delivered' => ['recipient-ok'], 'retryable' => ['recipient-retry']]);
+        $web->shouldReceive('notifyPendingOrderCreated')->once()->with(Mockery::type(Order::class), ['recipient-retry'])
+            ->andReturn(['delivered' => ['recipient-retry'], 'retryable' => []]);
+        $mobile = $this->mock(MobilePushNotificationService::class);
+        $mobile->shouldReceive('notifyPendingOrderCreated')->once()->andReturn(['delivered' => [], 'retryable' => []]);
+
+        $response = $this->postJson("/api/table-session/{$session->id}/order", [
+            'items' => [['dish_id' => $dish->id, 'quantity' => 1]],
+        ], array_merge($this->guestHeaders($token), ['X-Idempotency-Key' => 'QA_RUN_REL-partial-key']))->assertCreated();
+        $orderId = (int) $response->json('order.id');
+        $row = DB::table('order_alert_outboxes')->where('order_id', $orderId)->first();
+        $this->assertNull($row->web_push_delivered_at);
+        $this->assertSame(['recipient-retry'], json_decode($row->web_push_retryable_recipients, true));
+
+        Artisan::call('orders:deliver-pending-alerts');
+        $this->assertNotNull(DB::table('order_alert_outboxes')->where('order_id', $orderId)->value('web_push_delivered_at'));
     }
 }
