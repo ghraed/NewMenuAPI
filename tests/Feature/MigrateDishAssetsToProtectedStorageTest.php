@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Mockery;
 use Tests\TestCase;
 
 class MigrateDishAssetsToProtectedStorageTest extends TestCase
@@ -36,6 +37,63 @@ class MigrateDishAssetsToProtectedStorageTest extends TestCase
         $this->assertSame(DishAsset::PROTECTED_DISK, $asset->fresh()->storage_disk);
         Storage::disk('public')->assertMissing($path);
         Storage::disk(DishAsset::PROTECTED_DISK)->assertExists($path);
+        $this->assertSame('QA_RUN_PROTECTED_ASSET', Storage::disk(DishAsset::PROTECTED_DISK)->get($path));
+    }
+
+    public function test_command_fails_and_keeps_record_retryable_when_public_delete_fails(): void
+    {
+        [$asset, $path] = $this->createLegacyPublicAsset();
+        $public = Storage::disk('public');
+        $deleteFailingPublic = Mockery::mock($public)->makePartial();
+        $deleteFailingPublic->shouldReceive('delete')->once()->with($path)->andReturn(false);
+        Storage::getFacadeRoot()->set('public', $deleteFailingPublic);
+
+        $this->artisan('dish-assets:migrate-to-protected')->assertFailed();
+
+        $this->assertSame('public', $asset->fresh()->storage_disk);
+        $this->assertTrue($public->exists($path));
+        Storage::disk(DishAsset::PROTECTED_DISK)->assertExists($path);
+        $this->assertSame('QA_RUN_PROTECTED_ASSET', Storage::disk(DishAsset::PROTECTED_DISK)->get($path));
+    }
+
+    public function test_command_replaces_a_mismatched_existing_destination_before_switching_the_record(): void
+    {
+        [$asset, $path] = $this->createLegacyPublicAsset();
+        Storage::disk(DishAsset::PROTECTED_DISK)->put($path, 'QA_RUN_TRUNCATED');
+
+        $this->artisan('dish-assets:migrate-to-protected')->assertSuccessful();
+
+        $this->assertSame(DishAsset::PROTECTED_DISK, $asset->fresh()->storage_disk);
+        Storage::disk('public')->assertMissing($path);
+        $this->assertSame('QA_RUN_PROTECTED_ASSET', Storage::disk(DishAsset::PROTECTED_DISK)->get($path));
+    }
+
+    public function test_command_does_not_trust_an_unverifiable_destination_when_the_public_source_is_missing(): void
+    {
+        [$asset, $path] = $this->createLegacyPublicAsset();
+        Storage::disk(DishAsset::PROTECTED_DISK)->put($path, 'QA_RUN_UNVERIFIABLE');
+        Storage::disk('public')->delete($path);
+
+        $this->artisan('dish-assets:migrate-to-protected')->assertFailed();
+
+        $this->assertSame('public', $asset->fresh()->storage_disk);
+        $this->assertSame('QA_RUN_UNVERIFIABLE', Storage::disk(DishAsset::PROTECTED_DISK)->get($path));
+    }
+
+    public function test_command_safely_retries_after_a_delete_failure_using_the_verified_destination(): void
+    {
+        [$asset, $path] = $this->createLegacyPublicAsset();
+        $public = Storage::disk('public');
+        $deleteFailingPublic = Mockery::mock($public)->makePartial();
+        $deleteFailingPublic->shouldReceive('delete')->once()->with($path)->andReturn(false);
+        Storage::getFacadeRoot()->set('public', $deleteFailingPublic);
+
+        $this->artisan('dish-assets:migrate-to-protected')->assertFailed();
+        Storage::getFacadeRoot()->set('public', $public);
+        $this->artisan('dish-assets:migrate-to-protected')->assertSuccessful();
+
+        $this->assertSame(DishAsset::PROTECTED_DISK, $asset->fresh()->storage_disk);
+        $this->assertFalse($public->exists($path));
         $this->assertSame('QA_RUN_PROTECTED_ASSET', Storage::disk(DishAsset::PROTECTED_DISK)->get($path));
     }
 
