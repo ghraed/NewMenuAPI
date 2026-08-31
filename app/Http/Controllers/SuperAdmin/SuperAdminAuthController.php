@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\SuperAdmin;
 use App\Models\User;
 use App\Support\AuthCredentialCookie;
+use App\Support\AuthTokenResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -46,15 +47,15 @@ class SuperAdminAuthController extends Controller
 
         $token = $user->createToken('saas-owner-token')->plainTextToken;
 
-        return response()->json([
-            'token' => $token,
+        return response()->json(array_filter([
+            'token' => AuthTokenResponse::requestedByNonBrowserClient($request) ? $token : null,
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role,
             ],
-        ])->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::OWNER, $token));
+        ], static fn ($value): bool => $value !== null))->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::OWNER, $token));
     }
 
     public function me(Request $request): JsonResponse

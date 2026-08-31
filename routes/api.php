@@ -138,10 +138,11 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
     Route::middleware('role:admin,staff,chef,stock_manager')->group(function () {
         Route::middleware('feature:realtime_staff_orders')->group(function () {
             Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
-            Route::patch('/orders/{order}', [OrderController::class, 'update']);
-            Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
-            Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
-            Route::post('/orders/{order}/served', [OrderController::class, 'markServed']);
+            Route::patch('/orders/{order}', [OrderController::class, 'update'])->middleware('idempotent.staff');
+            Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm'])->middleware('idempotent.staff');
+            Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel'])->middleware('idempotent.staff');
+            Route::post('/orders/{order}/served', [OrderController::class, 'markServed'])->middleware('idempotent.staff');
+            Route::post('/orders/{order}/update-and-confirm', [OrderController::class, 'updateAndConfirm'])->middleware('idempotent.staff');
             Route::post('/orders/{order}/undo-served', [OrderController::class, 'undoMarkServed']);
             Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
             Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);

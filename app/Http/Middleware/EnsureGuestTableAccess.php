@@ -4,7 +4,9 @@ namespace App\Http\Middleware;
 
 use App\Models\TableSession;
 use App\Services\TableSessionAccessService;
+use App\Support\AuthCredentialCookie;
 use Closure;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -22,7 +24,17 @@ class EnsureGuestTableAccess
             abort(404);
         }
 
-        $access = $this->tableSessionAccessService->authorizeRequestForSession($request, $tableSession);
+        try {
+            $access = $this->tableSessionAccessService->authorizeRequestForSession($request, $tableSession);
+        } catch (HttpResponseException $exception) {
+            $response = $exception->getResponse();
+            $response->headers->setCookie(AuthCredentialCookie::forget(
+                $request,
+                AuthCredentialCookie::guest($tableSession->id)
+            ));
+
+            return $response;
+        }
         $request->attributes->set('guest_table_access', $access);
 
         return $next($request);

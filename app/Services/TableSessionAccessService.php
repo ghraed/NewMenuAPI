@@ -516,15 +516,15 @@ class TableSessionAccessService
         return $prefix.str_pad((string) $nextSequence, 4, '0', STR_PAD_LEFT);
     }
 
-    public function buildGuestAccessPayload(TableGuestAccess $access, string $token): array
+    public function buildGuestAccessPayload(TableGuestAccess $access, ?string $token = null): array
     {
-        return [
+        return array_filter([
             'token' => $token,
             'verified' => true,
             'joined_at' => $access->joined_at?->toIso8601String(),
             'last_seen_at' => $access->last_seen_at?->toIso8601String(),
             'expires_at' => $access->expires_at?->toIso8601String(),
-        ];
+        ], static fn ($value): bool => $value !== null);
     }
 
     private function resolveValidAccess(Request $request, string $token, TableSession $expectedSession, bool $touch): ?TableGuestAccess

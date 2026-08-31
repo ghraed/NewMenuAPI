@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Avoid route('login') dependency for unauthenticated requests.
         $middleware->redirectGuestsTo('/');
         $middleware->prependToGroup('api', \App\Http\Middleware\AuthenticateFromHttpOnlyCookie::class);
+        $middleware->prependToGroup('api', \App\Http\Middleware\EnforceCredentialedOrigin::class);
         $middleware->appendToGroup('api', \App\Http\Middleware\SetRequestLocale::class);
         $middleware->alias([
             'guest.table.access' => \App\Http\Middleware\EnsureGuestTableAccess::class,
@@ -32,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'feature' => \App\Http\Middleware\EnsureRestaurantFeatureEnabled::class,
             'restrict_chef_surface' => \App\Http\Middleware\RestrictChefApiSurface::class,
             'active.user' => \App\Http\Middleware\EnsureActiveUser::class,
+            'idempotent.staff' => \App\Http\Middleware\IdempotentStaffMutation::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

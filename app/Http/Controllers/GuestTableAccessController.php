@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\GuestMenuSessionService;
 use App\Services\TableSessionAccessService;
 use App\Support\AuthCredentialCookie;
+use App\Support\AuthTokenResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -28,7 +29,10 @@ class GuestTableAccessController extends Controller
             'restaurant' => $this->guestMenuSessionService->formatRestaurant($result['restaurant']),
             'table' => $this->guestMenuSessionService->formatTable($result['table'], $table_id),
             'table_session' => $this->guestMenuSessionService->formatSession($result['session']),
-            'guest_access' => $this->tableSessionAccessService->buildGuestAccessPayload($result['guest_access'], $result['token']),
+            'guest_access' => $this->tableSessionAccessService->buildGuestAccessPayload(
+                $result['guest_access'],
+                AuthTokenResponse::requestedByNonBrowserClient($request) ? $result['token'] : null
+            ),
             'protected_actions' => [
                 'ordering_unlocked' => feature_enabled('table_ordering', $result['restaurant']),
                 'can_place_order' => feature_enabled('table_ordering', $result['restaurant']),
