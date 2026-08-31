@@ -104,6 +104,7 @@ class TestingSafetyServiceProvider extends ServiceProvider
             'filesystems.disks.local.root' => storage_path('framework/testing/disks/local'),
             'filesystems.disks.public.root' => storage_path('framework/testing/disks/public'),
             'filesystems.disks.public.url' => rtrim((string) env('APP_URL', 'http://testing.local'), '/').'/storage',
+            'filesystems.disks.dish_assets.root' => storage_path('framework/testing/disks/dish-assets'),
             'services.postmark.key' => null,
             'services.resend.key' => null,
             'services.ses.key' => null,
@@ -262,6 +263,7 @@ class TestingSafetyServiceProvider extends ServiceProvider
         $paths = [
             storage_path('framework/testing/disks/local'),
             storage_path('framework/testing/disks/public'),
+            storage_path('framework/testing/disks/dish-assets'),
             storage_path('framework/testing/firebase'),
         ];
 

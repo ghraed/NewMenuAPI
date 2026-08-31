@@ -20,6 +20,7 @@ class PreviewImageAssetUploadTest extends TestCase
     public function test_authenticated_admin_can_upload_and_replace_a_preview_image(): void
     {
         Storage::fake('public');
+        Storage::fake(DishAsset::PROTECTED_DISK);
 
         $user = User::factory()->create();
         $restaurant = $this->createRestaurant($user);
@@ -61,14 +62,15 @@ class PreviewImageAssetUploadTest extends TestCase
             ->first();
 
         $this->assertNotNull($newAsset);
+        $this->assertSame(DishAsset::PROTECTED_DISK, $newAsset->storage_disk);
         $this->assertStringStartsWith("/api/assets/{$newAsset->id}/file?", $newAsset->file_url);
         $this->assertStringStartsWith("dishes/{$dish->id}/", $newAsset->file_path ?? '');
-        Storage::disk('public')->assertExists($newAsset->file_path);
+        Storage::disk(DishAsset::PROTECTED_DISK)->assertExists($newAsset->file_path);
     }
 
     public function test_authenticated_restaurant_member_admin_can_upload_a_preview_image(): void
     {
-        Storage::fake('public');
+        Storage::fake(DishAsset::PROTECTED_DISK);
 
         $owner = User::factory()->create();
         $memberAdmin = User::factory()->create([
@@ -96,7 +98,8 @@ class PreviewImageAssetUploadTest extends TestCase
             ->first();
 
         $this->assertNotNull($newAsset);
-        Storage::disk('public')->assertExists($newAsset->file_path);
+        $this->assertSame(DishAsset::PROTECTED_DISK, $newAsset->storage_disk);
+        Storage::disk(DishAsset::PROTECTED_DISK)->assertExists($newAsset->file_path);
     }
 
     private function createRestaurant(User $user): Restaurant

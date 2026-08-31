@@ -645,7 +645,7 @@ class DishController extends Controller
             $originalName = $type === 'usdz' ? 'model.usdz' : 'model.glb';
         }
 
-        $path = $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
+        $path = $file->storeAs("dishes/{$dish->id}", $originalName, DishAsset::PROTECTED_DISK);
 
         $dish->assets()->where('asset_type', $type)->get()->each(function (DishAsset $existingAsset): void {
             $this->deleteStoredAssetFile($existingAsset);
@@ -656,7 +656,7 @@ class DishController extends Controller
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $type,
-            'storage_disk' => 'public',
+            'storage_disk' => DishAsset::PROTECTED_DISK,
             'file_path' => $path,
             'glb_path' => $type === 'glb' ? $path : null,
             'usdz_path' => $type === 'usdz' ? $path : null,
@@ -683,12 +683,24 @@ class DishController extends Controller
             throw new RuntimeException('Source asset file path is missing.');
         }
 
-        $disk = $sourceAsset->storage_disk ?: 'public';
-        $storage = Storage::disk($disk);
+        $sourceDisk = $sourceAsset->storage_disk ?: 'public';
+        $sourceStorage = Storage::disk($sourceDisk);
+        $destinationStorage = Storage::disk(DishAsset::PROTECTED_DISK);
         $fileName = $this->resolveAssetFileName($sourceAsset);
         $destinationPath = "dishes/{$dish->id}/{$sourceAsset->asset_type}-".Str::uuid()."-{$fileName}";
 
-        if (! $storage->copy($sourcePath, $destinationPath)) {
+        $stream = $sourceStorage->readStream($sourcePath);
+        if (! is_resource($stream)) {
+            throw new RuntimeException('Failed to read the selected model asset.');
+        }
+
+        try {
+            $copied = $destinationStorage->writeStream($destinationPath, $stream);
+        } finally {
+            fclose($stream);
+        }
+
+        if (! $copied) {
             throw new RuntimeException('Failed to copy the selected model asset.');
         }
 
@@ -696,7 +708,7 @@ class DishController extends Controller
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $sourceAsset->asset_type,
-            'storage_disk' => $disk,
+            'storage_disk' => DishAsset::PROTECTED_DISK,
             'file_path' => $destinationPath,
             'glb_path' => $sourceAsset->asset_type === 'glb' ? $destinationPath : null,
             'usdz_path' => $sourceAsset->asset_type === 'usdz' ? $destinationPath : null,

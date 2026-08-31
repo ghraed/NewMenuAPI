@@ -19,6 +19,7 @@ class CopyDishModelTest extends TestCase
     public function test_authenticated_admin_can_copy_model_assets_from_another_dish(): void
     {
         Storage::fake('public');
+        Storage::fake(DishAsset::PROTECTED_DISK);
 
         $user = User::factory()->create();
         $restaurant = $this->createRestaurant($user);
@@ -84,8 +85,10 @@ class CopyDishModelTest extends TestCase
             $targetAssets['glb']->file_path
         );
 
-        Storage::disk('public')->assertExists($targetAssets['glb']->file_path);
-        Storage::disk('public')->assertExists($targetAssets['usdz']->file_path);
+        $this->assertSame(DishAsset::PROTECTED_DISK, $targetAssets['glb']->storage_disk);
+        $this->assertSame(DishAsset::PROTECTED_DISK, $targetAssets['usdz']->storage_disk);
+        Storage::disk(DishAsset::PROTECTED_DISK)->assertExists($targetAssets['glb']->file_path);
+        Storage::disk(DishAsset::PROTECTED_DISK)->assertExists($targetAssets['usdz']->file_path);
 
         $responseFileUrls = collect($response->json('assets'))->pluck('file_url')->filter()->values();
         $this->assertTrue(
