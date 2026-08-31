@@ -19,6 +19,8 @@ class Invoice extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    public const TERMINAL_STATUSES = [self::STATUS_PAID, self::STATUS_CANCELLED];
+
     /**
      * Issued invoices may be settled or cancelled. Paid and cancelled statuses
      * are terminal; corrections belong in the adjustment/refund flow.
@@ -35,6 +37,11 @@ class Invoice extends Model
     public function canTransitionTo(string $nextStatus): bool
     {
         return in_array($nextStatus, self::ALLOWED_STATUS_TRANSITIONS[$this->status] ?? [], true);
+    }
+
+    public function hasTerminalStatus(): bool
+    {
+        return in_array($this->status, self::TERMINAL_STATUSES, true);
     }
 
     protected $fillable = [

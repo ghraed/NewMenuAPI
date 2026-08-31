@@ -196,6 +196,27 @@ class InvoiceController extends Controller
             $invoice->loadMissing('items', 'restaurant');
             $nextStatus = $validated['status'] ?? $invoice->status;
 
+            $terminalMutationFields = array_values(array_intersect(array_keys($validated), [
+                'invoice_date',
+                'vat_rate',
+                'service_charge_rate',
+                'discount_type',
+                'discount_value',
+                'currency',
+                'exchange_rate',
+                'payment_method',
+                'payment_reference',
+                'items',
+            ]));
+
+            if ($invoice->hasTerminalStatus() && $terminalMutationFields !== []) {
+                throw ValidationException::withMessages(collect($terminalMutationFields)
+                    ->mapWithKeys(fn (string $field): array => [
+                        $field => "{$field} cannot be changed after an invoice is {$invoice->status}. Add a note or use the complaint adjustment/refund flow.",
+                    ])
+                    ->all());
+            }
+
             if (! $invoice->canTransitionTo($nextStatus)) {
                 throw ValidationException::withMessages([
                     'status' => "Invoice status cannot transition from {$invoice->status} to {$nextStatus}. Use the complaint adjustment/refund flow for corrections to terminal invoices.",
