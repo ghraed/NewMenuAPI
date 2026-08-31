@@ -62,8 +62,6 @@ Route::prefix('ai-chat')
     });
 Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat-orders'])
     ->post('/chat/orders', [OrderController::class, 'storeChatOrder']);
-Route::get('/test', [GuestController::class, 'test']);
-Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
 Route::get('/menu/dishes', [GuestController::class, 'listDishes'])->middleware('feature:qr_menu');
 Route::get('/menu/dish/{dish_id}', [GuestController::class, 'showDish'])->middleware('feature:qr_menu');
 Route::get('/menu/tables', [GuestController::class, 'listTables'])->middleware('feature:qr_menu');

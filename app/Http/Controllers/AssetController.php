@@ -103,13 +103,13 @@ class AssetController extends Controller
 
         $path = $type === 'ingredient_image'
             ? $this->storeIngredientAssetFile($dish, $originalName, $file, $sourceIngredient)
-            : $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
+            : $file->storeAs("dishes/{$dish->id}", $originalName, DishAsset::PROTECTED_DISK);
 
         $asset = DishAsset::create([
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $type,
-            'storage_disk' => 'public',
+            'storage_disk' => DishAsset::PROTECTED_DISK,
             'file_path' => $path,
             'glb_path' => $type === 'glb' ? $path : null,
             'usdz_path' => $type === 'usdz' ? $path : null,
@@ -323,7 +323,7 @@ class AssetController extends Controller
         $path = "dishes/{$dish->id}/ingredients/".Str::uuid().'-'.$originalName;
 
         if ($file) {
-            return $file->storeAs("dishes/{$dish->id}/ingredients", basename($path), 'public');
+            return $file->storeAs("dishes/{$dish->id}/ingredients", basename($path), DishAsset::PROTECTED_DISK);
         }
 
         if (! $sourceIngredient?->file_path) {
@@ -332,7 +332,7 @@ class AssetController extends Controller
 
         $sourceDisk = $sourceIngredient->storage_disk ?: 'public';
         $contents = Storage::disk($sourceDisk)->get($sourceIngredient->file_path);
-        Storage::disk('public')->put($path, $contents);
+        Storage::disk(DishAsset::PROTECTED_DISK)->put($path, $contents);
 
         return $path;
     }

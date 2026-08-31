@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\URL;
 
 class DishAsset extends Model
 {
+    public const PROTECTED_DISK = 'dish_assets';
+
     public const TYPE_USDZ = 'usdz';
 
     public const TYPE_GLB = 'glb';

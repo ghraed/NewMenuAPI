@@ -68,6 +68,7 @@ class RestrictChefApiSurface
             $user->hasRole(User::ROLE_ACCOUNTANT)
             && (
                 $request->is('api/orders/accounting')
+                || $request->is('api/orders/*/accounting-draft')
                 || $request->is('api/orders/*/account')
                 || $request->is('api/admin/finance/*')
                 || $request->is('api/restaurant/staff')

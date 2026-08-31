@@ -26,7 +26,7 @@ class CleanupDeletedDishAssets extends Command
         foreach ($dishes as $dish) {
             foreach ($dish->assets as $asset) {
                 if ($asset->file_path) {
-                    Storage::disk('public')->delete($asset->file_path);
+                    Storage::disk($asset->storage_disk ?: 'public')->delete($asset->file_path);
                     $deletedFiles++;
                 }
 

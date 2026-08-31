@@ -74,6 +74,41 @@ class AssetFileControllerTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_signed_url_streams_an_unpublished_legacy_public_disk_asset(): void
+    {
+        Storage::fake('public');
+
+        $owner = User::factory()->create();
+        $restaurant = $this->createRestaurant($owner, 'legacy-public');
+        $dish = Dish::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'name' => 'QA_RUN_UNPUBLISHED_ASSET',
+            'description' => null,
+            'price' => 12.50,
+            'category' => 'Main',
+            'status' => 'draft',
+        ]);
+        $path = "dishes/{$dish->id}/preview.jpg";
+        Storage::disk('public')->put($path, 'legacy-public-data');
+        $asset = DishAsset::query()->create([
+            'uuid' => (string) Str::uuid(),
+            'dish_id' => $dish->id,
+            'asset_type' => DishAsset::TYPE_PREVIEW_IMAGE,
+            'storage_disk' => 'public',
+            'file_path' => $path,
+            'file_url' => '',
+            'file_size' => 18,
+            'mime_type' => 'image/jpeg',
+        ]);
+
+        $response = $this->get($asset->file_url);
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'image/jpeg');
+        $this->assertSame('legacy-public-data', $response->streamedContent());
+    }
+
     public function test_authenticated_same_tenant_user_can_read_unsigned_asset_url(): void
     {
         Storage::fake('b2');
