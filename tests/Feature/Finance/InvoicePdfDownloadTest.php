@@ -91,6 +91,18 @@ class InvoicePdfDownloadTest extends TestCase
         $this->assertStringContainsString('شاي', $text);
         $this->assertStringContainsString('Line Item 18', $text);
         $this->assertStringContainsString('PDF-STANDARD-1', $text);
+        $this->assertStringContainsString('Currency: EUR', $text);
+        $this->assertStringContainsString('Subtotal', $text);
+        $this->assertStringContainsString('28.80', $text);
+        $this->assertStringContainsString('Discount', $text);
+        $this->assertStringContainsString('3.00', $text);
+        $this->assertStringContainsString('Taxable subtotal', $text);
+        $this->assertStringContainsString('25.80', $text);
+        $this->assertStringContainsString('Service charge (5.00%)', $text);
+        $this->assertStringContainsString('1.29', $text);
+        $this->assertStringContainsString('VAT (10.00%)', $text);
+        $this->assertStringContainsString('2.58', $text);
+        $this->assertStringContainsString('29.67', $text);
     }
 
     public function test_repeated_invoice_pdf_download_reuses_cached_private_file(): void

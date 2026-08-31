@@ -3,8 +3,11 @@
 namespace Tests\Feature\Finance;
 
 use App\Models\Invoice;
+use App\Models\Order;
+use App\Models\PosComplaintAdjustment;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Concerns\BuildsRestaurantOrderFlow;
 use Tests\TestCase;
 
@@ -112,6 +115,131 @@ class InvoiceManagementApiTest extends TestCase
             ->assertJsonPath('invoice.items.1.line_total', '6.39');
 
         $this->assertNotNull($updateResponse->json('invoice.paid_at'));
+    }
+
+    #[DataProvider('statusTransitionProvider')]
+    public function test_invoice_status_transition_policy_is_enforced(
+        string $currentStatus,
+        string $nextStatus,
+        bool $allowed
+    ): void {
+        $restaurant = $this->createRestaurant();
+        Sanctum::actingAs($restaurant->user);
+
+        $invoice = Invoice::query()->create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'invoice_number' => 'QA_RUN_TRANSITION_'.$currentStatus.'_'.$nextStatus,
+            'invoice_date' => '2026-01-15',
+            'status' => $currentStatus,
+            'subtotal' => '10.00',
+            'total' => '10.00',
+            'paid_at' => $currentStatus === Invoice::STATUS_PAID ? now() : null,
+        ]);
+
+        $response = $this->patchJson("/api/admin/finance/invoices/{$invoice->id}", [
+            'status' => $nextStatus,
+        ]);
+
+        if ($allowed) {
+            $response->assertOk()->assertJsonPath('invoice.status', $nextStatus);
+            $this->assertDatabaseHas('invoices', ['id' => $invoice->id, 'status' => $nextStatus]);
+        } else {
+            $response->assertUnprocessable()->assertJsonValidationErrors(['status']);
+            $this->assertDatabaseHas('invoices', ['id' => $invoice->id, 'status' => $currentStatus]);
+        }
+    }
+
+    public static function statusTransitionProvider(): array
+    {
+        $allowed = [
+            Invoice::STATUS_DRAFT => [Invoice::STATUS_DRAFT, Invoice::STATUS_ISSUED, Invoice::STATUS_CANCELLED],
+            Invoice::STATUS_ISSUED => [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED],
+            Invoice::STATUS_PAID => [Invoice::STATUS_PAID],
+            Invoice::STATUS_CANCELLED => [Invoice::STATUS_CANCELLED],
+        ];
+        $statuses = [Invoice::STATUS_DRAFT, Invoice::STATUS_ISSUED, Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED];
+        $rows = [];
+
+        foreach ($statuses as $currentStatus) {
+            foreach ($statuses as $nextStatus) {
+                $rows["{$currentStatus} -> {$nextStatus}"] = [
+                    $currentStatus,
+                    $nextStatus,
+                    in_array($nextStatus, $allowed[$currentStatus], true),
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    public function test_revenue_trends_include_only_issued_and_paid_and_subtract_only_posted_refunds_by_posted_date(): void
+    {
+        $restaurant = $this->createRestaurant();
+        Sanctum::actingAs($restaurant->user);
+
+        foreach ([
+            [Invoice::STATUS_DRAFT, '90.00'],
+            [Invoice::STATUS_ISSUED, '100.00'],
+            [Invoice::STATUS_PAID, '50.00'],
+            [Invoice::STATUS_CANCELLED, '80.00'],
+        ] as $index => [$status, $total]) {
+            Invoice::query()->create([
+                'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                'restaurant_id' => $restaurant->id,
+                'invoice_number' => "QA_RUN_REVENUE_{$index}",
+                'invoice_date' => '2026-01-15',
+                'status' => $status,
+                'subtotal' => $total,
+                'total' => $total,
+            ]);
+        }
+
+        $order = Order::query()->create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'order_number' => 'QA_RUN_REFUND_ORDER',
+            'status' => Order::STATUS_ACCOUNTED,
+            'guest_name' => 'QA_RUN_FINANCE',
+            'subtotal' => '150.00',
+            'taxable_subtotal' => '150.00',
+            'total' => '150.00',
+        ]);
+
+        foreach ([
+            ['draft', '40.00'],
+            ['posted', '25.00'],
+            ['void', '30.00'],
+        ] as $index => [$status, $refundAmount]) {
+            PosComplaintAdjustment::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'original_order_id' => $order->id,
+                'status' => $status,
+                'complaint_reason' => 'QA_RUN finance parity',
+                'accounting_bucket' => 'customer_complaint_loss',
+                'refund_amount' => $refundAmount,
+                'refund_payment_method' => 'cash',
+                'affected_items' => [],
+                'created_by' => $restaurant->user->id,
+                'posted_at' => $status === 'posted' ? '2026-01-16 00:00:00' : null,
+                'voided_at' => $status === 'void' ? '2026-01-16 00:00:00' : null,
+            ]);
+        }
+
+        $this->getJson('/api/admin/finance/invoices/revenue-trends?range=daily&date_from=2026-01-15&date_to=2026-01-16')
+            ->assertOk()
+            ->assertJsonPath('points.0.bucket', '2026-01-15')
+            ->assertJsonPath('points.0.gross_revenue', 150)
+            ->assertJsonPath('points.0.refunds', 0)
+            ->assertJsonPath('points.0.revenue', 150)
+            ->assertJsonPath('points.0.invoice_count', 2)
+            ->assertJsonPath('points.1.bucket', '2026-01-16')
+            ->assertJsonPath('points.1.gross_revenue', 0)
+            ->assertJsonPath('points.1.refunds', 25)
+            ->assertJsonPath('points.1.revenue', -25)
+            ->assertJsonPath('totals.revenue', 125)
+            ->assertJsonPath('totals.invoice_count', 2);
     }
 
     public function test_manual_invoice_store_persists_service_charge_currency_exchange_rate_and_exact_totals(): void
