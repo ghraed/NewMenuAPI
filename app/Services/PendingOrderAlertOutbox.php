@@ -23,11 +23,19 @@ class PendingOrderAlertOutbox
             $errors = [];
             if (! $outbox->web_push_delivered_at) {
                 try {
-                    app(WebPushNotificationService::class)->notifyPendingOrderCreated($order);
+                    $result = app(WebPushNotificationService::class)->notifyPendingOrderCreated(
+                        $order,
+                        $this->decodeRecipients($outbox->web_push_retryable_recipients)
+                    );
+                    $retryable = $this->retryableRecipients($result);
                     DB::table('order_alert_outboxes')->where('id', $outbox->id)->update([
-                        'web_push_delivered_at' => now(),
+                        'web_push_delivered_at' => $retryable === [] ? now() : null,
+                        'web_push_retryable_recipients' => json_encode($retryable),
                         'updated_at' => now(),
                     ]);
+                    if ($retryable !== []) {
+                        $errors[] = 'web: '.count($retryable).' recipient(s) retryable';
+                    }
                 } catch (Throwable $exception) {
                     $errors[] = 'web: '.$exception->getMessage();
                 }
@@ -35,11 +43,19 @@ class PendingOrderAlertOutbox
 
             if (! $outbox->mobile_push_delivered_at) {
                 try {
-                    app(MobilePushNotificationService::class)->notifyPendingOrderCreated($order);
+                    $result = app(MobilePushNotificationService::class)->notifyPendingOrderCreated(
+                        $order,
+                        $this->decodeRecipients($outbox->mobile_push_retryable_recipients)
+                    );
+                    $retryable = $this->retryableRecipients($result);
                     DB::table('order_alert_outboxes')->where('id', $outbox->id)->update([
-                        'mobile_push_delivered_at' => now(),
+                        'mobile_push_delivered_at' => $retryable === [] ? now() : null,
+                        'mobile_push_retryable_recipients' => json_encode($retryable),
                         'updated_at' => now(),
                     ]);
+                    if ($retryable !== []) {
+                        $errors[] = 'mobile: '.count($retryable).' recipient(s) retryable';
+                    }
                 } catch (Throwable $exception) {
                     $errors[] = 'mobile: '.$exception->getMessage();
                 }
@@ -58,5 +74,24 @@ class PendingOrderAlertOutbox
                 ]);
             }
         });
+    }
+
+    private function decodeRecipients(?string $value): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : null;
+    }
+
+    private function retryableRecipients(mixed $result): array
+    {
+        if (! is_array($result) || ! isset($result['retryable']) || ! is_array($result['retryable'])) {
+            throw new \RuntimeException('Push service did not return a structured delivery outcome.');
+        }
+
+        return array_values(array_unique(array_filter($result['retryable'], 'is_string')));
     }
 }

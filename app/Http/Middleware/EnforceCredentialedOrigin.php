@@ -29,7 +29,9 @@ class EnforceCredentialedOrigin
             return response()->json(['message' => 'Credentialed cross-site request rejected.'], 419);
         }
 
-        if ($origin !== '' && ! in_array($origin, config('cors.allowed_origins', []), true)) {
+        $requestOrigin = rtrim($request->getSchemeAndHttpHost(), '/');
+        $sameOrigin = $origin !== '' && hash_equals(strtolower($requestOrigin), strtolower($origin));
+        if ($origin !== '' && ! $sameOrigin && ! in_array($origin, config('cors.allowed_origins', []), true)) {
             return response()->json(['message' => 'Credentialed origin is not allowed.'], 419);
         }
 
