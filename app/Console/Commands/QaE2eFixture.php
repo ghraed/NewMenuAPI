@@ -3,11 +3,15 @@
 namespace App\Console\Commands;
 
 use App\Models\Dish;
+use App\Models\DishIngredient;
 use App\Models\Feature;
+use App\Models\Ingredient;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\OrderItemIngredientUsage;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
+use App\Models\StockMovement;
 use App\Models\TableSession;
 use App\Models\User;
 use Illuminate\Console\Command;
@@ -19,10 +23,14 @@ use RuntimeException;
 class QaE2eFixture extends Command
 {
     protected $signature = 'qa:e2e-fixture
-        {action : setup, verify, or cleanup}
+        {action : guard, setup, verify, or cleanup}
         {--run-id= : Required QA_RUN_ identifier}';
 
-    protected $description = 'Create, verify, or remove the isolated release-hardening browser fixture';
+    protected $description = 'Guard, create, verify, or remove the isolated release-hardening browser fixture';
+
+    private const DATABASE_NAME = 'restaurantdb_test';
+
+    private const FEATURE_CATEGORY = 'QA_E2E_FIXTURE';
 
     private const ENABLED_FEATURES = [
         'qr_menu',
@@ -35,6 +43,7 @@ class QaE2eFixture extends Command
         'vat_invoices',
         'expense_management',
         'multi_language',
+        'ingredient_stock_deduction',
     ];
 
     private const DISABLED_FEATURES = ['invoice_splitting', 'push_notifications'];
@@ -51,6 +60,7 @@ class QaE2eFixture extends Command
         }
 
         return match (strtolower((string) $this->argument('action'))) {
+            'guard' => $this->guard($runId),
             'setup' => $this->setup($runId),
             'verify' => $this->verify($runId),
             'cleanup' => $this->cleanup($runId),
@@ -69,8 +79,8 @@ class QaE2eFixture extends Command
             throw new RuntimeException('Refusing QA fixture operation outside APP_ENV=testing.');
         }
 
-        if (! str_contains(strtolower($database), 'test')) {
-            throw new RuntimeException('Refusing QA fixture operation because the database name does not contain test.');
+        if ($database !== self::DATABASE_NAME) {
+            throw new RuntimeException('Refusing QA fixture operation unless the database is exactly restaurantdb_test.');
         }
 
         if (! in_array($host, ['127.0.0.1', 'localhost', 'testing.local'], true) && ! str_ends_with($host, '.test')) {
@@ -78,17 +88,35 @@ class QaE2eFixture extends Command
         }
     }
 
+    private function guard(string $runId): int
+    {
+        $this->line(json_encode([
+            'run_id' => $runId,
+            'environment' => app()->environment(),
+            'database' => self::DATABASE_NAME,
+            'app_url' => (string) config('app.url'),
+            'safe' => true,
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+
+        return self::SUCCESS;
+    }
+
     private function setup(string $runId): int
     {
-        $this->cleanupRecords($runId);
+        $cleanup = $this->cleanupRecords($runId);
+        if (! $cleanup['clean']) {
+            $this->error('The previous fixture could not be removed without residue.');
+
+            return self::FAILURE;
+        }
 
         foreach ([...self::ENABLED_FEATURES, ...self::DISABLED_FEATURES] as $featureKey) {
             Feature::query()->firstOrCreate(
                 ['key' => $featureKey],
                 [
                     'name' => Str::headline($featureKey),
-                    'description' => 'Required by the isolated QA browser fixture.',
-                    'category' => 'QA',
+                    'description' => $this->featureDescription($runId),
+                    'category' => self::FEATURE_CATEGORY,
                     'is_active_by_default' => false,
                 ]
             );
@@ -135,6 +163,20 @@ class QaE2eFixture extends Command
                 'is_profitable' => true,
             ]);
 
+            $ingredient = Ingredient::factory()->for($restaurant)->create([
+                'name' => $runId.' Beef',
+                'stock_unit' => Ingredient::UNIT_GRAM,
+                'current_stock_quantity' => '1000.000',
+                'low_stock_threshold' => '100.000',
+                'target_quantity' => '1000.000',
+                'is_active' => true,
+            ]);
+            DishIngredient::factory()->for($dish)->for($ingredient)->create([
+                'quantity' => '100.000',
+                'unit' => Ingredient::UNIT_GRAM,
+                'order_index' => 0,
+            ]);
+
             $featureIds = Feature::query()->whereIn('key', self::ENABLED_FEATURES)->pluck('id');
             foreach ($featureIds as $featureId) {
                 RestaurantFeature::query()->updateOrCreate(
@@ -161,7 +203,9 @@ class QaE2eFixture extends Command
                 'table_id' => $table->id,
                 'table_number' => 1,
                 'dish_id' => $dish->id,
+                'ingredient_id' => $ingredient->id,
                 'users' => [
+                    'owner' => $owner->email,
                     'waiter' => $waiter->email,
                     'chef' => $chef->email,
                     'accountant' => $accountant->email,
@@ -179,61 +223,122 @@ class QaE2eFixture extends Command
 
     private function verify(string $runId): int
     {
-        $restaurant = Restaurant::query()->where('name', $runId.' Release Restaurant')->first();
+        $restaurantQuery = Restaurant::query()->where('name', $runId.' Release Restaurant');
+        $restaurant = $restaurantQuery->first();
+        $tenantCount = Restaurant::query()->whereIn('name', [
+            $runId.' Release Restaurant',
+            $runId.' Isolated Tenant',
+        ])->count();
         if (! $restaurant) {
-            $this->error('Fixture restaurant is missing.');
+            $this->line(json_encode(['run_id' => $runId, 'checks' => ['fixture_restaurant_count' => false]], JSON_THROW_ON_ERROR));
 
             return self::FAILURE;
         }
 
-        $completed = Order::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->where('notes', $runId.'_LIFECYCLE')
-            ->where('status', Order::STATUS_ACCOUNTED)
-            ->where('kitchen_status', Order::KITCHEN_STATUS_SERVED)
-            ->first();
-        $cancelled = Order::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->where('notes', $runId.'_CANCEL')
-            ->where('status', Order::STATUS_STAFF_CANCELLED)
-            ->first();
-        $closedSession = TableSession::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->where('status', TableSession::STATUS_CLOSED)
-            ->first();
-        $invoice = Invoice::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->where('status', Invoice::STATUS_PAID)
-            ->where('payment_reference', $runId.'_PAYMENT')
-            ->first();
+        $orders = Order::query()->where('restaurant_id', $restaurant->id)
+            ->whereIn('notes', [$runId.'_LIFECYCLE', $runId.'_CANCEL'])
+            ->with('items')->get();
+        $completed = $orders->firstWhere('notes', $runId.'_LIFECYCLE');
+        $cancelled = $orders->firstWhere('notes', $runId.'_CANCEL');
+        $sessions = TableSession::query()->where('restaurant_id', $restaurant->id)->get();
+        $closedSession = $sessions->firstWhere('status', TableSession::STATUS_CLOSED);
+        $invoices = Invoice::query()->where('restaurant_id', $restaurant->id)
+            ->where('payment_reference', $runId.'_PAYMENT')->with('items')->get();
+        $invoice = $invoices->first();
+        $ingredient = Ingredient::query()->where('restaurant_id', $restaurant->id)
+            ->where('name', $runId.' Beef')->first();
+        $movements = $ingredient
+            ? StockMovement::query()->where('ingredient_id', $ingredient->id)->get()
+            : collect();
+        $usages = OrderItemIngredientUsage::query()
+            ->whereIn('order_id', $orders->pluck('id'))->get();
+        $completedItem = $completed?->items->first();
+        $invoiceItem = $invoice?->items->first();
 
         $checks = [
-            'accounted_served_order' => (bool) $completed,
-            'cancelled_order' => (bool) $cancelled,
-            'closed_session' => (bool) $closedSession,
-            'paid_invoice' => (bool) $invoice,
-            'invoice_matches_order' => (bool) ($completed && $invoice && $completed->invoice_number === $invoice->invoice_number),
+            'fixture_restaurant_count' => $restaurantQuery->count() === 1,
+            'fixture_tenant_count' => $tenantCount === 2,
+            'order_count' => $orders->count() === 2,
+            'lifecycle_order_unique' => $orders->where('notes', $runId.'_LIFECYCLE')->count() === 1,
+            'lifecycle_order_state' => $completed?->status === Order::STATUS_ACCOUNTED
+                && $completed?->kitchen_status === Order::KITCHEN_STATUS_SERVED,
+            'lifecycle_order_totals' => $completed?->subtotal === '25.00'
+                && $completed?->total === '25.00' && $completed?->currency === 'USD',
+            'lifecycle_item_exact' => $completedItem?->quantity === 2
+                && $completedItem?->unit_price === '12.50' && $completedItem?->line_subtotal === '25.00',
+            'cancelled_order_unique' => $orders->where('notes', $runId.'_CANCEL')->count() === 1,
+            'cancelled_order_state' => $cancelled?->status === Order::STATUS_STAFF_CANCELLED,
+            'actor_associations' => $completed?->confirmed_by !== null
+                && $completed?->kitchen_updated_by !== null && $completed?->accounted_by !== null
+                && $cancelled?->confirmed_by !== null && $cancelled?->cancelled_by !== null,
+            'closed_session_unique' => $sessions->count() === 1
+                && $closedSession !== null && $closedSession->finalized_by_staff_id !== null,
+            'orders_share_closed_session' => $closedSession !== null
+                && $orders->count() === 2
+                && $orders->every(fn (Order $order): bool => $order->table_session_id === $closedSession->id),
+            'paid_invoice_unique' => $invoices->count() === 1 && $invoice?->status === Invoice::STATUS_PAID,
+            'invoice_number_unique' => $invoice !== null
+                && Invoice::query()->where('restaurant_id', $restaurant->id)
+                    ->where('invoice_number', $invoice->invoice_number)->count() === 1,
+            'invoice_totals_exact' => $invoice?->subtotal === '25.00'
+                && $invoice?->discount_amount === '0.00' && $invoice?->taxable_subtotal === '25.00'
+                && $invoice?->service_charge_amount === '0.00' && $invoice?->vat_amount === '0.00'
+                && $invoice?->total === '25.00' && $invoice?->currency === 'USD',
+            'invoice_payment_exact' => $invoice?->payment_method === 'card'
+                && $invoice?->payment_reference === $runId.'_PAYMENT' && $invoice?->paid_at !== null,
+            'invoice_item_exact' => $invoice?->items->count() === 1
+                && $invoiceItem?->order_item_id === $completedItem?->id
+                && $invoiceItem?->quantity === '2.000' && $invoiceItem?->unit_price === '12.50'
+                && $invoiceItem?->line_total === '25.00',
+            'invoice_matches_lifecycle_order' => $completed !== null && $invoice !== null
+                && $completed->invoice_number === $invoice->invoice_number,
+            'inventory_final_quantity' => $ingredient?->current_stock_quantity === '800.000',
+            'inventory_usage_snapshots' => $usages->count() === 2
+                && $orders->every(fn (Order $order): bool => $usages->where('order_id', $order->id)->count() === 1)
+                && $usages->every(fn (OrderItemIngredientUsage $usage): bool => $usage->consumed_quantity === '200.000'),
+            'inventory_consumption_movements' => $movements->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)->count() === 2
+                && $movements->where('movement_type', StockMovement::TYPE_ORDER_CONSUMPTION)
+                    ->every(fn (StockMovement $movement): bool => $movement->quantity_delta === '-200.000'),
+            'inventory_cancellation_restoration' => $cancelled !== null
+                && $movements->where('order_id', $cancelled->id)
+                    ->where('movement_type', StockMovement::TYPE_CANCELLATION_RESTORE)->count() === 1
+                && $movements->where('order_id', $cancelled->id)
+                    ->where('movement_type', StockMovement::TYPE_CANCELLATION_RESTORE)
+                    ->every(fn (StockMovement $movement): bool => $movement->quantity_delta === '200.000'),
         ];
 
-        $this->line(json_encode(['run_id' => $runId, 'checks' => $checks], JSON_THROW_ON_ERROR));
+        $this->line(json_encode([
+            'run_id' => $runId,
+            'counts' => [
+                'restaurants' => $tenantCount,
+                'orders' => $orders->count(),
+                'sessions' => $sessions->count(),
+                'invoices' => $invoices->count(),
+                'invoice_items' => $invoice?->items->count() ?? 0,
+                'inventory_usages' => $usages->count(),
+                'stock_movements' => $movements->count(),
+            ],
+            'checks' => $checks,
+        ], JSON_THROW_ON_ERROR));
 
         return in_array(false, $checks, true) ? self::FAILURE : self::SUCCESS;
     }
 
     private function cleanup(string $runId): int
     {
-        $deleted = $this->cleanupRecords($runId);
-        $this->line(json_encode(['run_id' => $runId, 'deleted_users' => $deleted], JSON_THROW_ON_ERROR));
+        $cleanup = $this->cleanupRecords($runId);
+        $this->line(json_encode(['run_id' => $runId, ...$cleanup], JSON_THROW_ON_ERROR));
 
-        return self::SUCCESS;
+        return $cleanup['clean'] ? self::SUCCESS : self::FAILURE;
     }
 
-    private function cleanupRecords(string $runId): int
+    /** @return array{deleted_users: int, deleted_features: int, residue: array<string, int>, clean: bool} */
+    private function cleanupRecords(string $runId): array
     {
         $emails = collect(['owner', 'waiter', 'chef', 'accountant', 'tenant-b-owner'])
             ->map(fn (string $role): string => $this->email($runId, $role));
 
-        return DB::transaction(function () use ($emails): int {
+        $deleted = DB::transaction(function () use ($emails, $runId): array {
             $users = User::query()->whereIn('email', $emails)->get();
             $count = $users->count();
 
@@ -241,8 +346,33 @@ class QaE2eFixture extends Command
                 ->sortBy(fn (User $user): int => $user->restaurant()->exists() ? 1 : 0)
                 ->each(fn (User $user) => $user->delete());
 
-            return $count;
+            $featureIds = Feature::query()
+                ->where('category', self::FEATURE_CATEGORY)
+                ->where('description', $this->featureDescription($runId))
+                ->whereDoesntHave('restaurantFeatureOverrides')
+                ->pluck('id');
+            $deletedFeatures = Feature::query()->whereIn('id', $featureIds)->delete();
+
+            return ['users' => $count, 'features' => $deletedFeatures];
         });
+
+        $residue = [
+            'users' => User::query()->whereIn('email', $emails)->count(),
+            'restaurants' => Restaurant::query()->whereIn('name', [
+                $runId.' Release Restaurant',
+                $runId.' Isolated Tenant',
+            ])->count(),
+            'created_features' => Feature::query()
+                ->where('category', self::FEATURE_CATEGORY)
+                ->where('description', $this->featureDescription($runId))->count(),
+        ];
+
+        return [
+            'deleted_users' => $deleted['users'],
+            'deleted_features' => $deleted['features'],
+            'residue' => $residue,
+            'clean' => array_sum($residue) === 0,
+        ];
     }
 
     private function createUser(string $runId, string $label, string $role, string $password): User
@@ -262,9 +392,14 @@ class QaE2eFixture extends Command
         return strtolower($runId.'_'.$label).'@example.test';
     }
 
+    private function featureDescription(string $runId): string
+    {
+        return 'Created by '.$runId.' isolated E2E fixture.';
+    }
+
     private function failUnknownAction(): int
     {
-        $this->error('Action must be setup, verify, or cleanup.');
+        $this->error('Action must be guard, setup, verify, or cleanup.');
 
         return self::FAILURE;
     }
