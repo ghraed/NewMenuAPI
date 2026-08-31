@@ -55,7 +55,7 @@ class SessionInvoiceFinalizationTest extends TestCase
         ]);
 
         $finalizeResponse->assertOk()
-            ->assertJsonPath('invoice_number', 'INV-20260115-000001')
+            ->assertJsonPath('invoice_number', sprintf('INV-20260115-%06d', $orderId))
             ->assertJsonPath('invoice_status', Invoice::STATUS_PAID);
 
         $invoiceId = $finalizeResponse->json('invoice_id');
@@ -123,7 +123,7 @@ class SessionInvoiceFinalizationTest extends TestCase
         ]);
 
         $firstFinalize->assertOk()
-            ->assertJsonPath('invoice_number', 'INV-20260115-000001');
+            ->assertJsonPath('invoice_number', sprintf('INV-20260115-%06d', $firstOrderId));
         $secondFinalize->assertOk()
             ->assertJsonPath('invoice_id', $firstFinalize->json('invoice_id'))
             ->assertJsonPath('invoice_number', $firstFinalize->json('invoice_number'));
@@ -141,16 +141,16 @@ class SessionInvoiceFinalizationTest extends TestCase
 
         $this->assertDatabaseHas('orders', [
             'id' => $firstOrderId,
-            'invoice_number' => 'INV-20260115-000001',
+            'invoice_number' => sprintf('INV-20260115-%06d', $firstOrderId),
         ]);
         $this->assertDatabaseHas('orders', [
             'id' => $secondOrderId,
-            'invoice_number' => 'INV-20260115-000001',
+            'invoice_number' => sprintf('INV-20260115-%06d', $firstOrderId),
         ]);
         $this->assertDatabaseHas('orders', [
             'id' => $unpaidOrderId,
             'status' => Order::STATUS_STAFF_CONFIRMED,
-            'invoice_number' => 'INV-20260115-000003',
+            'invoice_number' => sprintf('INV-20260115-%06d', $firstOrderId),
         ]);
     }
 
@@ -178,7 +178,14 @@ class SessionInvoiceFinalizationTest extends TestCase
             ->assertJsonPath('invoice_number', null)
             ->assertJsonPath('invoice_status', null);
 
-        $this->assertSame(0, Invoice::query()->count());
+        $this->assertSame(1, Invoice::query()->count());
+        $this->assertDatabaseHas('invoices', [
+            'invoice_number' => sprintf('INV-20260115-%06d', $orderId),
+            'status' => Invoice::STATUS_DRAFT,
+        ]);
+        $this->assertSame(0, Invoice::query()
+            ->whereIn('status', [Invoice::STATUS_ISSUED, Invoice::STATUS_PAID])
+            ->count());
     }
 
     public function test_finalize_preserves_cancelled_items_with_zero_line_totals(): void
