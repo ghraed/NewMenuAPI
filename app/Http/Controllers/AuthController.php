@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Services\FeatureFlagService;
 use App\Support\AuthCredentialCookie;
+use App\Support\AuthTokenResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -66,10 +67,10 @@ class AuthController extends Controller
 
         $token = $user->createToken(($user->role ?? 'admin').'-token')->plainTextToken;
 
-        return response()->json([
-            'token' => $token,
+        return response()->json(array_filter([
+            'token' => AuthTokenResponse::requestedByNonBrowserClient($request) ? $token : null,
             'user' => $this->formatAuthenticatedUser($user, $restaurant),
-        ])->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::RESTAURANT, $token));
+        ], static fn ($value): bool => $value !== null))->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::RESTAURANT, $token));
     }
 
     public function me(Request $request): JsonResponse

@@ -976,7 +976,7 @@ class OrderWorkflowTest extends TestCase
     {
         $response = $this->postJson("/api/menu/table/{$tableNumber}/verify-pin", [
             'pin' => $pin,
-        ], $this->guestHeaders());
+        ], array_merge($this->guestHeaders(), ['X-Rozer-Auth-Mode' => 'bearer-v1']));
 
         $response->assertOk();
 

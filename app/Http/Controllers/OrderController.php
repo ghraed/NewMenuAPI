@@ -21,13 +21,12 @@ use App\Models\TableSession;
 use App\Models\User;
 use App\Services\DishAlternativeSuggestionService;
 use App\Services\GuestMenuSessionService;
-use App\Services\MobilePushNotificationService;
 use App\Services\OrderInventoryDeductionService;
 use App\Services\OrderInvoiceCalculator;
+use App\Services\PendingOrderAlertOutbox;
 use App\Services\StaffCapabilityService;
 use App\Services\TableSessionAccessService;
 use App\Services\TenantRestaurantResolver;
-use App\Services\WebPushNotificationService;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -87,9 +86,7 @@ class OrderController extends Controller
             $invoiceCalculator
         );
 
-        if (! $result['replayed']) {
-            $this->dispatchPendingOrderCreatedAlerts($result['order']);
-        }
+        $this->dispatchPendingOrderCreatedAlerts($result['order']);
 
         return response()->json([
             'message' => __('messages.orders.created'),
@@ -120,9 +117,7 @@ class OrderController extends Controller
             $invoiceCalculator
         );
 
-        if (! $result['replayed']) {
-            $this->dispatchPendingOrderCreatedAlerts($result['order']);
-        }
+        $this->dispatchPendingOrderCreatedAlerts($result['order']);
 
         return response()->json([
             'message' => __('messages.orders.created'),
@@ -651,6 +646,26 @@ class OrderController extends Controller
                 ? $this->buildInventorySummaryForOrder($order)
                 : $this->emptyInventorySummary(),
         ]);
+    }
+
+    public function updateAndConfirm(
+        Request $request,
+        Order $order,
+        OrderInvoiceCalculator $invoiceCalculator
+    ): JsonResponse {
+        // The idempotency middleware owns the outer transaction. Both existing
+        // domain operations therefore commit or roll back as one mutation.
+        $updated = $this->update($request, $order, $invoiceCalculator);
+        if ($updated->getStatusCode() >= 400) {
+            throw new HttpResponseException($updated);
+        }
+
+        $confirmed = $this->confirm($request, $order->fresh());
+        if ($confirmed->getStatusCode() >= 400) {
+            throw new HttpResponseException($confirmed);
+        }
+
+        return $confirmed;
     }
 
     public function cancel(Request $request, Order $order): JsonResponse
@@ -2339,23 +2354,7 @@ class OrderController extends Controller
 
     private function dispatchPendingOrderCreatedAlerts(Order $order): void
     {
-        try {
-            app(WebPushNotificationService::class)->notifyPendingOrderCreated($order);
-        } catch (Throwable $exception) {
-            Log::warning('Failed to send web push notifications for a pending order.', [
-                'order_id' => $order->id,
-                'message' => $exception->getMessage(),
-            ]);
-        }
-
-        try {
-            app(MobilePushNotificationService::class)->notifyPendingOrderCreated($order);
-        } catch (Throwable $exception) {
-            Log::warning('Failed to send mobile push notifications for a pending order.', [
-                'order_id' => $order->id,
-                'message' => $exception->getMessage(),
-            ]);
-        }
+        app(PendingOrderAlertOutbox::class)->deliver($order);
     }
 
     private function createOrderForTableContext(
@@ -2395,6 +2394,12 @@ class OrderController extends Controller
 
             $order->update([
                 'order_number' => $this->formatOrderNumber($order),
+            ]);
+
+            DB::table('order_alert_outboxes')->insertOrIgnore([
+                'order_id' => $order->id,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
             return $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']);

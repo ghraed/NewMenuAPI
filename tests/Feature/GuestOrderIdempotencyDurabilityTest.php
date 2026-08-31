@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\MobilePushNotificationService;
 use App\Services\WebPushNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -141,5 +142,39 @@ class GuestOrderIdempotencyDurabilityTest extends TestCase
             'order_id',
             Order::query()->where('table_session_id', $session->id)->select('id')
         )->count());
+    }
+
+    public function test_failed_alert_delivery_is_durable_and_retry_delivers_each_channel_once(): void
+    {
+        $owner = User::factory()->admin()->create([
+            'name' => 'QA_RUN_REL outbox owner',
+            'email' => 'qa_run_rel_outbox_'.Str::lower(Str::random(8)).'@example.test',
+        ]);
+        $restaurant = $this->createRestaurant($owner, attributes: [
+            'name' => 'QA_RUN_REL outbox restaurant',
+            'slug' => 'qa-run-rel-outbox-'.Str::lower(Str::random(8)),
+        ]);
+        $dish = $this->createDish($restaurant, 'QA_RUN_REL outbox dish', 7.00);
+        ['session' => $session, 'token' => $token] = $this->openGuestAccess($restaurant, 1);
+        $web = $this->mock(WebPushNotificationService::class);
+        $web->shouldReceive('notifyPendingOrderCreated')->once()->andThrow(new \RuntimeException('QA_RUN_REL simulated transport failure'));
+        $web->shouldReceive('notifyPendingOrderCreated')->once();
+        $mobile = $this->mock(MobilePushNotificationService::class);
+        $mobile->shouldReceive('notifyPendingOrderCreated')->once();
+        $headers = array_merge($this->guestHeaders($token), ['X-Idempotency-Key' => 'QA_RUN_REL-outbox-key']);
+        $payload = ['items' => [['dish_id' => $dish->id, 'quantity' => 1]]];
+
+        $first = $this->postJson("/api/table-session/{$session->id}/order", $payload, $headers)->assertCreated();
+        $orderId = (int) $first->json('order.id');
+        $this->assertDatabaseHas('order_alert_outboxes', [
+            'order_id' => $orderId,
+            'web_push_delivered_at' => null,
+        ]);
+
+        Artisan::call('orders:deliver-pending-alerts');
+        $outbox = DB::table('order_alert_outboxes')->where('order_id', $orderId)->first();
+        $this->assertNotNull($outbox->web_push_delivered_at);
+        $this->assertNotNull($outbox->mobile_push_delivered_at);
+        $this->assertSame(1, Order::query()->where('table_session_id', $session->id)->count());
     }
 }

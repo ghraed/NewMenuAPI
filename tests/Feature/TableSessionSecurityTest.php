@@ -537,7 +537,7 @@ class TableSessionSecurityTest extends TestCase
     {
         $response = $this->postJson("/api/menu/table/{$tableNumber}/verify-pin", [
             'pin' => $pin,
-        ], $this->guestHeaders(null, $deviceId));
+        ], array_merge($this->guestHeaders(null, $deviceId), ['X-Rozer-Auth-Mode' => 'bearer-v1']));
 
         $response->assertOk();
 
