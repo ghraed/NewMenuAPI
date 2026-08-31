@@ -23,7 +23,18 @@ class PosComplaintAdjustment extends Model
         'posted_at' => 'datetime', 'voided_at' => 'datetime',
     ];
 
-    public function originalOrder(): BelongsTo { return $this->belongsTo(Order::class, 'original_order_id'); }
-    public function originalInvoice(): BelongsTo { return $this->belongsTo(Invoice::class, 'original_invoice_id'); }
-    public function gifts(): HasMany { return $this->hasMany(PosComplaintAdjustmentGift::class); }
+    public function originalOrder(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'original_order_id');
+    }
+
+    public function originalInvoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class, 'original_invoice_id');
+    }
+
+    public function gifts(): HasMany
+    {
+        return $this->hasMany(PosComplaintAdjustmentGift::class);
+    }
 }
