@@ -174,6 +174,125 @@ class InvoiceManagementApiTest extends TestCase
         return $rows;
     }
 
+    #[DataProvider('terminalMutationProvider')]
+    public function test_terminal_invoices_reject_accounting_mutations_without_changing_database_or_pdf_state(
+        string $status,
+        array $mutation
+    ): void {
+        $restaurant = $this->createRestaurant();
+        Sanctum::actingAs($restaurant->user);
+
+        $invoice = Invoice::query()->create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'invoice_number' => 'QA_RUN_TERMINAL_'.strtoupper($status).'_'.\Illuminate\Support\Str::upper(\Illuminate\Support\Str::random(6)),
+            'invoice_date' => '2026-01-15',
+            'status' => $status,
+            'subtotal' => '20.00',
+            'discount_type' => 'fixed',
+            'discount_value' => '2.00',
+            'discount_amount' => '2.00',
+            'taxable_subtotal' => '18.00',
+            'service_charge_rate' => '5.00',
+            'service_charge_amount' => '0.90',
+            'vat_rate' => '10.00',
+            'vat_amount' => '1.80',
+            'total' => '20.70',
+            'currency' => 'USD',
+            'exchange_rate' => '1.0000',
+            'payment_method' => 'card',
+            'payment_reference' => 'QA_RUN_PAYMENT',
+            'pdf_disk' => 'local',
+            'pdf_path' => 'invoices/qa-run-terminal.pdf',
+            'pdf_generated_at' => '2026-01-15 12:00:00',
+            'paid_at' => $status === Invoice::STATUS_PAID ? '2026-01-15 12:00:00' : null,
+        ]);
+        $invoice->items()->create([
+            'name' => 'QA_RUN_ORIGINAL_ITEM',
+            'quantity' => '2.000',
+            'unit_price' => '10.00',
+            'line_total' => '20.00',
+            'order_index' => 0,
+        ]);
+
+        $beforeInvoice = $invoice->fresh()->getRawOriginal();
+        $beforeItems = $invoice->items()->orderBy('id')->get()->map->getRawOriginal()->all();
+
+        $this->patchJson("/api/admin/finance/invoices/{$invoice->id}", $mutation)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(array_keys($mutation));
+
+        $this->assertSame($beforeInvoice, $invoice->fresh()->getRawOriginal());
+        $this->assertSame($beforeItems, $invoice->items()->orderBy('id')->get()->map->getRawOriginal()->all());
+    }
+
+    public static function terminalMutationProvider(): array
+    {
+        $mutations = [
+            'items' => ['items' => [['name' => 'QA_RUN_CHANGED_ITEM', 'quantity' => 1, 'unit_price' => 99]]],
+            'discount tax and service' => [
+                'discount_type' => 'percentage',
+                'discount_value' => 25,
+                'vat_rate' => 15,
+                'service_charge_rate' => 12,
+            ],
+            'currency and exchange rate' => ['currency' => 'EUR', 'exchange_rate' => 1.25],
+            'payment fields' => ['payment_method' => 'cash', 'payment_reference' => 'QA_RUN_CHANGED_PAYMENT'],
+            'invoice date' => ['invoice_date' => '2026-02-01'],
+        ];
+        $rows = [];
+
+        foreach ([Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED] as $status) {
+            foreach ($mutations as $label => $mutation) {
+                $rows["{$status}: {$label}"] = [$status, $mutation];
+            }
+        }
+
+        return $rows;
+    }
+
+    #[DataProvider('terminalStatusProvider')]
+    public function test_terminal_invoices_allow_notes_only_without_invalidating_pdf(string $status): void
+    {
+        $restaurant = $this->createRestaurant();
+        Sanctum::actingAs($restaurant->user);
+
+        $invoice = Invoice::query()->create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'restaurant_id' => $restaurant->id,
+            'invoice_number' => 'QA_RUN_TERMINAL_NOTE_'.strtoupper($status),
+            'invoice_date' => '2026-01-15',
+            'status' => $status,
+            'subtotal' => '10.00',
+            'total' => '10.00',
+            'pdf_disk' => 'local',
+            'pdf_path' => 'invoices/qa-run-terminal-note.pdf',
+            'pdf_generated_at' => '2026-01-15 12:00:00',
+            'paid_at' => $status === Invoice::STATUS_PAID ? '2026-01-15 12:00:00' : null,
+        ]);
+
+        $this->patchJson("/api/admin/finance/invoices/{$invoice->id}", [
+            'status' => $status,
+            'notes' => 'QA_RUN audit annotation',
+        ])->assertOk()
+            ->assertJsonPath('invoice.status', $status)
+            ->assertJsonPath('invoice.notes', 'QA_RUN audit annotation')
+            ->assertJsonPath('invoice.pdf_available', true);
+
+        $invoice->refresh();
+        $this->assertSame('local', $invoice->pdf_disk);
+        $this->assertSame('invoices/qa-run-terminal-note.pdf', $invoice->pdf_path);
+        $this->assertSame('2026-01-15 12:00:00', $invoice->getRawOriginal('pdf_generated_at'));
+    }
+
+    public static function terminalStatusProvider(): array
+    {
+        return [
+            'paid' => [Invoice::STATUS_PAID],
+            'cancelled' => [Invoice::STATUS_CANCELLED],
+        ];
+    }
+
     public function test_revenue_trends_include_only_issued_and_paid_and_subtract_only_posted_refunds_by_posted_date(): void
     {
         $restaurant = $this->createRestaurant();
