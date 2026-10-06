@@ -33,6 +33,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -195,6 +196,79 @@ class OrderController extends Controller
         return response()->json([
             'orders' => $orders->map(fn (Order $order) => $this->formatOrder($order))->values(),
         ]);
+    }
+
+    public function history(Request $request): JsonResponse
+    {
+        return $this->listHistory($request, false);
+    }
+
+    public function today(Request $request): JsonResponse
+    {
+        return $this->listHistory($request, true);
+    }
+
+    public function show(Request $request, Order $order): JsonResponse
+    {
+        $restaurant = $this->getRestaurantForRequest($request);
+        $this->assertOrderBelongsToRestaurant($order, $restaurant);
+        $this->staffCapabilityService->assertCanAccessOrder($request->user(), $restaurant, $order);
+
+        return response()->json(['order' => $this->formatOrder($order)]);
+    }
+
+    private function listHistory(Request $request, bool $defaultToday): JsonResponse
+    {
+        $validated = $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d'],
+            'timezone' => ['nullable', 'timezone'],
+        ]);
+        $timezone = $validated['timezone'] ?? config('app.timezone', 'UTC');
+        $from = $validated['date_from'] ?? $validated['date'] ?? null;
+        $to = $validated['date_to'] ?? $validated['date'] ?? null;
+        if ($defaultToday && $from === null && $to === null) {
+            $from = $to = now($timezone)->toDateString();
+        }
+        if ($from !== null && $to !== null && $to < $from) {
+            throw ValidationException::withMessages(['date_to' => 'The end date must be on or after the start date.']);
+        }
+
+        $restaurant = $this->getRestaurantForRequest($request);
+        $query = Order::query()->where('restaurant_id', $restaurant->id)
+            ->with(['restaurant', 'restaurantTable', 'tableSession', 'items', 'confirmedBy', 'cancelledBy', 'accountedBy']);
+        if ($request->user()->isStaff()) {
+            $tableIds = $this->staffCapabilityService->assignedTableIds($request->user(), $restaurant);
+            $query->where(function (Builder $scope) use ($tableIds): void {
+                $scope->whereIn('restaurant_table_id', $tableIds)
+                    ->orWhere(function (Builder $events): void {
+                        $events->whereNull('restaurant_table_id')->where('table_reference', 'like', 'EVENT-%');
+                    });
+            });
+        }
+
+        if ($from !== null || $to !== null) {
+            $storageTimezone = config('app.timezone', 'UTC');
+            $start = $from !== null ? Carbon::parse($from, $timezone)->startOfDay()->setTimezone($storageTimezone) : null;
+            $end = $to !== null ? Carbon::parse($to, $timezone)->startOfDay()->addDay()->setTimezone($storageTimezone) : null;
+            $query->where(function (Builder $activity) use ($start, $end): void {
+                foreach (['created_at', 'confirmed_at', 'accounted_at', 'cancelled_at'] as $field) {
+                    $activity->orWhere(function (Builder $date) use ($field, $start, $end): void {
+                        if ($start !== null) {
+                            $date->where($field, '>=', $start);
+                        }
+                        if ($end !== null) {
+                            $date->where($field, '<', $end);
+                        }
+                    });
+                }
+            });
+        }
+
+        $orders = $query->orderByDesc('created_at')->orderByDesc('id')->get();
+
+        return response()->json(['orders' => $orders->map(fn (Order $order): array => $this->formatOrder($order))->values()]);
     }
 
     public function pendingConfirmation(Request $request): JsonResponse

@@ -136,6 +136,12 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
     Route::patch('/auth/me', [AuthController::class, 'updateProfile']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
+    Route::middleware(['role:admin,staff', 'feature:realtime_staff_orders'])->group(function () {
+        Route::get('/orders/history', [OrderController::class, 'history']);
+        Route::get('/orders/today', [OrderController::class, 'today']);
+        Route::get('/orders/{order}', [OrderController::class, 'show'])->whereNumber('order');
+    });
+
     Route::middleware('role:admin,staff,chef,stock_manager')->group(function () {
         Route::middleware('feature:realtime_staff_orders')->group(function () {
             Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
