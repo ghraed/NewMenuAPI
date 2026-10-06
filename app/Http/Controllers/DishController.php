@@ -116,6 +116,16 @@ class DishController extends Controller
                     }
                 },
             ],
+            'preview_file' => [
+                'nullable',
+                'file',
+                'max:51200',
+                function ($attribute, $value, $fail) {
+                    if ($value && ! in_array(strtolower($value->getClientOriginalExtension()), ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'], true)) {
+                        $fail('The preview file must be an image of type: jpg, jpeg, png, webp, heic, heif.');
+                    }
+                },
+            ],
         ]);
 
         $restaurant = $this->getRestaurantForRequest($request);
@@ -151,7 +161,7 @@ class DishController extends Controller
                     $this->syncDishIngredients($dish, $restaurant, $recipeIngredients);
                 }
 
-                foreach (['glb_file' => 'glb', 'usdz_file' => 'usdz'] as $field => $type) {
+                foreach (['glb_file' => 'glb', 'usdz_file' => 'usdz', 'preview_file' => 'preview_image'] as $field => $type) {
                     if ($request->hasFile($field)) {
                         $this->storeUploadedAsset($dish, $request->file($field), $type, $trackFile);
                     }
@@ -650,7 +660,7 @@ class DishController extends Controller
         $path = "{$directory}/{$fileName}";
         $trackFile('public', $path);
         if ($file->storeAs($directory, $fileName, 'public') === false) {
-            throw new RuntimeException('Failed to store the uploaded model asset.');
+            throw new RuntimeException('Failed to store the uploaded asset.');
         }
 
         $asset = DishAsset::create([
@@ -663,7 +673,11 @@ class DishController extends Controller
             'usdz_path' => $type === 'usdz' ? $path : null,
             'file_url' => '',
             'file_size' => $file->getSize(),
-            'mime_type' => $type === 'glb' ? 'model/gltf-binary' : 'model/vnd.usdz+zip',
+            'mime_type' => match ($type) {
+                'glb' => 'model/gltf-binary',
+                'usdz' => 'model/vnd.usdz+zip',
+                default => $file->getMimeType() ?: 'image/jpeg',
+            },
             'metadata' => [
                 'uploaded_at' => now()->toIso8601String(),
                 'file_name' => $file->getClientOriginalName(),

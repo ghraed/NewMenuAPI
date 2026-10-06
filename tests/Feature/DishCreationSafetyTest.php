@@ -202,4 +202,79 @@ class DishCreationSafetyTest extends TestCase
         $this->assertSame(1, Dish::where('name', $this->payload['name'])->count());
         $this->assertCount(count($this->originalFiles) + 2, $this->disk->allFiles());
     }
+
+    public static function previewFailures(): array
+    {
+        return [['exception'], ['false']];
+    }
+
+    #[DataProvider('previewFailures')]
+    public function test_failed_preview_upload_rolls_back_models_dish_and_relationships(string $failure): void
+    {
+        $broken = Mockery::mock($this->disk)->makePartial();
+        $broken->shouldReceive('putFileAs')->andReturnUsing(function (string $directory, mixed $file, string $name, array $options = []) use ($failure): string|false {
+            if (str_ends_with($name, '.jpg')) {
+                $this->disk->put("{$directory}/{$name}", 'QA_RUN_partial_preview');
+                if ($failure === 'exception') {
+                    throw new RuntimeException('QA_RUN preview storage unavailable');
+                }
+
+                return false;
+            }
+
+            return $this->disk->putFileAs($directory, $file, $name, $options);
+        });
+        Storage::set('public', $broken);
+        $data = [...$this->requestData(), 'preview_file' => UploadedFile::fake()->image('QA_RUN_preview.jpg', 30, 30)];
+
+        $this->post('/api/dishes', $data, ['Accept' => 'application/json'])->assertStatus(500);
+        $this->assertNoPartialSave();
+        Storage::set('public', $this->disk);
+        $response = $this->post('/api/dishes', $data, ['Accept' => 'application/json']);
+        $response->assertCreated()->assertJsonCount(3, 'assets');
+        $this->assertSame(1, Dish::where('name', $this->payload['name'])->count());
+        $this->assertCount(count($this->originalFiles) + 3, $this->disk->allFiles());
+    }
+
+    public function test_preview_asset_record_failure_rolls_back_entire_creation(): void
+    {
+        Event::listen('eloquent.creating: '.DishAsset::class, function (DishAsset $asset): void {
+            if ($asset->asset_type === 'preview_image') {
+                throw new RuntimeException('QA_RUN preview record unavailable');
+            }
+        });
+        $data = [...$this->requestData(), 'preview_file' => UploadedFile::fake()->image('QA_RUN_preview.jpg', 30, 30)];
+
+        $this->post('/api/dishes', $data, ['Accept' => 'application/json'])->assertStatus(500);
+        $this->assertNoPartialSave();
+    }
+
+    public function test_preview_and_models_are_created_together_and_preview_is_readable(): void
+    {
+        $file = UploadedFile::fake()->image('QA_RUN_preview.jpg', 30, 30);
+        $contents = file_get_contents($file->getRealPath());
+        $response = $this->post('/api/dishes', [...$this->requestData(), 'preview_file' => $file], ['Accept' => 'application/json']);
+        $response->assertCreated()->assertJsonCount(3, 'assets');
+        $preview = DishAsset::where('dish_id', $response->json('id'))->where('asset_type', 'preview_image')->firstOrFail();
+        $this->assertSame('image/jpeg', $preview->mime_type);
+        $this->assertSame('QA_RUN_preview.jpg', $preview->metadata['file_name']);
+        $this->assertNull($preview->glb_path);
+        $this->assertNull($preview->usdz_path);
+        $stream = $this->get($preview->file_url)->assertOk()->assertHeader('Content-Type', 'image/jpeg');
+        $this->assertSame($contents, $stream->streamedContent());
+    }
+
+    public function test_invalid_preview_is_rejected_before_creation(): void
+    {
+        $data = [...$this->requestData(), 'preview_file' => UploadedFile::fake()->createWithContent('QA_RUN_invalid.exe', 'QA_RUN_invalid')];
+        $this->post('/api/dishes', $data, ['Accept' => 'application/json'])->assertUnprocessable()->assertJsonValidationErrors('preview_file');
+        $this->assertNoPartialSave();
+    }
+
+    public function test_oversized_preview_is_rejected_before_creation(): void
+    {
+        $data = [...$this->requestData(), 'preview_file' => UploadedFile::fake()->image('QA_RUN_large.jpg')->size(51201)];
+        $this->post('/api/dishes', $data, ['Accept' => 'application/json'])->assertUnprocessable()->assertJsonValidationErrors('preview_file');
+        $this->assertNoPartialSave();
+    }
 }
