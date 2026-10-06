@@ -57,6 +57,7 @@ class Dish extends Model
         'cost_price',
         'supplier',
         'packaged_stock_quantity',
+        'serving_temperature',
     ];
 
     protected $casts = [
@@ -70,6 +71,7 @@ class Dish extends Model
         'is_profitable' => 'boolean',
         'cost_price' => 'decimal:2',
         'packaged_stock_quantity' => 'decimal:3',
+        'serving_temperature' => 'string',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',

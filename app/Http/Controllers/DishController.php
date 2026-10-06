@@ -87,6 +87,7 @@ class DishController extends Controller
             'cost_price' => 'nullable|numeric|min:0',
             'supplier' => 'nullable|string|max:180',
             'packaged_stock_quantity' => 'nullable|numeric|min:0',
+            'serving_temperature' => 'nullable|string|in:cold,room',
             'suggested_dish_ids' => 'sometimes|array',
             'suggested_dish_ids.*' => 'integer',
             'related_dish_ids' => 'sometimes|array',
@@ -132,6 +133,7 @@ class DishController extends Controller
         $this->validateCategoryForRestaurant($request, $restaurant);
 
         $validated['uuid'] = (string) Str::uuid();
+        $validated['serving_temperature'] = $validated['serving_temperature'] ?? null;
         $status = $validated['status'] ?? 'published';
         unset($validated['status']);
         $suggestedDishIds = array_values(array_unique(array_map('intval', $validated['suggested_dish_ids'] ?? [])));
@@ -291,6 +293,7 @@ class DishController extends Controller
             'direct_stock_ingredient_id' => 'nullable|integer|exists:ingredients,id',
             'direct_stock_quantity_per_sale' => 'nullable|numeric|gt:0',
             'packaged_stock_quantity' => 'nullable|numeric|min:0',
+            'serving_temperature' => 'nullable|string|in:cold,room',
         ]);
 
         $template = collect(self::PREDEFINED_MENU_ITEM_TEMPLATES)
@@ -318,6 +321,7 @@ class DishController extends Controller
                 ? ($validated['direct_stock_quantity_per_sale'] ?? $template['direct_stock_quantity_per_sale'] ?? 1)
                 : null,
             'packaged_stock_quantity' => $validated['packaged_stock_quantity'] ?? null,
+            'serving_temperature' => $validated['serving_temperature'] ?? null,
             'image_url' => $validated['image_url'] ?? null,
         ];
 
@@ -457,6 +461,7 @@ class DishController extends Controller
             'cost_price' => 'nullable|numeric|min:0',
             'supplier' => 'nullable|string|max:180',
             'packaged_stock_quantity' => 'nullable|numeric|min:0',
+            'serving_temperature' => 'nullable|string|in:cold,room',
             'suggested_dish_ids' => 'sometimes|array',
             'suggested_dish_ids.*' => 'integer',
             'related_dish_ids' => 'sometimes|array',
