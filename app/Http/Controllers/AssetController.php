@@ -5,14 +5,17 @@ namespace App\Http\Controllers;
 use App\Models\Dish;
 use App\Models\DishAsset;
 use App\Models\Ingredient;
+use App\Services\DishAssetReplacementService;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class AssetController extends Controller
 {
-    public function upload(Request $request, Dish $dish): JsonResponse
+    public function upload(Request $request, Dish $dish, DishAssetReplacementService $replacementService): JsonResponse
     {
         $this->assertDishBelongsToCurrentUser($request, $dish);
 
@@ -92,31 +95,46 @@ class AssetController extends Controller
             };
         }
 
-        if ($this->replacesExistingAsset($type)) {
-            $existingAssets = $dish->assets()->where('asset_type', $type)->get();
-
-            foreach ($existingAssets as $existingAsset) {
-                $this->deleteStoredAssetFile($existingAsset);
-                $existingAsset->delete();
-            }
-        }
-
-        $path = $type === 'ingredient_image'
-            ? $this->storeIngredientAssetFile($dish, $originalName, $file, $sourceIngredient)
-            : $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
-
-        $asset = DishAsset::create([
+        $attributes = [
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $type,
             'storage_disk' => 'public',
-            'file_path' => $path,
-            'glb_path' => $type === 'glb' ? $path : null,
-            'usdz_path' => $type === 'usdz' ? $path : null,
             'file_url' => '',
             'file_size' => $file?->getSize() ?? $sourceIngredient?->file_size ?? 0,
             'mime_type' => $this->resolveMimeType($file, $type, $sourceIngredient),
             'metadata' => $this->buildAssetMetadata($request, $file, $type, $sourceIngredient),
+        ];
+
+        if ($this->replacesExistingAsset($type)) {
+            $assets = $replacementService->replace($dish, [$type], function (Closure $trackFile) use ($dish, $file, $type, $attributes): array {
+                // Keep storage paths bounded; the original filename remains
+                // in metadata for display, even for long upload filenames.
+                $directory = "dishes/{$dish->id}";
+                $storedName = $type.'-'.Str::uuid().'.'.strtolower($file->getClientOriginalExtension());
+                $path = "{$directory}/{$storedName}";
+                $trackFile('public', $path);
+                if ($file->storeAs($directory, $storedName, 'public') === false) {
+                    throw new RuntimeException('Failed to store the replacement asset.');
+                }
+
+                return [[
+                    ...$attributes,
+                    'file_path' => $path,
+                    'glb_path' => $type === 'glb' ? $path : null,
+                    'usdz_path' => $type === 'usdz' ? $path : null,
+                ]];
+            });
+
+            return response()->json($assets->first(), 201);
+        }
+
+        $path = $this->storeIngredientAssetFile($dish, $originalName, $file, $sourceIngredient);
+        $asset = DishAsset::create([
+            ...$attributes,
+            'file_path' => $path,
+            'glb_path' => null,
+            'usdz_path' => null,
         ]);
 
         $asset->update([

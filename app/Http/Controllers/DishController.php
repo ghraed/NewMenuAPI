@@ -6,7 +6,9 @@ use App\Models\Dish;
 use App\Models\DishAsset;
 use App\Models\Ingredient;
 use App\Models\Restaurant;
+use App\Services\DishAssetReplacementService;
 use App\Services\DishDescriptionGenerationService;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -343,7 +345,7 @@ class DishController extends Controller
         }
     }
 
-    public function copyModel(Request $request, Dish $dish): JsonResponse
+    public function copyModel(Request $request, Dish $dish, DishAssetReplacementService $replacementService): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
         $this->assertDishBelongsToRestaurant($dish, $restaurant);
@@ -385,16 +387,17 @@ class DishController extends Controller
             ], 422);
         }
 
-        foreach (['glb', 'usdz'] as $assetType) {
-            $this->clearDishAssetType($dish, $assetType);
-
-            $sourceAsset = $sourceAssets->get($assetType);
-            if (! $sourceAsset) {
-                continue;
+        $replacementService->replace($dish, ['glb', 'usdz'], function (Closure $trackFile) use ($dish, $sourceAssets): array {
+            $replacements = [];
+            foreach (['glb', 'usdz'] as $assetType) {
+                $sourceAsset = $sourceAssets->get($assetType);
+                if ($sourceAsset) {
+                    $replacements[] = $this->stageAssetCopy($dish, $sourceAsset, $trackFile);
+                }
             }
 
-            $this->copyAssetToDish($dish, $sourceAsset);
-        }
+            return $replacements;
+        });
 
         return response()->json($dish->fresh()->load(['assets', 'latestScan']));
     }
@@ -630,14 +633,6 @@ class DishController extends Controller
         }
     }
 
-    private function clearDishAssetType(Dish $dish, string $assetType): void
-    {
-        $dish->assets()->where('asset_type', $assetType)->get()->each(function (DishAsset $existingAsset): void {
-            $this->deleteStoredAssetFile($existingAsset);
-            $existingAsset->delete();
-        });
-    }
-
     private function storeUploadedAsset(Dish $dish, \Illuminate\Http\UploadedFile $file, string $type): DishAsset
     {
         $originalName = basename((string) $file->getClientOriginalName());
@@ -676,7 +671,7 @@ class DishController extends Controller
         return $asset;
     }
 
-    private function copyAssetToDish(Dish $dish, DishAsset $sourceAsset): DishAsset
+    private function stageAssetCopy(Dish $dish, DishAsset $sourceAsset, Closure $trackFile): array
     {
         $sourcePath = $sourceAsset->file_path;
         if (! $sourcePath) {
@@ -686,13 +681,18 @@ class DishController extends Controller
         $disk = $sourceAsset->storage_disk ?: 'public';
         $storage = Storage::disk($disk);
         $fileName = $this->resolveAssetFileName($sourceAsset);
-        $destinationPath = "dishes/{$dish->id}/{$sourceAsset->asset_type}-".Str::uuid()."-{$fileName}";
+        $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        if (! in_array($extension, ['glb', 'gltf', 'usdz'], true)) {
+            $extension = $sourceAsset->asset_type;
+        }
+        $destinationPath = "dishes/{$dish->id}/{$sourceAsset->asset_type}-".Str::uuid().".{$extension}";
+        $trackFile($disk, $destinationPath);
 
         if (! $storage->copy($sourcePath, $destinationPath)) {
             throw new RuntimeException('Failed to copy the selected model asset.');
         }
 
-        $asset = DishAsset::create([
+        return [
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $sourceAsset->asset_type,
@@ -710,13 +710,7 @@ class DishController extends Controller
                 'copied_at' => now()->toIso8601String(),
                 'file_name' => $fileName,
             ], static fn ($value) => $value !== null && $value !== ''),
-        ]);
-
-        $asset->update([
-            'file_url' => route('api.assets.show', ['asset' => $asset->id], false),
-        ]);
-
-        return $asset;
+        ];
     }
 
     private function resolveAssetFileName(DishAsset $asset): string
