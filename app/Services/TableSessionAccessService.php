@@ -223,6 +223,18 @@ class TableSessionAccessService
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            if ($session->finalized_invoice_id !== null) {
+                $invoice = Invoice::query()->where('restaurant_id', $session->restaurant_id)
+                    ->whereKey($session->finalized_invoice_id)->firstOrFail();
+
+                return [
+                    'table_session' => $session,
+                    'invoice_id' => $invoice->id,
+                    'invoice_number' => $invoice->invoice_number,
+                    'invoice_status' => $invoice->status,
+                ];
+            }
+
             if ($this->guestMenuSessionService->expireSessionIfNeeded($session)) {
                 return [
                     'table_session' => $session->fresh(['restaurantTable']),
@@ -234,7 +246,7 @@ class TableSessionAccessService
 
             if ($session->status !== TableSession::STATUS_ACTIVE && $session->status !== TableSession::STATUS_SUSPENDED) {
                 $sessionOrders = $this->loadAccountedSessionOrders($session);
-                $financeInvoice = $this->createOrReuseFinanceInvoiceForSession($session, $sessionOrders, $payment);
+                $financeInvoice = $this->finalizeInvoiceForSession($session, $sessionOrders, $payment, true);
 
                 return [
                     'table_session' => $session,
@@ -271,7 +283,7 @@ class TableSessionAccessService
             $this->guestMenuSessionService->forgetPlainPin($session);
 
             $sessionOrders = $this->loadAccountedSessionOrders($session);
-            $financeInvoice = $this->createOrReuseFinanceInvoiceForSession($session, $sessionOrders, $payment);
+            $financeInvoice = $this->finalizeInvoiceForSession($session, $sessionOrders, $payment);
 
             return [
                 'table_session' => $session->fresh(['restaurantTable']),
@@ -293,15 +305,61 @@ class TableSessionAccessService
             ->get();
     }
 
+    private function finalizeInvoiceForSession(TableSession $session, EloquentCollection $orders, array $payment, bool $legacyClosed = false): ?Invoice
+    {
+        if ($orders->isEmpty()) {
+            return null;
+        }
+
+        if ($legacyClosed) {
+            $existing = Invoice::query()->where('restaurant_id', $session->restaurant_id)
+                ->where('invoice_number', $orders->first()->invoice_number)
+                ->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_ISSUED])->first();
+            if ($existing) {
+                $session->update(['finalized_invoice_id' => $existing->id]);
+
+                return $existing;
+            }
+        }
+
+        $numbers = $orders->pluck('invoice_number')->filter()->unique()->values()->all();
+        $pendingGroups = Order::query()->with('items')->where('restaurant_id', $session->restaurant_id)
+            ->where('table_session_id', $session->id)->where('status', Order::STATUS_STAFF_CONFIRMED)
+            ->whereIn('invoice_number', $numbers)->lockForUpdate()->get()->groupBy('invoice_number');
+
+        // Unsettled orders need their own draft before the shared invoice is
+        // finalized, so future accounting edits cannot rewrite the receipt.
+        foreach ($pendingGroups as $originalNumber => $pending) {
+            $first = $pending->sortBy('id')->first();
+            $base = 'INV-'.($first->confirmed_at ?? $first->created_at ?? now())->format('Ymd')
+                .'-'.str_pad((string) $first->id, 6, '0', STR_PAD_LEFT);
+            $number = $base;
+            while ($number === $originalNumber || Invoice::query()->where('restaurant_id', $session->restaurant_id)->where('invoice_number', $number)->exists()) {
+                $number = $base.'-'.Str::uuid();
+            }
+            foreach ($pending as $order) {
+                $order->update(['invoice_number' => $number]);
+            }
+            $this->createOrReuseFinanceInvoiceForSession($session, $pending, [], true);
+        }
+
+        $invoice = $this->createOrReuseFinanceInvoiceForSession($session, $orders, $payment);
+        $session->update(['finalized_invoice_id' => $invoice->id]);
+
+        return $invoice;
+    }
+
     private function createOrReuseFinanceInvoiceForSession(
         TableSession $session,
         EloquentCollection $orders,
-        array $payment = []
+        array $payment = [],
+        bool $draft = false
     ): ?Invoice {
         if ($orders->isEmpty()) {
             return null;
         }
 
+        $existingInvoice = null;
         $existingInvoiceNumber = $orders
             ->pluck('invoice_number')
             ->first(fn ($invoiceNumber) => is_string($invoiceNumber) && trim($invoiceNumber) !== '');
@@ -314,7 +372,7 @@ class TableSessionAccessService
                 ->first();
         }
 
-        $status = $this->resolveFinalizedInvoiceStatus($payment);
+        $status = $draft ? Invoice::STATUS_DRAFT : $this->resolveFinalizedInvoiceStatus($payment);
         $subtotalCents = $orders->reduce(
             fn (int $carry, Order $order): int => $carry + Money::toCents($order->subtotal),
             0
@@ -365,7 +423,7 @@ class TableSessionAccessService
             ? 'Table '.$session->restaurantTable->name
             : 'Table #'.$session->table_number;
         $notes = sprintf(
-            'Auto-created from session #%d (%s) with %d accounted order(s).',
+            $draft ? 'Auto-created from session #%d (%s) with %d unsettled order(s).' : 'Auto-created from session #%d (%s) with %d accounted order(s).',
             $session->id,
             $tableLabel,
             $orders->count()

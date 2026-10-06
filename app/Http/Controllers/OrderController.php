@@ -2224,6 +2224,13 @@ class OrderController extends Controller
             ->with('items')
             ->first();
 
+        if ($existingInvoice && ($existingInvoice->status === Invoice::STATUS_PAID
+            || TableSession::query()->where('restaurant_id', $order->restaurant_id)->where('finalized_invoice_id', $existingInvoice->id)->exists())) {
+            throw ValidationException::withMessages([
+                'invoice_number' => 'This invoice has already been finalized and cannot be recalculated from order edits.',
+            ]);
+        }
+
         if ($groupedOrders->isEmpty()) {
             if ($existingInvoice) {
                 $existingInvoice->update([

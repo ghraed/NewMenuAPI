@@ -42,7 +42,10 @@ class SessionInvoiceFinalizationTest extends TestCase
         $this->assertIsInt($orderId);
 
         Sanctum::actingAs($restaurant->user);
-        $this->postJson("/api/orders/{$orderId}/confirm")->assertOk();
+        $confirmation = $this->postJson("/api/orders/{$orderId}/confirm")->assertOk();
+        $invoiceNumber = $confirmation->json('order.invoice_number');
+        $this->assertIsString($invoiceNumber);
+        $this->assertMatchesRegularExpression('/^INV-20260115-[0-9]{6,}$/', $invoiceNumber);
         $this->postJson("/api/orders/{$orderId}/account", [
             'vat_rate' => 10,
             'discount_type' => 'fixed',
@@ -55,7 +58,7 @@ class SessionInvoiceFinalizationTest extends TestCase
         ]);
 
         $finalizeResponse->assertOk()
-            ->assertJsonPath('invoice_number', 'INV-20260115-000001')
+            ->assertJsonPath('invoice_number', $invoiceNumber)
             ->assertJsonPath('invoice_status', Invoice::STATUS_PAID);
 
         $invoiceId = $finalizeResponse->json('invoice_id');
@@ -104,9 +107,21 @@ class SessionInvoiceFinalizationTest extends TestCase
         $this->assertIsInt($unpaidOrderId);
 
         Sanctum::actingAs($restaurant->user);
+        $invoiceNumber = null;
         foreach ([$firstOrderId, $secondOrderId, $unpaidOrderId] as $orderId) {
-            $this->postJson("/api/orders/{$orderId}/confirm")->assertOk();
+            $confirmation = $this->postJson("/api/orders/{$orderId}/confirm")->assertOk();
+            if ($invoiceNumber === null) {
+                $invoiceNumber = $confirmation->json('order.invoice_number');
+                $this->assertIsString($invoiceNumber);
+                $this->assertMatchesRegularExpression('/^INV-20260115-[0-9]{6,}$/', $invoiceNumber);
+            }
+            $confirmation->assertJsonPath('order.invoice_number', $invoiceNumber);
         }
+
+        $draftInvoice = Invoice::where('restaurant_id', $restaurant->id)->where('invoice_number', $invoiceNumber)->firstOrFail();
+        $this->assertSame(Invoice::STATUS_DRAFT, $draftInvoice->status);
+        $this->assertSame('29.50', $draftInvoice->total);
+        $this->assertSame(3, $draftInvoice->items()->count());
 
         foreach ([$firstOrderId, $secondOrderId] as $orderId) {
             $this->postJson("/api/orders/{$orderId}/account", [])->assertOk();
@@ -123,12 +138,12 @@ class SessionInvoiceFinalizationTest extends TestCase
         ]);
 
         $firstFinalize->assertOk()
-            ->assertJsonPath('invoice_number', 'INV-20260115-000001');
+            ->assertJsonPath('invoice_number', $invoiceNumber);
         $secondFinalize->assertOk()
             ->assertJsonPath('invoice_id', $firstFinalize->json('invoice_id'))
             ->assertJsonPath('invoice_number', $firstFinalize->json('invoice_number'));
 
-        $this->assertSame(1, Invoice::query()->count());
+        $this->assertSame(2, $restaurant->invoices()->count());
 
         $invoiceId = $firstFinalize->json('invoice_id');
         $this->assertIsInt($invoiceId);
@@ -141,20 +156,25 @@ class SessionInvoiceFinalizationTest extends TestCase
 
         $this->assertDatabaseHas('orders', [
             'id' => $firstOrderId,
-            'invoice_number' => 'INV-20260115-000001',
+            'invoice_number' => $invoiceNumber,
         ]);
         $this->assertDatabaseHas('orders', [
             'id' => $secondOrderId,
-            'invoice_number' => 'INV-20260115-000001',
+            'invoice_number' => $invoiceNumber,
         ]);
         $this->assertDatabaseHas('orders', [
             'id' => $unpaidOrderId,
             'status' => Order::STATUS_STAFF_CONFIRMED,
-            'invoice_number' => 'INV-20260115-000003',
         ]);
+        $unpaid = Order::findOrFail($unpaidOrderId);
+        $this->assertNotSame($invoiceNumber, $unpaid->invoice_number);
+        $pendingInvoice = Invoice::where('restaurant_id', $restaurant->id)->where('invoice_number', $unpaid->invoice_number)->firstOrFail();
+        $this->assertSame(Invoice::STATUS_DRAFT, $pendingInvoice->status);
+        $this->assertSame('12.00', $pendingInvoice->total);
+        $this->assertSame(1, $pendingInvoice->items()->count());
     }
 
-    public function test_finalize_returns_null_invoice_when_session_has_no_accounted_orders(): void
+    public function test_finalize_returns_no_payable_invoice_and_preserves_the_existing_draft_when_no_orders_are_accounted(): void
     {
         $restaurant = $this->createRestaurant();
         $dish = $this->createDish($restaurant, 'Confirmed Only Dish', 9.00);
@@ -169,7 +189,12 @@ class SessionInvoiceFinalizationTest extends TestCase
         $this->assertIsInt($orderId);
 
         Sanctum::actingAs($restaurant->user);
-        $this->postJson("/api/orders/{$orderId}/confirm")->assertOk();
+        $confirmation = $this->postJson("/api/orders/{$orderId}/confirm")->assertOk();
+        $draftInvoice = Invoice::where('restaurant_id', $restaurant->id)
+            ->where('invoice_number', $confirmation->json('order.invoice_number'))->firstOrFail();
+        $this->assertSame(Invoice::STATUS_DRAFT, $draftInvoice->status);
+        $this->assertSame('9.00', $draftInvoice->total);
+        $this->assertSame(1, $draftInvoice->items()->count());
 
         $this->postJson("/api/table-sessions/{$session->id}/finalize", [
             'payment_method' => 'cash',
@@ -178,7 +203,10 @@ class SessionInvoiceFinalizationTest extends TestCase
             ->assertJsonPath('invoice_number', null)
             ->assertJsonPath('invoice_status', null);
 
-        $this->assertSame(0, Invoice::query()->count());
+        $this->assertSame(1, $restaurant->invoices()->count());
+        $this->assertSame(Invoice::STATUS_DRAFT, $draftInvoice->fresh()->status);
+        $this->assertSame('9.00', $draftInvoice->fresh()->total);
+        $this->assertNull($draftInvoice->fresh()->paid_at);
     }
 
     public function test_finalize_preserves_cancelled_items_with_zero_line_totals(): void
@@ -294,5 +322,88 @@ class SessionInvoiceFinalizationTest extends TestCase
             ->assertJsonPath('invoice.vat_rate', '5.00')
             ->assertJsonPath('invoice.vat_amount', '1.88')
             ->assertJsonPath('invoice.total', '43.13');
+    }
+
+    private function partiallyFinalizedSession(bool $unpaidFirst = false): array
+    {
+        $user = \App\Models\User::factory()->admin()->create(['name' => 'QA_RUN_20261006_InvoiceAdmin', 'email' => 'QA_RUN_'.bin2hex(random_bytes(4)).'@example.invalid']);
+        $restaurant = $this->createRestaurant(user: $user, attributes: ['name' => 'QA_RUN_20261006_Invoices']);
+        $dish = $this->createDish($restaurant, 'QA_RUN_20261006_Item', 10.00);
+        ['session' => $session, 'token' => $token] = $this->openGuestAccess($restaurant, 1);
+        $ids = [];
+        foreach ([1, 2] as $quantity) {
+            $ids[] = $this->postJson("/api/table-session/{$session->id}/order", [
+                'notes' => 'QA_RUN_20261006_InvoiceBoundary', 'items' => [['dish_id' => $dish->id, 'quantity' => $quantity]],
+            ], $this->guestHeaders($token))->assertCreated()->json('order.id');
+        }
+        Sanctum::actingAs($user);
+        foreach ($ids as $id) {
+            $this->postJson("/api/orders/{$id}/confirm")->assertOk();
+        }
+        $paidIndex = $unpaidFirst ? 1 : 0;
+        $this->postJson("/api/orders/{$ids[$paidIndex]}/account", [])->assertOk();
+        $finalized = $this->postJson("/api/table-sessions/{$session->id}/finalize", ['payment_method' => 'card', 'payment_reference' => 'QA_RUN_PAID_REFERENCE'])->assertOk();
+
+        return [$session, $ids[$unpaidFirst ? 0 : 1], Invoice::findOrFail($finalized->json('invoice_id'))];
+    }
+
+    public function test_editing_unsettled_order_preserves_the_finalized_paid_invoice(): void
+    {
+        [$session, $unpaidId, $paidInvoice] = $this->partiallyFinalizedSession();
+        $paidItems = $paidInvoice->items()->pluck('id')->all();
+        $this->patchJson("/api/orders/{$unpaidId}/accounting-draft", ['discount_type' => 'fixed', 'discount_value' => 1])->assertOk();
+        $paidInvoice->refresh();
+        $this->assertSame(Invoice::STATUS_PAID, $paidInvoice->status);
+        $this->assertSame('10.00', $paidInvoice->total);
+        $this->assertSame('QA_RUN_PAID_REFERENCE', $paidInvoice->payment_reference);
+        $this->assertSame($paidItems, $paidInvoice->items()->pluck('id')->all());
+        $unpaid = Order::findOrFail($unpaidId);
+        $this->assertNotSame($paidInvoice->invoice_number, $unpaid->invoice_number);
+        $this->assertSame('19.00', Invoice::where('invoice_number', $unpaid->invoice_number)->where('restaurant_id', $session->restaurant_id)->firstOrFail()->total);
+    }
+
+    public function test_repeated_finalization_does_not_merge_later_settlements_or_remove_payment_metadata(): void
+    {
+        [$session, $unpaidId, $paidInvoice] = $this->partiallyFinalizedSession();
+        $this->postJson("/api/orders/{$unpaidId}/account", [])->assertOk();
+        $this->postJson("/api/table-sessions/{$session->id}/finalize", [])->assertOk()
+            ->assertJsonPath('invoice_id', $paidInvoice->id)->assertJsonPath('invoice_status', Invoice::STATUS_PAID);
+        $paidInvoice->refresh();
+        $this->assertSame('10.00', $paidInvoice->total);
+        $this->assertSame('QA_RUN_PAID_REFERENCE', $paidInvoice->payment_reference);
+        $this->assertSame(1, $paidInvoice->items()->count());
+    }
+
+    public function test_unpaid_order_that_owned_the_shared_number_gets_a_distinct_draft(): void
+    {
+        [$session, $unpaidId, $paidInvoice] = $this->partiallyFinalizedSession(true);
+        $unpaid = Order::findOrFail($unpaidId);
+        $this->assertNotSame($paidInvoice->invoice_number, $unpaid->invoice_number);
+        $pending = Invoice::where('restaurant_id', $session->restaurant_id)->where('invoice_number', $unpaid->invoice_number)->firstOrFail();
+        $this->assertSame(Invoice::STATUS_DRAFT, $pending->status);
+        $this->assertSame('10.00', $pending->total);
+        $this->assertSame('20.00', $paidInvoice->total);
+    }
+
+    public function test_legacy_closed_session_reuses_paid_invoice_without_rewriting_it(): void
+    {
+        [$session, $unpaidId, $paidInvoice] = $this->partiallyFinalizedSession();
+        $session->refresh()->update(['finalized_invoice_id' => null]);
+        $this->postJson("/api/table-sessions/{$session->id}/finalize", [])->assertOk()
+            ->assertJsonPath('invoice_id', $paidInvoice->id)->assertJsonPath('invoice_status', Invoice::STATUS_PAID);
+        $this->assertSame('10.00', $paidInvoice->fresh()->total);
+        $this->assertSame('QA_RUN_PAID_REFERENCE', $paidInvoice->fresh()->payment_reference);
+    }
+
+    public function test_legacy_unsettled_order_sharing_paid_invoice_cannot_rewrite_it(): void
+    {
+        [$session, $unpaidId, $paidInvoice] = $this->partiallyFinalizedSession();
+        // Simulate a pre-fix unsettled order that still points at the receipt.
+        Order::whereKey($unpaidId)->update(['invoice_number' => $paidInvoice->invoice_number]);
+        $this->patchJson("/api/orders/{$unpaidId}/accounting-draft", ['discount_type' => 'fixed', 'discount_value' => 1])
+            ->assertUnprocessable()->assertJsonValidationErrors('invoice_number');
+        $this->assertSame(Invoice::STATUS_PAID, $paidInvoice->fresh()->status);
+        $this->assertSame('10.00', $paidInvoice->fresh()->total);
+        $this->assertSame('QA_RUN_PAID_REFERENCE', $paidInvoice->fresh()->payment_reference);
     }
 }

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Dish;
 use App\Models\Feature;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
@@ -209,11 +210,14 @@ class OrderWorkflowTest extends TestCase
         Sanctum::actingAs($staff);
 
         $response = $this->postJson("/api/orders/{$order->id}/confirm");
+        $invoiceNumber = $response->json('order.invoice_number');
+        $this->assertIsString($invoiceNumber);
+        $this->assertMatchesRegularExpression('/^INV-20260115-[0-9]{6,}$/', $invoiceNumber);
 
         $response->assertOk()
             ->assertJsonPath('order.status', Order::STATUS_STAFF_CONFIRMED)
             ->assertJsonPath('order.table_reference', 'T04')
-            ->assertJsonPath('order.invoice_number', 'INV-20260115-000001')
+            ->assertJsonPath('order.invoice_number', $invoiceNumber)
             ->assertJsonPath('order.invoice.discount_amount', '0.00')
             ->assertJsonPath('order.invoice.vat_amount', '0.00')
             ->assertJsonPath('order.invoice.total', '25.00')
@@ -223,12 +227,16 @@ class OrderWorkflowTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'status' => Order::STATUS_STAFF_CONFIRMED,
-            'invoice_number' => 'INV-20260115-000001',
+            'invoice_number' => $invoiceNumber,
             'confirmed_by' => $staff->id,
             'discount_amount' => '0.00',
             'vat_amount' => '0.00',
             'total' => '25.00',
         ]);
+        $invoice = Invoice::where('restaurant_id', $restaurant->id)->where('invoice_number', $invoiceNumber)->firstOrFail();
+        $this->assertSame(Invoice::STATUS_DRAFT, $invoice->status);
+        $this->assertSame('25.00', $invoice->total);
+        $this->assertSame(2, $invoice->items()->count());
     }
 
     public function test_staff_can_complete_pos_checkout_in_one_step(): void

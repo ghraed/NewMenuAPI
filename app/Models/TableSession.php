@@ -37,6 +37,7 @@ class TableSession extends Model
         'invoice_split_allocations',
         'created_by_staff_id',
         'finalized_by_staff_id',
+        'finalized_invoice_id',
     ];
 
     protected $casts = [
@@ -48,6 +49,7 @@ class TableSession extends Model
         'expires_at' => 'datetime',
         'closed_at' => 'datetime',
         'invoice_split_count' => 'integer',
+        'finalized_invoice_id' => 'integer',
         'invoice_split_allocations' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
