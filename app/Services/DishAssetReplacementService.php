@@ -55,9 +55,7 @@ class DishAssetReplacementService
                 return [$assets, $previous];
             });
         } catch (Throwable $exception) {
-            foreach ($stagedFiles as $file) {
-                $this->deleteUnreferencedFile($file['disk'], $file['path']);
-            }
+            $this->discardStagedFiles($stagedFiles);
 
             throw $exception;
         }
@@ -71,6 +69,16 @@ class DishAssetReplacementService
         }
 
         return $assets;
+    }
+
+    /**
+     * @param  array<int, array{disk: string, path: string}>  $files
+     */
+    public function discardStagedFiles(array $files): void
+    {
+        foreach ($files as $file) {
+            $this->deleteUnreferencedFile($file['disk'], $file['path']);
+        }
     }
 
     private function deleteUnreferencedFile(string $disk, string $path): void

@@ -18,6 +18,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Throwable;
 
 class DishController extends Controller
 {
@@ -60,7 +61,7 @@ class DishController extends Controller
         );
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, DishAssetReplacementService $assetService): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -132,36 +133,45 @@ class DishController extends Controller
         $itemType = $validated['item_type'] ?? Dish::ITEM_TYPE_PREPARED_DISH;
         $this->assertItemTypePayloadValidity($itemType, $validated, $recipeIngredients, null);
 
-        $dish = DB::transaction(function () use ($restaurant, $validated, $status, $suggestedDishIds, $relatedDishIds, $recipeIngredients, $itemType) {
-            $dish = $restaurant->dishes()->create(
-                array_merge($validated, ['status' => $status, 'item_type' => $itemType])
-            );
+        $stagedFiles = [];
+        $trackFile = function (string $disk, string $path) use (&$stagedFiles): void {
+            $stagedFiles[] = ['disk' => $disk, 'path' => $path];
+        };
 
-            $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
-            $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
+        try {
+            return DB::transaction(function () use ($request, $restaurant, $validated, $status, $suggestedDishIds, $relatedDishIds, $recipeIngredients, $itemType, $trackFile): JsonResponse {
+                $dish = $restaurant->dishes()->create(
+                    array_merge($validated, ['status' => $status, 'item_type' => $itemType])
+                );
 
-            if ($recipeIngredients !== null && $dish->isPreparedDish()) {
-                $this->syncDishIngredients($dish, $restaurant, $recipeIngredients);
-            }
+                $this->syncSuggestedDishes($dish, $restaurant, $suggestedDishIds);
+                $this->syncRelatedDishes($dish, $restaurant, $relatedDishIds);
 
-            return $dish;
-        });
+                if ($recipeIngredients !== null && $dish->isPreparedDish()) {
+                    $this->syncDishIngredients($dish, $restaurant, $recipeIngredients);
+                }
 
-        if ($request->hasFile('glb_file')) {
-            $this->storeUploadedAsset($dish, $request->file('glb_file'), 'glb');
+                foreach (['glb_file' => 'glb', 'usdz_file' => 'usdz'] as $field => $type) {
+                    if ($request->hasFile($field)) {
+                        $this->storeUploadedAsset($dish, $request->file($field), $type, $trackFile);
+                    }
+                }
+
+                // Prepare the response before committing so a relationship
+                // loading or serialization failure also rolls back creation.
+                return response()->json($dish->load([
+                    'assets',
+                    'latestScan',
+                    'suggestedDishes.assets',
+                    'relatedDishes.assets',
+                    'dishIngredients.ingredient',
+                ]), 201);
+            });
+        } catch (Throwable $exception) {
+            $assetService->discardStagedFiles($stagedFiles);
+
+            throw $exception;
         }
-
-        if ($request->hasFile('usdz_file')) {
-            $this->storeUploadedAsset($dish, $request->file('usdz_file'), 'usdz');
-        }
-
-        return response()->json($dish->load([
-            'assets',
-            'latestScan',
-            'suggestedDishes.assets',
-            'relatedDishes.assets',
-            'dishIngredients.ingredient',
-        ]), 201);
     }
 
     public function show(Request $request, Dish $dish): JsonResponse
@@ -633,19 +643,15 @@ class DishController extends Controller
         }
     }
 
-    private function storeUploadedAsset(Dish $dish, \Illuminate\Http\UploadedFile $file, string $type): DishAsset
+    private function storeUploadedAsset(Dish $dish, \Illuminate\Http\UploadedFile $file, string $type, Closure $trackFile): DishAsset
     {
-        $originalName = basename((string) $file->getClientOriginalName());
-        if ($originalName === '') {
-            $originalName = $type === 'usdz' ? 'model.usdz' : 'model.glb';
+        $directory = "dishes/{$dish->id}";
+        $fileName = $type.'-'.Str::uuid().'.'.strtolower($file->getClientOriginalExtension());
+        $path = "{$directory}/{$fileName}";
+        $trackFile('public', $path);
+        if ($file->storeAs($directory, $fileName, 'public') === false) {
+            throw new RuntimeException('Failed to store the uploaded model asset.');
         }
-
-        $path = $file->storeAs("dishes/{$dish->id}", $originalName, 'public');
-
-        $dish->assets()->where('asset_type', $type)->get()->each(function (DishAsset $existingAsset): void {
-            $this->deleteStoredAssetFile($existingAsset);
-            $existingAsset->delete();
-        });
 
         $asset = DishAsset::create([
             'uuid' => (string) Str::uuid(),
