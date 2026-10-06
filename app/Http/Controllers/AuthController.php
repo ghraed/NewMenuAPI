@@ -7,6 +7,7 @@ use App\Services\FeatureFlagService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
@@ -92,6 +93,20 @@ class AuthController extends Controller
         return response()->json([
             'message' => __('messages.auth.logged_out'),
         ]);
+    }
+
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'name' => ['sometimes', 'required', 'string', 'max:255'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:40', Rule::unique('users', 'phone')->ignore($user->id)],
+            'password' => ['sometimes', 'required', 'string', 'min:8', 'max:255', 'confirmed'],
+        ]);
+
+        $user->update($validated);
+
+        return $this->me($request);
     }
 
     private function formatAuthenticatedUser(User $user, mixed $restaurant): array

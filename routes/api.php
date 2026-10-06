@@ -133,6 +133,7 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
 
     // Auth
     Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::patch('/auth/me', [AuthController::class, 'updateProfile']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
     Route::middleware('role:admin,staff,chef,stock_manager')->group(function () {
