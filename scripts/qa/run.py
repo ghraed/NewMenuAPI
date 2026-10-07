@@ -168,10 +168,11 @@ def main():
             command('api-migrations', ['php', 'artisan', 'migrate:fresh', '--env=testing', '--force'])
             command('api-full', ['php', 'artisan', 'test', '--log-junit', str(evidence/'api-junit.xml')])
             command('api-build', ['npm', 'run', 'build'])
+            command('api-tooling', ['npm', 'run', 'test:tooling'])
             command('composer-validate', ['composer', 'validate', '--no-check-publish'])
-            command('api-pint', ['vendor/bin/pint', '--test'], required=False)
-            command('composer-audit', ['composer', 'audit', '--format=json'], required=False)
-            command('api-npm-audit', ['npm', 'audit', '--json'], required=False)
+            command('api-pint', ['vendor/bin/pint', '--test'])
+            command('composer-audit', ['composer', 'audit', '--format=json'])
+            command('api-npm-audit', ['npm', 'audit', '--json'])
         if react:
             env['DB_DATABASE'] = browser_db
             command('browser-environment', ['php', 'scripts/qa/environment.php'])
@@ -185,7 +186,7 @@ def main():
             web = background('react-server', ['npm', 'run', 'preview', '--', '--mode', 'qa', '--host', '127.0.0.1', '--port', str(web_port), '--strictPort', '--outDir', str(runtime/'frontend')], react)
             wait_ready(web, lambda: urllib.request.urlopen(web_url+'/api/__qa/environment', timeout=2).close())
             command('react-e2e', ['npm', 'run', 'test:e2e'], react)
-            command('react-npm-audit', ['npm', 'audit', '--json'], react, required=False)
+            command('react-npm-audit', ['npm', 'audit', '--json'], react)
     except (Exception, KeyboardInterrupt) as error:
         exit_code = 1
         # Do not include command/environment dumps (which may contain credentials).

@@ -8,7 +8,7 @@ python3 scripts/qa/run.py --react-root ../Menu_React --run-id QA_20261007_exampl
 
 Choose a new run ID and evidence directory each time. Evidence directories cannot already exist. No normal `.env` file is edited. The runner records both branches, commits and working trees before execution. A dirty working tree is recorded, never discarded.
 
-Prerequisites: Linux, Python 3, MySQL 8 `mysqld` and `mysql`, PHP 8.4 with the Composer-required extensions, Composer 2, Node 22/npm, Google Chrome (`google-chrome`), Poppler (`pdftotext`) and fonts supporting Arabic (e.g. `fonts-noto-core`). Chrome also needs its usual Linux shared libraries. Install the locked project dependencies with `composer install --no-interaction --prefer-dist` and `npm ci` in the API, and `npm ci` in the frontend. Do not run `composer setup` (it migrates the default database). Composer's install hooks perform package discovery, not migrations.
+Prerequisites: Linux, Python 3, MySQL 8 `mysqld` and `mysql`, PHP 8.4 with the Composer-required extensions, Composer 2, Node >=22.12/npm, Google Chrome (`google-chrome`), Poppler (`pdftotext`) and fonts supporting Arabic (e.g. `fonts-noto-core`). Chrome also needs its usual Linux shared libraries. Install the locked project dependencies with `composer install --no-interaction --prefer-dist` and `npm ci` in the API, and `npm ci` in the frontend. Do not run `composer setup` (it migrates the default database). Composer's install hooks perform package discovery, not migrations.
 
 The runner requires no Docker daemon or DB administrator access. It initializes a **new MySQL data directory**, ignoring host MySQL option files, and binds a new server to an available loopback port. It creates a restricted synthetic user with access only to:
 
@@ -19,7 +19,7 @@ The empty database password is confined to this disposable loopback instance; it
 
 Before migrations, the runner boots the QA preflight and records effective `APP_ENV=testing`, URL, MySQL host/port/schema, isolated storage and safe transport drivers. The guarded QA HTTP entrypoint uses a file cache under this run's isolated storage so POS idempotency can be verified across real requests; fixture cleanup flushes only that owned cache. PHPUnit retains its safe array-cache default. Credentials inherited from the shell are discarded. Known mail/payment/SMS/AI/push/storage credentials are blanked, the testing safety provider remains active, and QA HTTP requests cannot make stray Laravel HTTP calls. The frontend is built with `VITE_API_URL=/api`, blank realtime keys, a synthetic guest slug and a proxy to only this run's API. It serves the resulting build, not an existing developer server.
 
-Actual commands executed: `php artisan migrate:fresh --env=testing --force`, `php artisan test --log-junit ...`, API `npm run build`, `composer validate --no-check-publish`, `vendor/bin/pint --test`, `composer audit --format=json`, and `npm audit --json`. With the frontend selected: `npm run lint`, `npm run test:unit` with JUnit reporting, `npm run build -- --mode qa --outDir ...`, `npm run preview` with loopback/strict port, and `npm run test:e2e`. No dependency versions are changed.
+Actual commands executed: `php artisan migrate:fresh --env=testing --force`, `php artisan test --log-junit ...`, API `npm run build`, `npm run test:tooling`, `composer validate --no-check-publish`, `vendor/bin/pint --test`, `composer audit --format=json`, and `npm audit --json`. With the frontend selected: `npm run lint`, `npm run test:unit` with JUnit reporting, `npm run build -- --mode qa --outDir ...`, `npm run preview` with loopback/strict port, and `npm run test:e2e`. No dependency versions are changed.
 
 `--browser-only --react-root ../Menu_React` runs frontend lint/unit/build/browser checks without repeating the API suite. Omitting `--react-root` runs the API gates only. Direct Playwright execution now requires the explicit runner environment and rejects absent or remote targets before creating a browser or fixture.
 
@@ -31,7 +31,7 @@ Evidence includes `repository-environment.json`, effective environment logs, API
 
 The runner stops owned API/frontend processes, shuts MySQL down through **its private socket**, and removes only its runtime directory, databases and storage. This also handles ordinary errors and Ctrl+C. If shutdown fails it exits nonzero, records a blocker and retains the owned runtime for diagnosis instead of removing active data. Never stop another MySQL instance to resolve a cleanup issue. SIGKILL or host power loss cannot guarantee automatic cleanup; use the retained owner file and recorded private socket to identify this run before manual cleanup.
 
-Required test/build failures stop dependent execution and exit nonzero. Skipped JUnit cases cannot satisfy the baseline gate. Audit/style failures are recorded as FAIL and surfaced in CI summaries; these checks are deliberately observational until Task 7 resolves the known baseline. A green functional job is not a clean security audit or launch approval.
+Required test/build failures stop dependent execution and exit nonzero. Skipped JUnit cases cannot satisfy the baseline gate. After Task 7, audit/style checks are required gates: nonzero results stop execution, and unreachable advisory services are BLOCKED. A green functional job is not launch approval.
 
 ## CI and paired rollout
 
@@ -112,3 +112,8 @@ not a safe rollback target. The locally verified digest is recorded in Task 6 ev
 deployment approval, registry publication and fleet rollback rehearsal remain unexecuted.
 
 Chrome PDF options: [official headless documentation](https://developer.chrome.com/docs/automation-and-testing/headless).
+
+Task 7 security dependency decisions and scoped shell-quote override review: see
+`Menu_React/docs/testing/task-7-2026-10-07/`. The override is restricted to
+concurrently and can be removed when upstream pins a safe version and the audit
+and argument/cleanup regressions pass. Frontend unit tooling requires Node >=22.12.

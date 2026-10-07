@@ -61,7 +61,7 @@ jobs:
         working-directory: Menu_React
       - name: Fresh migrations, full API suite, builds and paired browser gates
         run: python3 scripts/qa/run.py --react-root ../Menu_React --run-id "ci_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}" --evidence "$RUNNER_TEMP/menu-api-evidence"
-      - name: Publish known audit/style failures in the job summary
+      - name: Publish audit and formatting gate results in the job summary
         if: always()
         env:
           QA_RESULTS: ${{ runner.temp }}/menu-api-evidence/checks.json
@@ -71,7 +71,7 @@ jobs:
           from pathlib import Path
           path = Path(os.environ['QA_RESULTS'])
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              summary.write('Known audit/style findings remain tracked under roadmap Task 7.\n\n')
+              summary.write('Security audits and formatting are required gates after Task 7.\n\n')
               if path.exists():
                   for check in json.loads(path.read_text()):
                       summary.write(f"- {check['check']}: **{check['status']}**\n")
