@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\TableSession;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -103,25 +104,41 @@ final class InvoicePdfService
             throw new RuntimeException('No headless Chrome binary is available for invoice PDF generation.');
         }
 
+        // Separate writable profiles prevent concurrent exports sharing Chrome state.
+        $profile = $htmlPath.'-chrome';
+        if (! mkdir($profile, 0700)) {
+            throw new RuntimeException('Unable to prepare the invoice browser profile.');
+        }
+
         $process = new Process([
             $browser,
             '--headless=new',
             '--disable-gpu',
+            '--disable-dev-shm-usage',
+            '--user-data-dir='.$profile,
             '--no-sandbox',
             '--run-all-compositor-stages-before-draw',
             '--print-to-pdf='.$pdfPath,
-            '--print-to-pdf-no-header',
+            '--no-pdf-header-footer',
             'file://'.$htmlPath,
         ]);
+        $process->setEnv([
+            'XDG_CONFIG_HOME' => $profile,
+            'XDG_CACHE_HOME' => $profile.'/cache',
+        ]);
         $process->setTimeout(120);
-        $process->run();
+        try {
+            $process->run();
 
-        if (! $process->isSuccessful()) {
-            throw new ProcessFailedException($process);
-        }
+            if (! $process->isSuccessful()) {
+                throw new ProcessFailedException($process);
+            }
 
-        if (! is_file($pdfPath) || filesize($pdfPath) === 0) {
-            throw new RuntimeException('Invoice PDF was not generated.');
+            if (! is_file($pdfPath) || filesize($pdfPath) === 0) {
+                throw new RuntimeException('Invoice PDF was not generated.');
+            }
+        } finally {
+            File::deleteDirectory($profile);
         }
     }
 

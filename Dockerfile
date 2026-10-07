@@ -3,7 +3,7 @@ FROM php:8.4-apache
 # System deps
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    git curl unzip webp \
+    git curl unzip webp chromium fonts-noto-core \
     libpng-dev libjpeg-dev libfreetype6-dev libwebp-dev \
     libonig-dev libxml2-dev libzip-dev \
   && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
@@ -30,7 +30,9 @@ COPY . .
 RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
 # Permissions
-RUN mkdir -p /var/www/storage /var/www/bootstrap/cache \
+RUN mkdir -p /var/www/storage/app/private /var/www/storage/app/public \
+    /var/www/storage/framework/cache/data /var/www/storage/framework/sessions \
+    /var/www/storage/framework/views /var/www/storage/logs /var/www/bootstrap/cache \
   && chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint

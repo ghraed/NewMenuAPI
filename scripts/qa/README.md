@@ -46,3 +46,69 @@ After reviewing actual remote executions, configure repository branch protection
 Rollback: revert only the paired Task 0 tooling changes after review. No application routes, money rules, deployed migrations, settled invoices, tenant permissions or dependency locks change. Remove the QA CI checks from branch protection first if intentionally withdrawing the tooling. Production Docker secret/PDF packaging remains Tasks 6/7 and is not verified by these host-based QA checks.
 
 Workflow semantics and artifact retention follow the [GitHub Actions documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) and [upload-artifact documentation](https://github.com/actions/upload-artifact).
+
+## Release image verification (roadmap Task 6)
+
+Use the same `Dockerfile` as deployment, with no source bind mount:
+
+```sh
+python3 -m unittest discover -s scripts/qa/release-tests -v
+docker build --progress=plain -t menu-api-qa-task6:local .
+python3 scripts/qa/release.py --image menu-api-qa-task6:local --run-id task6_example --evidence /tmp/menu-release-task6-example
+```
+
+Requires a local Docker daemon, a previously available `mysql:8.0` image and host
+Poppler tools (`pdftotext`, `pdffonts`, `pdfinfo`, `pdftoppm`). The runner never invokes the production/default Compose files, forwards
+host credentials, publishes MySQL, or touches existing containers/volumes. It uses
+unique container names and a new **internal** network (no runtime internet access),
+a synthetic runtime env file, a new MySQL schema and ephemeral database volume.
+The HTTP client runs as `www-data` inside the image and speaks real HTTP to Apache
+on container loopback (`http://127.0.0.1:80`); no host port is published. All credentials
+are discarded with the temporary directory. Every owned container, anonymous volume
+and network is removed on completion/failure; evidence retains no keys or bearer tokens.
+
+The context regression uses Docker's real COPY matcher against synthetic files only.
+The release runner scans all image layers for application env files and cached config,
+boots with APP_ENV=testing and the application's safety provider, executes fresh
+migrations and config caching through the actual entrypoint, and verifies the supplied
+key survives caching. It seeds two synthetic tenants without requiring development
+Composer dependencies. Real authenticated HTTP requests verify a 142-item mixed
+Arabic/English invoice, independent EUR 184.00 total, private PDF response, cached
+reuse, foreign-tenant 404 and anonymous 401. Both tenants explicitly enable the registered
+invoice routes' finance_dashboard, vat_invoices and expense_management flags. Fixtures, the HTTP client and Chrome execute as `www-data`; private PDF file
+ownership also verifies the actual Apache user.
+PHP/Chromium versions, font selection, effective config, sanitized HTTP statuses,
+PDF and extracted text are retained. Application workers retain their established
+entrypoint/command behavior; operational worker/scheduler delivery remains Task 8.
+
+## Runtime configuration and rollback
+
+All `.env*` files (including examples), `*.env`, Composer authentication files and
+cached Laravel configuration are excluded from the build context. Build without
+runtime keys/passwords; never use build arguments for secrets. Existing production
+Compose `env_file: .env.production` / `docker/db.env` remains the configuration mechanism:
+Compose reads these files on the deployment host and passes values at runtime, without
+copying them into the image. Supply the **existing** APP_KEY to app, worker, scheduler
+and realtime services. Missing APP_KEY stops startup before DB access; startup never
+writes `.env` or generates/rotates a key. Mounted runtime `.env` alone is insufficient:
+export APP_KEY through the orchestrator/env_file. Preserve the existing DB settings,
+bridge/storage volumes and worker/scheduler commands. Recreate services after config
+changes so each service regenerates/uses its own runtime config; do not reuse a baked
+config.php. After runtime Artisan initialization, the root entrypoint restores storage/cache
+ownership to Apache's `www-data` user, including newly populated named volumes.
+
+Chromium and Noto Arabic fonts are installed by the Debian-based PHP image. Each PDF
+uses a private temporary profile, cleaned even on browser failure, with writable XDG configuration/cache directories, and `/tmp` instead
+of the container's small `/dev/shm`. The existing `--no-sandbox` behavior is retained;
+this task does not introduce a sandbox policy change. `/tmp` and private storage must
+be writable. Existing invoice private-storage paths and cache behavior are retained.
+
+Before an authorized release, retain the approved, tested image digest and the previous
+**known working, secret-free** image digest. Roll back by recreating the same services
+with that retained image and the same runtime APP_KEY, DB configuration and storage
+volumes; do not roll back data or rotate keys. There are no schema migrations in Task 6.
+No previous deployed image was provided/inspected here; the audited image recipe is
+not a safe rollback target. The locally verified digest is recorded in Task 6 evidence;
+deployment approval, registry publication and fleet rollback rehearsal remain unexecuted.
+
+Chrome PDF options: [official headless documentation](https://developer.chrome.com/docs/automation-and-testing/headless).

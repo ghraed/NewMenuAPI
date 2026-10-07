@@ -15,9 +15,11 @@ class ReleaseConfigTest(unittest.TestCase):
             root = Path(folder)
             (root / '.env.production').write_text('APP_KEY=QA_RUN_secret_canary\n')
             (root / '.env.example').write_text('APP_KEY=\n')
-            # Relocate only the application directory; no real configuration is loaded.
+            (root / 'storage').mkdir()
+            (root / 'bootstrap/cache').mkdir(parents=True)
+            # Relocate every application path; no real configuration is loaded.
             entry = root / 'entrypoint.sh'
-            entry.write_text(source.replace('cd /var/www', 'cd "' + folder + '"'))
+            entry.write_text(source.replace('/var/www', folder))
             php = root / 'php'
             php.write_text('#!/bin/sh\necho "$*" >> "$QA_CALLS"\n')
             php.chmod(0o755)
@@ -32,6 +34,7 @@ class ReleaseConfigTest(unittest.TestCase):
             self.assertEqual(0, ready.returncode, ready.stderr.decode())
             self.assertFalse((root / '.env').exists())
             self.assertFalse((root / 'calls').exists())
+            self.assertEqual('APP_KEY=QA_RUN_secret_canary\n', (root / '.env.production').read_text())
 
     def test_docker_context_excludes_secret_variants_and_cached_configuration(self):
         with tempfile.TemporaryDirectory(prefix='menu-context-test-') as folder:
@@ -42,7 +45,7 @@ class ReleaseConfigTest(unittest.TestCase):
             (context / 'Dockerfile').write_text('FROM scratch\nCOPY . /\n')
             secret_paths = ['.env', '.env.production', '.env.testing', '.env.backup',
                             '.env.example', 'nested/.env.production', 'docker/db.env',
-                            'nested/service.env', 'bootstrap/cache/config.php']
+                            'nested/service.env', 'auth.json', 'nested/auth.json', 'bootstrap/cache/config.php']
             for name in secret_paths:
                 target = context / name
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -56,6 +59,10 @@ class ReleaseConfigTest(unittest.TestCase):
             leaked = [name for name in secret_paths if (root / 'export' / name).exists()]
             self.assertEqual([], leaked, 'Secret-bearing filenames reached Docker COPY')
 
+    def test_docker_recipe_installs_browser_and_arabic_fonts(self):
+        source = (ROOT / 'Dockerfile').read_text()
+        self.assertIn('chromium', source)
+        self.assertIn('fonts-noto-core', source)
 
 
 if __name__ == '__main__':

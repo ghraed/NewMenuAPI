@@ -31,6 +31,12 @@ if [ "${RUN_CONFIG_CACHE:-true}" = "true" ]; then
   fi
 fi
 
+# Runtime Artisan commands and newly mounted storage can create root-owned paths.
+# Apache renders PDFs as www-data, so retain writable private storage/cache paths.
+if [ "$(id -u)" = "0" ]; then
+  chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
+fi
+
 if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
