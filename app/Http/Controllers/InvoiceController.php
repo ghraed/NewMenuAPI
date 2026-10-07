@@ -122,18 +122,18 @@ class InvoiceController extends Controller
         $invoice->loadMissing('items');
 
         $complaintAdjustments = PosComplaintAdjustment::query()
-                ->where('restaurant_id', $restaurant->id)
-                ->where('original_invoice_id', $invoice->id)
-                ->with('gifts')
-                ->latest()
-                ->get()
-                ->map(fn (PosComplaintAdjustment $adjustment): array => [
-                    'id' => $adjustment->id, 'status' => $adjustment->status, 'reason' => $adjustment->complaint_reason,
-                    'category' => $adjustment->complaint_category, 'note' => $adjustment->complaint_note,
-                    'refund_amount' => $adjustment->refund_amount, 'accounting_bucket' => $adjustment->accounting_bucket,
-                    'posted_at' => $adjustment->posted_at?->toIso8601String(),
-                    'gifts' => $adjustment->gifts->map(fn ($gift): array => ['dish_name' => $gift->dish_name_snapshot, 'quantity' => $gift->quantity, 'line_value' => $gift->line_value])->values(),
-                ])->values();
+            ->where('restaurant_id', $restaurant->id)
+            ->where('original_invoice_id', $invoice->id)
+            ->with('gifts')
+            ->latest()
+            ->get()
+            ->map(fn (PosComplaintAdjustment $adjustment): array => [
+                'id' => $adjustment->id, 'status' => $adjustment->status, 'reason' => $adjustment->complaint_reason,
+                'category' => $adjustment->complaint_category, 'note' => $adjustment->complaint_note,
+                'refund_amount' => $adjustment->refund_amount, 'accounting_bucket' => $adjustment->accounting_bucket,
+                'posted_at' => $adjustment->posted_at?->toIso8601String(),
+                'gifts' => $adjustment->gifts->map(fn ($gift): array => ['dish_name' => $gift->dish_name_snapshot, 'quantity' => $gift->quantity, 'line_value' => $gift->line_value])->values(),
+            ])->values();
 
         return response()->json([
             'invoice' => [
