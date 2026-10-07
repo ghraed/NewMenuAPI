@@ -174,6 +174,9 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
         });
     });
 
+    Route::get('/pos/compensation-report', \App\Http\Controllers\CompensationReportController::class)
+        ->middleware(['role:admin,accountant,staff', 'feature:table_ordering']);
+
     Route::middleware(['role:admin,accountant,staff', 'feature:table_ordering'])->group(function () {
         Route::get('/pos/completed-sales', [PosComplaintAdjustmentController::class, 'searchSales']);
         Route::get('/pos/orders/{order}/complaint-adjustments', [PosComplaintAdjustmentController::class, 'index']);
