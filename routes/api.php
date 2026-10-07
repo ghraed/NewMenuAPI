@@ -61,18 +61,18 @@ Route::prefix('ai-chat')
         Route::get('/session/{uuid}', [AiChatController::class, 'getSession']);
     });
 Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat-orders'])
-    ->post('/chat/orders', [OrderController::class, 'storeChatOrder']);
+    ->post('/chat/orders', [OrderController::class, 'storeChatOrder'])->middleware('new.commerce:chat');
 Route::get('/test', [GuestController::class, 'test']);
 Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
 Route::get('/menu/dishes', [GuestController::class, 'listDishes'])->middleware('feature:qr_menu');
 Route::get('/menu/dish/{dish_id}', [GuestController::class, 'showDish'])->middleware('feature:qr_menu');
 Route::get('/menu/tables', [GuestController::class, 'listTables'])->middleware('feature:qr_menu');
-Route::post('/menu/orders', [OrderController::class, 'store'])->middleware('feature:table_ordering');
+Route::post('/menu/orders', [OrderController::class, 'store'])->middleware(['feature:table_ordering', 'new.commerce:guest']);
 Route::post('/menu/waves', [WaveController::class, 'store'])->middleware('feature:waiter_call');
 Route::get('/menu/{restaurant_slug}/dishes', [GuestController::class, 'listDishesBySlug'])->middleware('feature:qr_menu');
 Route::get('/menu/{restaurant_slug}/dish/{dish_id}', [GuestController::class, 'showDishBySlug'])->middleware('feature:qr_menu');
 Route::get('/menu/{restaurant_slug}/tables', [GuestController::class, 'listTablesBySlug'])->middleware('feature:qr_menu');
-Route::post('/menu/{restaurant_slug}/orders', [OrderController::class, 'store'])->middleware('feature:table_ordering');
+Route::post('/menu/{restaurant_slug}/orders', [OrderController::class, 'store'])->middleware(['feature:table_ordering', 'new.commerce:guest']);
 Route::post('/menu/{restaurant_slug}/waves', [WaveController::class, 'store'])->middleware('feature:waiter_call');
 Route::get('/menu/table/{table_id}', [MenuController::class, 'showTableMenu'])->middleware('feature:qr_menu');
 Route::get('/menu/table/{table_id}/dish/{dish_id}', [MenuController::class, 'showTableDish'])->middleware('feature:qr_menu');
@@ -80,7 +80,7 @@ Route::post('/menu/table/{table_id}/verify-pin', [GuestTableAccessController::cl
 Route::get('/reservations/room-plans', [PublicReservationController::class, 'listRoomPlans'])->middleware('feature:table_reservations');
 Route::get('/reservations/room-plans/{roomPlan}', [PublicReservationController::class, 'showRoomPlan'])->middleware('feature:table_reservations');
 Route::get('/reservations/availability', [PublicReservationController::class, 'availability'])->middleware('feature:table_reservations');
-Route::post('/reservations', [PublicReservationController::class, 'store'])->middleware('feature:table_reservations');
+Route::post('/reservations', [PublicReservationController::class, 'store'])->middleware(['feature:table_reservations', 'new.commerce:guest']);
 Route::middleware('guest.table.access')->group(function () {
     Route::post('/table-session/{tableSession}/heartbeat', [TableSessionController::class, 'heartbeat'])
         ->middleware('feature:qr_menu');
@@ -91,7 +91,7 @@ Route::middleware('guest.table.access')->group(function () {
     Route::patch('/table-session/{tableSession}/invoice-split', [TableSessionController::class, 'updateGuestInvoiceSplit'])
         ->middleware('feature:invoice_splitting');
     Route::post('/table-session/{tableSession}/order', [OrderController::class, 'storeForSession'])
-        ->middleware('feature:table_ordering');
+        ->middleware(['feature:table_ordering', 'new.commerce:session']);
     Route::post('/table-session/{tableSession}/call-waiter', [WaveController::class, 'storeForSession'])
         ->middleware('feature:waiter_call');
     Route::post('/table-session/{tableSession}/request-bill', [TableSessionController::class, 'requestBill'])
@@ -151,7 +151,7 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
             Route::post('/orders/{order}/served', [OrderController::class, 'markServed']);
             Route::post('/orders/{order}/undo-served', [OrderController::class, 'undoMarkServed']);
             Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
-            Route::post('/table-sessions/activate', [TableSessionController::class, 'activate']);
+            Route::post('/table-sessions/activate', [TableSessionController::class, 'activate'])->middleware('new.commerce:staff');
             Route::post('/table-sessions/{tableSession}/reset-pin', [TableSessionController::class, 'resetPin']);
             Route::post('/table-sessions/{tableSession}/finalize', [TableSessionController::class, 'finalize']);
             Route::get('/dishes/published', [OrderController::class, 'publishedDishes']);
@@ -163,7 +163,7 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
         Route::get('/pos/capabilities', [OrderController::class, 'posCapabilities'])
             ->middleware('feature:table_ordering');
         Route::post('/pos/checkout', [OrderController::class, 'quickCheckout'])
-            ->middleware('feature:table_ordering');
+            ->middleware(['feature:table_ordering', 'new.commerce:staff']);
         Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');
         Route::post('/push/subscriptions', [PushSubscriptionController::class, 'store'])->middleware('feature:push_notifications');
         Route::post('/push/mobile-token', [PushSubscriptionController::class, 'storeMobileToken']);
@@ -227,7 +227,7 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
         Route::get('/admin/finance/invoices', [InvoiceController::class, 'index'])
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
         Route::post('/admin/finance/invoices', [InvoiceController::class, 'store'])
-            ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
+            ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management', 'new.commerce:staff']);
         Route::get('/admin/finance/invoices/{invoice}/pdf', [InvoiceController::class, 'downloadPdf'])
             ->middleware(['feature:finance_dashboard', 'feature:vat_invoices', 'feature:expense_management']);
         Route::get('/admin/finance/invoices/{invoice}', [InvoiceController::class, 'show'])
@@ -301,7 +301,7 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
         Route::put('/restaurant/table-management/manual-count', [RestaurantController::class, 'updateManualTableCount']);
 
         Route::middleware('feature:table_reservations')->group(function () {
-            Route::post('/admin/reservations', [ReservationController::class, 'store']);
+            Route::post('/admin/reservations', [ReservationController::class, 'store'])->middleware('new.commerce:staff');
             Route::patch('/admin/reservations/{reservation}', [ReservationController::class, 'update']);
             Route::post('/admin/reservations/{reservation}/cancel', [ReservationController::class, 'cancel']);
             Route::post('/admin/reservations/{reservation}/busy', [ReservationController::class, 'markBusy']);
@@ -312,7 +312,7 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
 
     Route::middleware(['role:admin,chef,stock_manager', 'feature:event_reservations'])->group(function () {
         Route::get('/admin/events', [AdminEventReservationController::class, 'index']);
-        Route::post('/admin/events', [AdminEventReservationController::class, 'store']);
+        Route::post('/admin/events', [AdminEventReservationController::class, 'store'])->middleware('new.commerce:staff');
         Route::get('/admin/events/{event}', [AdminEventReservationController::class, 'show']);
         Route::patch('/admin/events/{event}', [AdminEventReservationController::class, 'update']);
         Route::post('/admin/events/{event}/confirm', [AdminEventReservationController::class, 'confirm']);
@@ -320,7 +320,7 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
         Route::post('/admin/events/{event}/complete', [AdminEventReservationController::class, 'complete']);
         Route::put('/admin/events/{event}/menu-items', [AdminEventReservationController::class, 'replaceMenuItems']);
         Route::get('/admin/events/{event}/forecast', [AdminEventReservationController::class, 'forecast']);
-        Route::post('/admin/events/{event}/generate-order-draft', [AdminEventReservationController::class, 'generateOrderDraft']);
+        Route::post('/admin/events/{event}/generate-order-draft', [AdminEventReservationController::class, 'generateOrderDraft'])->middleware('new.commerce:staff');
     });
 
     Route::middleware(['role:admin,chef,stock_manager'])->group(function () {

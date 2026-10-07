@@ -594,6 +594,8 @@ class OrderController extends Controller
 
         $order->loadMissing('items', 'restaurant', 'restaurantTable');
 
+        app(\App\Services\RestaurantCommercePolicy::class)->assertPendingOrderEdit($restaurant, $order, $validated['items']);
+
         $preparedItems = $this->preparePendingOrderUpdateItems(
             $restaurant,
             $order,

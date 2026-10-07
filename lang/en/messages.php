@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'restaurant' => [
+        'inactive_commerce' => 'This restaurant is inactive and cannot accept new orders, sales, reservations or table sessions.',
+    ],
     'auth' => [
         'invalid_credentials' => 'Invalid email, phone number, or password',
         'missing_restaurant' => 'No restaurant is linked to this account',
