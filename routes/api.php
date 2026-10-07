@@ -160,6 +160,8 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
         });
         Route::get('/table-sessions/{tableSession}/invoice-split', [TableSessionController::class, 'invoiceSplit'])
             ->middleware('feature:invoice_splitting');
+        Route::get('/pos/capabilities', [OrderController::class, 'posCapabilities'])
+            ->middleware('feature:table_ordering');
         Route::post('/pos/checkout', [OrderController::class, 'quickCheckout'])
             ->middleware('feature:table_ordering');
         Route::get('/push/config', [PushSubscriptionController::class, 'config'])->middleware('feature:push_notifications');

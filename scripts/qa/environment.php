@@ -9,6 +9,7 @@ echo json_encode([
     'host' => config('database.connections.mysql.host'),
     'port' => (int) config('database.connections.mysql.port'),
     'storage' => storage_path(),
+    'cache' => config('cache.default'),
     'mail' => config('mail.default'),
     'broadcast' => config('broadcasting.default'),
     'queue' => config('queue.default'),

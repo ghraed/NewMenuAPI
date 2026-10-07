@@ -34,4 +34,12 @@ if ($app->environment() !== 'testing' || config('database.default') !== 'mysql'
     throw new RuntimeException('Effective application configuration is not the isolated QA target.');
 }
 
+// POS retries must be tested across HTTP requests; array cache exists for one request only.
+// This owned QA entrypoint uses a persistent cache entirely inside the verified runtime.
+$app['config']->set([
+    'cache.default' => 'file',
+    'cache.stores.file.path' => $runtime.'/storage/framework/cache/data',
+    'cache.stores.file.lock_path' => $runtime.'/storage/framework/cache/data',
+]);
+
 return $app;

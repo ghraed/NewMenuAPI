@@ -1449,6 +1449,118 @@ class OrderController extends Controller
         ]);
     }
 
+    private function preparePosCatalogItems(Restaurant $restaurant, array $intents): array
+    {
+        $uniqueIntents = collect($intents)->unique('dish_id')->values()->all();
+        $catalog = collect($this->prepareOrderItems($restaurant, $uniqueIntents))->keyBy('dish_id');
+
+        return array_map(function (array $intent) use ($catalog): array {
+            $item = $catalog->get((int) $intent['dish_id']);
+            $item['quantity'] = (int) $intent['quantity'];
+            $item['line_subtotal'] = Money::formatCents(Money::toCents($item['unit_price']) * $item['quantity']);
+
+            return $item;
+        }, $intents);
+    }
+
+    public function posCapabilities(Request $request): JsonResponse
+    {
+        $this->getRestaurantForRequest($request);
+
+        return response()->json([
+            'compensation_version' => 1,
+            'can_compensate' => in_array($request->user()->role, ['admin', 'accountant'], true),
+        ]);
+    }
+
+    private function normalizePosCheckoutPayload(array $validated): array
+    {
+        // Canonical ordering only; every validated financial field participates in the hash.
+        usort($validated['items'], fn (array $a, array $b): int => $a['dish_id'] <=> $b['dish_id']);
+        foreach ($validated['items'] as &$item) {
+            ksort($item);
+        }
+        unset($item);
+        ksort($validated);
+
+        return $validated;
+    }
+
+    private function preparePosCompensationItems(User $actor, array $intents, array $items): array
+    {
+        foreach ($items as $index => &$item) {
+            $intent = $intents[$index];
+            $type = $intent['compensation_type'] ?? 'none';
+            $complimentary = ($intent['is_complimentary'] ?? false) || $type === 'complimentary';
+            $status = $intent['status'] ?? ($complimentary ? 'compensated' : 'normal');
+            $adjusted = $status !== 'normal' || $type !== 'none' || $complimentary;
+            if (! $adjusted) {
+                continue;
+            }
+            abort_unless(in_array($actor->role, ['admin', 'accountant'], true), 403, 'Only Admin or Accountant can approve POS compensation.');
+            $reason = $this->normalizeOptionalString($intent['compensation_reason'] ?? null);
+            if ($status === 'normal' || $reason === null) {
+                throw ValidationException::withMessages(["items.$index.compensation_reason" => 'Compensation requires a non-normal status and a complaint reason.']);
+            }
+            if ($complimentary && ! in_array($type, ['none', 'complimentary'], true)) {
+                throw ValidationException::withMessages(["items.$index.compensation_type" => 'Conflicting complimentary compensation intent.']);
+            }
+            $type = $complimentary ? 'complimentary' : $type;
+            $originalCents = Money::toCents($item['unit_price']);
+            $finalCents = $originalCents;
+            $discountType = null;
+            $discountValue = null;
+            $percentage = null;
+            if ($type === 'partial_discount') {
+                if ($status === 'cancelled') {
+                    throw ValidationException::withMessages(["items.$index.compensation_type" => 'Cancelled lines require a full waiver.']);
+                }
+                $discountType = $intent['partial_discount_type'] ?? 'percentage';
+                $discountValue = $intent['partial_discount_value'] ?? ($discountType === 'percentage' ? ($intent['partial_discount_percentage'] ?? null) : null);
+                if ($discountValue === null || ($discountType === 'percentage' && (float) $discountValue > 100)) {
+                    throw ValidationException::withMessages(["items.$index.partial_discount_value" => 'Partial discount requires a valid fixed amount or percentage.']);
+                }
+                if (isset($intent['partial_discount_percentage']) && ($discountType !== 'percentage' || Money::toScaledInt($intent['partial_discount_percentage'], 2) !== Money::toScaledInt($discountValue, 2))) {
+                    throw ValidationException::withMessages(["items.$index.partial_discount_percentage" => 'Conflicting partial discount intent.']);
+                }
+                $percentage = $discountType === 'percentage' ? Money::normalizeDecimal($discountValue, 2) : null;
+                // Round the retained unit price (the established accounting/UI contract), then multiply quantity.
+                $finalCents = $discountType === 'percentage'
+                    ? Money::divideAndRoundHalfUp($originalCents * (10000 - Money::toScaledInt($discountValue, 2)), 10000)
+                    : max($originalCents - Money::toCents($discountValue), 0);
+            } elseif ($status === 'cancelled' || in_array($type, ['complimentary', 'full_waiver'], true)) {
+                $finalCents = 0;
+            }
+            $category = $this->deriveOperationalLossCategory($intent['operational_loss_category'] ?? null, $reason, $status, $type);
+            $item = array_merge($item, [
+                'line_subtotal' => Money::formatCents($finalCents * $item['quantity']),
+                'status' => $status,
+                'compensation_type' => $type,
+                'compensation_reason' => $reason,
+                'complaint_category' => $intent['complaint_category'] ?? null,
+                'operational_loss_category' => $category,
+                'adjustment_action_type' => $this->deriveAdjustmentActionType(null, $status, $type, $complimentary, $category),
+                'compensation_note' => $this->normalizeOptionalString($intent['compensation_note'] ?? null),
+                'approved_by_staff_id' => $actor->id,
+                'approved_by_staff_name' => $actor->name,
+                'approved_by_staff_role' => $actor->role,
+                'approved_at' => now(),
+                'original_unit_price' => Money::formatCents($originalCents),
+                'final_unit_price' => Money::formatCents($finalCents),
+                'partial_discount_percentage' => $percentage,
+                'partial_discount_type' => $discountType,
+                'partial_discount_value' => $discountValue === null ? null : Money::normalizeDecimal($discountValue, 2),
+                'is_complimentary' => $complimentary,
+                'accounting_bucket' => $intent['accounting_bucket'] ?? null,
+                'customer_satisfaction_rating' => $intent['customer_satisfaction_rating'] ?? null,
+                'evidence_photo_url' => $this->normalizeOptionalString($intent['evidence_photo_url'] ?? null),
+            ]);
+        }
+        unset($item);
+
+        return $items;
+    }
+
     public function quickCheckout(Request $request, OrderInvoiceCalculator $invoiceCalculator): JsonResponse
     {
         $restaurant = $this->getRestaurantForRequest($request);
@@ -1457,14 +1569,43 @@ class OrderController extends Controller
             'table_reference' => 'nullable|string|max:40',
             'notes' => 'nullable|string|max:1000',
             'items' => 'required|array|min:1',
-            'items.*.dish_id' => 'required|integer|distinct',
+            'items.*.dish_id' => 'required|integer',
             'items.*.quantity' => 'required|integer|min:1|max:99',
+            'items.*.status' => 'nullable|in:normal,problematic,cancelled,compensated',
+            'items.*.compensation_type' => 'nullable|in:none,full_waiver,partial_discount,complimentary',
+            'items.*.compensation_reason' => 'nullable|string|max:80',
+            'items.*.complaint_category' => 'nullable|in:quality_control,service,safety,other',
+            'items.*.operational_loss_category' => 'nullable|in:kitchen_mistake,burned_food,wrong_order_sent,quality_complaint,customer_satisfaction_recovery',
+            'items.*.compensation_note' => 'nullable|string|max:2000',
+            'items.*.partial_discount_percentage' => 'nullable|numeric|min:0|max:100|decimal:0,2',
+            'items.*.partial_discount_type' => 'nullable|in:fixed,percentage',
+            'items.*.partial_discount_value' => 'nullable|numeric|min:0|decimal:0,2',
+            'items.*.is_complimentary' => 'nullable|boolean',
+            'items.*.accounting_bucket' => 'nullable|in:wastage,customer_complaint_loss,quality_control_loss,marketing_expense,customer_retention,goodwill_expense',
+            'items.*.customer_satisfaction_rating' => 'nullable|integer|min:1|max:5',
+            'items.*.evidence_photo_url' => 'nullable|string|max:2000',
             'vat_rate' => 'nullable|numeric|min:0|max:100',
             'service_charge_rate' => 'nullable|numeric|min:0|max:100',
             'discount_type' => 'nullable|in:fixed,percentage',
             'discount_value' => 'nullable|numeric|min:0',
             'payment_method' => 'required|in:cash,card,wallet',
         ]);
+
+        // Drop ignored legacy prices/claimed approvers from both persistence and retry identity.
+        $intentFields = ['dish_id', 'quantity', 'status', 'compensation_type', 'compensation_reason',
+            'complaint_category', 'operational_loss_category', 'compensation_note',
+            'partial_discount_percentage', 'partial_discount_type', 'partial_discount_value',
+            'is_complimentary', 'accounting_bucket', 'customer_satisfaction_rating', 'evidence_photo_url'];
+        $validated['items'] = array_map(
+            fn (array $item): array => array_intersect_key($item, array_flip($intentFields)),
+            $validated['items']
+        );
+
+        $hasCompensation = collect($validated['items'])->contains(fn (array $item): bool => ($item['status'] ?? 'normal') !== 'normal'
+            || ($item['compensation_type'] ?? 'none') !== 'none'
+            || ($item['is_complimentary'] ?? false)
+        );
+        abort_if($hasCompensation && ! in_array($request->user()->role, ['admin', 'accountant'], true), 403, 'Only Admin or Accountant can approve POS compensation.');
 
         $discountType = $validated['discount_type'] ?? null;
         $discountValue = (float) ($validated['discount_value'] ?? 0);
@@ -1480,18 +1621,6 @@ class OrderController extends Controller
             $validated['table_reference'] ?? null
         );
 
-        $preparedItems = $this->prepareOrderItems($restaurant, $validated['items']);
-        $invoice = $invoiceCalculator->calculate(
-            $preparedItems,
-            (float) ($validated['vat_rate'] ?? 0),
-            $discountType,
-            $discountValue,
-            (float) ($validated['service_charge_rate'] ?? 0)
-        );
-
-        $paymentMethod = (string) $validated['payment_method'];
-        $totalAmount = (float) $invoice['total'];
-
         $userId = (int) $request->user()->id;
 
         try {
@@ -1505,8 +1634,10 @@ class OrderController extends Controller
                     $restaurantTable,
                     $tableReference,
                     $validated,
-                    $preparedItems,
-                    $invoice,
+                    $request,
+                    $invoiceCalculator,
+                    $discountType,
+                    $discountValue,
                     $userId
                 ): Order {
                     return DB::transaction(function () use (
@@ -1514,10 +1645,21 @@ class OrderController extends Controller
                         $restaurantTable,
                         $tableReference,
                         $validated,
-                        $preparedItems,
-                        $invoice,
+                        $request,
+                        $invoiceCalculator,
+                        $discountType,
+                        $discountValue,
                         $userId
                     ) {
+                        $preparedItems = $this->preparePosCompensationItems($request->user(), $validated['items'], $this->preparePosCatalogItems($restaurant, $validated['items']));
+                        $invoice = $invoiceCalculator->calculateFromSubtotalCents(
+                            Money::sumToCents(array_column($preparedItems, 'line_subtotal')),
+                            (float) ($validated['vat_rate'] ?? 0),
+                            $discountType,
+                            $discountValue,
+                            (float) ($validated['service_charge_rate'] ?? 0)
+                        );
+
                         $order = $restaurant->orders()->create([
                             'uuid' => (string) Str::uuid(),
                             'restaurant_table_id' => $restaurantTable?->id,
@@ -1533,16 +1675,7 @@ class OrderController extends Controller
                             ...$invoice,
                         ]);
 
-                        $order->items()->createMany(array_map(
-                            fn (array $item): array => [
-                                'dish_id' => $item['dish_id'],
-                                'dish_name' => $item['dish_name'],
-                                'unit_price' => $item['unit_price'],
-                                'quantity' => $item['quantity'],
-                                'line_subtotal' => $item['line_subtotal'],
-                            ],
-                            $preparedItems
-                        ));
+                        $order->items()->createMany($preparedItems);
 
                         $order->update([
                             'order_number' => $this->formatOrderNumber($order),
@@ -1579,6 +1712,8 @@ class OrderController extends Controller
                     : __('messages.orders.confirm_failed_inventory_guard'),
                 'errors' => $exception->errors(),
             ], 422);
+        } catch (HttpResponseException|\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+            throw $exception;
         } catch (Throwable $exception) {
             report($exception);
 
@@ -1588,10 +1723,13 @@ class OrderController extends Controller
         }
 
         // POS checkout is always settled in full against the calculated invoice total.
+        $totalAmount = (float) $order->total;
+        $paymentMethod = (string) $order->payment_method;
         $effectiveAmountReceived = $totalAmount;
         $changeDue = 0.0;
 
         return response()->json([
+            'compensation_version' => 1,
             'message' => __('messages.orders.pos_checkout_completed'),
             'order' => $this->formatOrder($order),
             'inventory' => feature_enabled('ingredient_stock_deduction', $restaurant)
@@ -1629,7 +1767,7 @@ class OrderController extends Controller
 
         $payloadHash = hash(
             'sha256',
-            json_encode($this->normalizeOrderIdempotencyPayload($validated), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            json_encode($this->normalizePosCheckoutPayload($validated), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
         );
         $scope = sprintf(
             'pos-checkout:idempotency:%d:%d:%s',

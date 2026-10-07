@@ -6,6 +6,7 @@ if (getenv('DB_DATABASE') !== 'menu_test_QA_RUN_'.getenv('QA_RUN_ID').'_browser'
 }
 
 if (in_array('--clean', $argv, true)) {
+    Illuminate\Support\Facades\Cache::flush();
     Illuminate\Support\Facades\Artisan::call('db:wipe', ['--force' => true]);
     Illuminate\Support\Facades\File::deleteDirectory(storage_path('framework/testing/disks'));
     exit(0);
