@@ -1,0 +1,84 @@
+name: API QA
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      react_ref:
+        description: Reviewed companion frontend commit or branch
+        required: false
+        default: main
+permissions:
+  contents: read
+jobs:
+  api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: Menu_API
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: Menu_API
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ghraed/NewMenuReact
+          ref: ${{ inputs.react_ref || vars.MENU_QA_REACT_REF || 'main' }}
+          token: ${{ secrets.MENU_QA_READ_TOKEN || github.token }}
+          path: Menu_React
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql, mbstring, bcmath, gd, zip, pcntl
+          tools: composer:v2
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            Menu_API/package-lock.json
+            Menu_React/package-lock.json
+      - name: Install disposable QA prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-server poppler-utils fonts-noto-core
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Expose Chrome under the name used by InvoicePdfService
+        env:
+          QA_CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: sudo ln -sf "$QA_CHROME_PATH" /usr/local/bin/google-chrome
+      - run: composer install --no-interaction --prefer-dist
+      - run: npm ci
+      - run: npm ci
+        working-directory: Menu_React
+      - name: Fresh migrations, full API suite, builds and paired browser gates
+        run: python3 scripts/qa/run.py --react-root ../Menu_React --run-id "ci_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}" --evidence "$RUNNER_TEMP/menu-api-evidence"
+      - name: Publish known audit/style failures in the job summary
+        if: always()
+        env:
+          QA_RESULTS: ${{ runner.temp }}/menu-api-evidence/checks.json
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['QA_RESULTS'])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Known audit/style findings remain tracked under roadmap Task 7.\n\n')
+              if path.exists():
+                  for check in json.loads(path.read_text()):
+                      summary.write(f"- {check['check']}: **{check['status']}**\n")
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: api-qa-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/menu-api-evidence
+          retention-days: 14
