@@ -18,12 +18,13 @@ test('concurrently retains quoted arguments, names and explicit colors', () => {
     const result = spawnSync(process.execPath, [
         'node_modules/concurrently/dist/bin/concurrently.js',
         '-c', '#93c5fd,#c4b5fd', '--names=server,queue',
+        '--passthrough-arguments',
         'node -e \'console.log(process.argv[1])\' {@}',
         'node -e \'console.log("QA_RUN_security_queue")\'',
         '--', value,
     ], { encoding: 'utf8', timeout: 10_000 });
     assert.equal(result.error, undefined);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(result.stdout, /\[server\] QA_RUN_security spaced argument/);
     assert.match(result.stdout, /\[queue\] QA_RUN_security_queue/);
 });
