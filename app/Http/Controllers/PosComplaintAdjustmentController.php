@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\PosComplaintAdjustment;
 use App\Models\Restaurant;
 use App\Services\OrderInventoryDeductionService;
+use App\Support\Money;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,7 @@ class PosComplaintAdjustmentController extends Controller
     {
         $restaurant = $this->restaurant($request);
         $this->assertOrder($order, $restaurant);
+
         return response()->json(['adjustments' => PosComplaintAdjustment::query()
             ->where('restaurant_id', $restaurant->id)->where('original_order_id', $order->id)->with('gifts')->latest()->get()
             ->map(fn (PosComplaintAdjustment $adjustment) => $this->adjustment($adjustment))->values()]);
@@ -41,23 +43,32 @@ class PosComplaintAdjustmentController extends Controller
     {
         $restaurant = $this->restaurant($request);
         $this->assertOrder($order, $restaurant);
-        if ($order->status !== Order::STATUS_ACCOUNTED) abort(422, 'Only settled POS sales can be adjusted.');
+        if ($order->status !== Order::STATUS_ACCOUNTED) {
+            abort(422, 'Only settled POS sales can be adjusted.');
+        }
 
         $validated = $request->validate([
             'complaint_reason' => ['required', 'string', 'max:80'], 'complaint_category' => ['nullable', 'string', 'max:60'],
             'complaint_note' => ['nullable', 'string', 'max:2000'], 'accounting_bucket' => ['nullable', 'string', 'max:80'],
-            'refund_amount' => ['nullable', 'numeric', 'min:0'], 'affected_item_ids' => ['required', 'array', 'min:1'],
+            'refund_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999999.99'], 'affected_item_ids' => ['required', 'array', 'min:1'],
             'affected_item_ids.*' => ['integer'], 'gifts' => ['nullable', 'array'], 'gifts.*.dish_id' => ['required', 'integer'],
             'gifts.*.quantity' => ['required', 'integer', 'min:1', 'max:99'],
         ]);
-        $refundAmount = round((float) ($validated['refund_amount'] ?? 0), 2);
-        if ($refundAmount > (float) $order->total + 0.0001) throw ValidationException::withMessages(['refund_amount' => 'Refund cannot exceed the original sale total.']);
+        $refundCents = Money::toCents((float) ($validated['refund_amount'] ?? 0));
+        $refundAmount = Money::formatCents($refundCents);
+        if ($refundCents > Money::toCents($order->total)) {
+            throw ValidationException::withMessages(['refund_amount' => 'Refund cannot exceed the original sale total.']);
+        }
 
         $items = $order->items()->whereIn('id', $validated['affected_item_ids'])->get();
-        if ($items->count() !== count(array_unique($validated['affected_item_ids']))) throw ValidationException::withMessages(['affected_item_ids' => 'Every affected item must belong to the selected sale.']);
+        if ($items->count() !== count(array_unique($validated['affected_item_ids']))) {
+            throw ValidationException::withMessages(['affected_item_ids' => 'Every affected item must belong to the selected sale.']);
+        }
         $giftInputs = $validated['gifts'] ?? [];
         $dishes = Dish::query()->where('restaurant_id', $restaurant->id)->whereIn('id', collect($giftInputs)->pluck('dish_id'))->get()->keyBy('id');
-        if ($dishes->count() !== count(array_unique(collect($giftInputs)->pluck('dish_id')->all()))) throw ValidationException::withMessages(['gifts' => 'A selected gift dish is unavailable.']);
+        if ($dishes->count() !== count(array_unique(collect($giftInputs)->pluck('dish_id')->all()))) {
+            throw ValidationException::withMessages(['gifts' => 'A selected gift dish is unavailable.']);
+        }
 
         $adjustment = DB::transaction(function () use ($request, $restaurant, $order, $validated, $refundAmount, $items, $giftInputs, $dishes): PosComplaintAdjustment {
             $invoice = Invoice::query()->where('restaurant_id', $restaurant->id)->where('invoice_number', $order->invoice_number)->first();
@@ -72,29 +83,44 @@ class PosComplaintAdjustmentController extends Controller
                 'created_by' => $request->user()->id,
             ]);
             foreach ($giftInputs as $gift) {
-                $dish = $dishes->get($gift['dish_id']); $quantity = (int) $gift['quantity']; $unitValue = (float) $dish->price;
+                $dish = $dishes->get($gift['dish_id']);
+                $quantity = (int) $gift['quantity'];
+                $unitValue = (float) $dish->price;
                 $adjustment->gifts()->create(['dish_id' => $dish->id, 'dish_name_snapshot' => $dish->name, 'quantity' => $quantity, 'unit_value' => $unitValue, 'line_value' => $unitValue * $quantity]);
             }
+
             return $adjustment->fresh('gifts');
         });
+
         return response()->json(['adjustment' => $this->adjustment($adjustment)], 201);
     }
 
     public function post(Request $request, PosComplaintAdjustment $adjustment, OrderInventoryDeductionService $inventory): JsonResponse
     {
         $restaurant = $this->restaurant($request);
-        if (! in_array($request->user()->role, ['admin', 'accountant'], true)) abort(403);
-        if ($adjustment->restaurant_id !== $restaurant->id) abort(404);
+        if (! in_array($request->user()->role, ['admin', 'accountant'], true)) {
+            abort(403);
+        }
+        if ($adjustment->restaurant_id !== $restaurant->id) {
+            abort(404);
+        }
         $posted = DB::transaction(function () use ($adjustment, $request, $inventory): PosComplaintAdjustment {
+            // Order -> shared invoice -> adjustment is also the void lock order.
+            [$originalOrder, $invoice] = $this->lockSettlement($adjustment);
             $adjustment = PosComplaintAdjustment::query()->whereKey($adjustment->id)->lockForUpdate()->with('gifts')->firstOrFail();
-            if ($adjustment->status === 'posted') return $adjustment;
-            if ($adjustment->status === 'void') abort(422, 'A voided adjustment cannot be posted.');
+            if ($adjustment->status === 'posted') {
+                return $adjustment;
+            }
+            if ($adjustment->status === 'void') {
+                abort(422, 'A voided adjustment cannot be posted.');
+            }
+            $this->assertRefundableBalance($originalOrder, $invoice, $adjustment);
             $giftOrderId = null;
             if ($adjustment->gifts->isNotEmpty()) {
                 $order = Order::query()->create([
                     'uuid' => (string) Str::uuid(), 'restaurant_id' => $adjustment->restaurant_id, 'status' => Order::STATUS_STAFF_CONFIRMED,
                     'guest_name' => 'Complaint gift', 'table_reference' => 'SERVICE-RECOVERY', 'notes' => 'Gift for complaint adjustment #'.$adjustment->id,
-                    'currency' => $adjustment->originalOrder->currency, 'exchange_rate' => $adjustment->originalOrder->exchange_rate,
+                    'currency' => $originalOrder->currency, 'exchange_rate' => $originalOrder->exchange_rate,
                     'subtotal' => 0, 'discount_value' => 0, 'discount_amount' => 0, 'taxable_subtotal' => 0, 'vat_amount' => 0, 'service_charge_amount' => 0, 'total' => 0,
                     'confirmed_by' => $request->user()->id, 'confirmed_at' => now(),
                 ]);
@@ -104,23 +130,100 @@ class PosComplaintAdjustmentController extends Controller
                 $giftOrderId = $order->id;
             }
             $adjustment->update(['status' => 'posted', 'approved_by' => $request->user()->id, 'approved_at' => now(), 'posted_at' => now(), 'gift_order_id' => $giftOrderId]);
+
             return $adjustment->fresh('gifts');
-        });
+        }, 3);
+
         return response()->json(['adjustment' => $this->adjustment($posted)]);
     }
 
     public function void(Request $request, PosComplaintAdjustment $adjustment): JsonResponse
     {
         $restaurant = $this->restaurant($request);
-        if (! in_array($request->user()->role, ['admin', 'accountant'], true)) abort(403);
-        if ($adjustment->restaurant_id !== $restaurant->id) abort(404);
-        if ($adjustment->status === 'posted') abort(422, 'Posted adjustments are immutable; create a correcting adjustment instead.');
-        $adjustment->update(['status' => 'void', 'voided_at' => now()]);
-        return response()->json(['adjustment' => $this->adjustment($adjustment->fresh('gifts'))]);
+        if (! in_array($request->user()->role, ['admin', 'accountant'], true)) {
+            abort(403);
+        }
+        if ($adjustment->restaurant_id !== $restaurant->id) {
+            abort(404);
+        }
+        $voided = DB::transaction(function () use ($adjustment): PosComplaintAdjustment {
+            $this->lockSettlement($adjustment);
+            $adjustment = PosComplaintAdjustment::query()->whereKey($adjustment->id)->lockForUpdate()->firstOrFail();
+            if ($adjustment->status === 'posted') {
+                abort(422, 'Posted adjustments are immutable; create a correcting adjustment instead.');
+            }
+            if ($adjustment->status !== 'void') {
+                $adjustment->update(['status' => 'void', 'voided_at' => now()]);
+            }
+
+            return $adjustment->fresh('gifts');
+        }, 3);
+
+        return response()->json(['adjustment' => $this->adjustment($voided)]);
     }
 
-    private function restaurant(Request $request): Restaurant { $user = $request->user(); $user->loadMissing('restaurant', 'staffRestaurants'); return $user->currentRestaurant() ?? abort(403, 'No restaurant is linked to this account'); }
-    private function assertOrder(Order $order, Restaurant $restaurant): void { if ($order->restaurant_id !== $restaurant->id) abort(404); }
-    private function sale(Order $order): array { return ['id' => $order->id, 'order_number' => $order->order_number, 'invoice_number' => $order->invoice_number, 'total' => $order->total, 'currency' => $order->currency, 'payment_method' => $order->payment_method, 'accounted_at' => $order->accounted_at?->toIso8601String(), 'items' => $order->items->map(fn ($item) => ['id' => $item->id, 'dish_name' => $item->dish_name, 'quantity' => $item->quantity, 'line_total' => $item->line_subtotal])->values()]; }
-    private function adjustment(PosComplaintAdjustment $a): array { return ['id' => $a->id, 'status' => $a->status, 'original_order_id' => $a->original_order_id, 'original_invoice_number' => $a->original_invoice_number, 'complaint_reason' => $a->complaint_reason, 'complaint_category' => $a->complaint_category, 'complaint_note' => $a->complaint_note, 'accounting_bucket' => $a->accounting_bucket, 'refund_amount' => $a->refund_amount, 'refund_payment_method' => $a->refund_payment_method, 'affected_items' => $a->affected_items, 'gifts' => $a->gifts->map(fn ($gift) => ['dish_name' => $gift->dish_name_snapshot, 'quantity' => $gift->quantity, 'line_value' => $gift->line_value])->values(), 'created_at' => $a->created_at?->toIso8601String(), 'posted_at' => $a->posted_at?->toIso8601String()]; }
+    /** @return array{Order, ?Invoice} */
+    private function lockSettlement(PosComplaintAdjustment $adjustment): array
+    {
+        $order = Order::query()->where('restaurant_id', $adjustment->restaurant_id)
+            ->whereKey($adjustment->original_order_id)->lockForUpdate()->firstOrFail();
+        $invoice = $order->invoice_number
+            ? Invoice::query()->where('restaurant_id', $order->restaurant_id)
+                ->where('invoice_number', $order->invoice_number)->lockForUpdate()->first()
+            : null;
+
+        return [$order, $invoice];
+    }
+
+    private function assertRefundableBalance(Order $order, ?Invoice $invoice, PosComplaintAdjustment $adjustment): void
+    {
+        if ($order->status !== Order::STATUS_ACCOUNTED
+            || ($invoice && ! in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_ISSUED], true))) {
+            throw ValidationException::withMessages(['refund_amount' => 'Only settled sales can be refunded.']);
+        }
+
+        // Locking reads see the latest committed postings even under MySQL REPEATABLE READ.
+        // The order cap preserves the legacy per-sale rule. The shared invoice cap also
+        // accounts for session discounts and refunds against other orders on that invoice.
+        $posted = PosComplaintAdjustment::query()->where('restaurant_id', $order->restaurant_id)
+            ->where('status', 'posted')->where('original_order_id', $order->id)
+            ->orderBy('id')->lockForUpdate()->get(['refund_amount']);
+        $remaining = Money::toCents($order->total) - Money::sumToCents($posted->pluck('refund_amount'));
+        if ($invoice) {
+            $invoicePosted = PosComplaintAdjustment::query()->where('restaurant_id', $order->restaurant_id)
+                ->where('status', 'posted')->where(function ($query) use ($invoice): void {
+                    $query->where('original_invoice_id', $invoice->id)
+                        ->orWhere('original_invoice_number', $invoice->invoice_number);
+                })->orderBy('id')->lockForUpdate()->get(['refund_amount']);
+            $remaining = min($remaining, Money::toCents($invoice->total) - Money::sumToCents($invoicePosted->pluck('refund_amount')));
+        }
+        if (Money::toCents($adjustment->refund_amount) > $remaining) {
+            throw ValidationException::withMessages(['refund_amount' => 'Refund cannot exceed the remaining refundable balance.']);
+        }
+    }
+
+    private function restaurant(Request $request): Restaurant
+    {
+        $user = $request->user();
+        $user->loadMissing('restaurant', 'staffRestaurants');
+
+        return $user->currentRestaurant() ?? abort(403, 'No restaurant is linked to this account');
+    }
+
+    private function assertOrder(Order $order, Restaurant $restaurant): void
+    {
+        if ($order->restaurant_id !== $restaurant->id) {
+            abort(404);
+        }
+    }
+
+    private function sale(Order $order): array
+    {
+        return ['id' => $order->id, 'order_number' => $order->order_number, 'invoice_number' => $order->invoice_number, 'total' => $order->total, 'currency' => $order->currency, 'payment_method' => $order->payment_method, 'accounted_at' => $order->accounted_at?->toIso8601String(), 'items' => $order->items->map(fn ($item) => ['id' => $item->id, 'dish_name' => $item->dish_name, 'quantity' => $item->quantity, 'line_total' => $item->line_subtotal])->values()];
+    }
+
+    private function adjustment(PosComplaintAdjustment $a): array
+    {
+        return ['id' => $a->id, 'status' => $a->status, 'original_order_id' => $a->original_order_id, 'original_invoice_number' => $a->original_invoice_number, 'complaint_reason' => $a->complaint_reason, 'complaint_category' => $a->complaint_category, 'complaint_note' => $a->complaint_note, 'accounting_bucket' => $a->accounting_bucket, 'refund_amount' => $a->refund_amount, 'refund_payment_method' => $a->refund_payment_method, 'affected_items' => $a->affected_items, 'gifts' => $a->gifts->map(fn ($gift) => ['dish_name' => $gift->dish_name_snapshot, 'quantity' => $gift->quantity, 'line_value' => $gift->line_value])->values(), 'created_at' => $a->created_at?->toIso8601String(), 'posted_at' => $a->posted_at?->toIso8601String()];
+    }
 }
