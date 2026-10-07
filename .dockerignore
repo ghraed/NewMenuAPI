@@ -2,7 +2,15 @@
 node_modules
 vendor
 storage
-.env
+# No runtime configuration, examples or cached secrets belong in build layers.
+.env*
+**/.env*
+**/*.env
+bootstrap/cache/*.php
+.aws
+.codex
+.agents
+**/__pycache__
 .DS_Store
 npm-debug.log
 yarn-error.log
