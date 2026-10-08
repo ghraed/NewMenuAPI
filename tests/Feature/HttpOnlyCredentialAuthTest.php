@@ -24,6 +24,24 @@ class HttpOnlyCredentialAuthTest extends TestCase
     use BuildsRestaurantOrderFlow;
     use RefreshDatabase;
 
+    public function test_allowed_frontend_preflight_accepts_cookie_identity_and_guest_scope_headers(): void
+    {
+        config(['cors.allowed_origins' => ['http://localhost:5173']]);
+        $headers = 'X-Rozer-Auth-Mode,X-Rozer-Expected-User,X-Rozer-Expected-Restaurant,X-Guest-Cache-Key';
+        $response = $this->withHeaders([
+            'Origin' => 'http://localhost:5173',
+            'Access-Control-Request-Method' => 'POST',
+            'Access-Control-Request-Headers' => $headers,
+        ])->options('/api/auth/login');
+
+        $response->assertNoContent();
+        $response->assertHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+        $response->assertHeader('Access-Control-Allow-Credentials', 'true');
+        foreach (explode(',', $headers) as $header) {
+            $this->assertStringContainsString(strtolower($header), strtolower((string) $response->headers->get('Access-Control-Allow-Headers')));
+        }
+    }
+
     public function test_staff_login_cookie_survives_refresh_and_logout_revokes_it(): void
     {
         $user = User::factory()->admin()->create([

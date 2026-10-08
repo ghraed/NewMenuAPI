@@ -15,7 +15,7 @@ return [
     'allowed_methods' => ['*'],
     'allowed_origins' => $configuredOrigins,
     'allowed_origins_patterns' => [],
-    'allowed_headers' => ['Accept', 'Authorization', 'Content-Type', 'Origin', 'X-Requested-With', 'X-Locale', 'X-Idempotency-Key', 'X-Guest-Device-Id', 'X-Guest-Access-Token'],
+    'allowed_headers' => ['Accept', 'Authorization', 'Content-Type', 'Origin', 'X-Requested-With', 'X-Locale', 'X-Idempotency-Key', 'X-Guest-Device-Id', 'X-Guest-Access-Token', 'X-Guest-Cache-Key', 'X-Rozer-Auth-Mode', 'X-Rozer-Expected-User', 'X-Rozer-Expected-Restaurant'],
     'exposed_headers' => [],
     'max_age' => 600,
     'supports_credentials' => true,
