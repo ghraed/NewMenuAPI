@@ -256,6 +256,7 @@ class GuestMenuSessionService
     {
         return [
             'verified' => $guestAccess !== null,
+            'cache_key' => $guestAccess?->token_hash,
             'joined_at' => $guestAccess?->joined_at?->toIso8601String(),
             'last_seen_at' => $guestAccess?->last_seen_at?->toIso8601String(),
             'expires_at' => $guestAccess?->expires_at?->toIso8601String(),

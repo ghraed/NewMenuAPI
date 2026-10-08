@@ -37,7 +37,7 @@ class DishCreationSafetyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->disk = Storage::fake('public');
+        $this->disk = Storage::fake(DishAsset::PROTECTED_DISK);
         $prefix = 'QA_RUN_20261006_'.bin2hex(random_bytes(4));
         $user = User::factory()->admin()->create(['name' => $prefix, 'email' => $prefix.'@example.invalid']);
         $restaurant = Restaurant::factory()->for($user)->create(['name' => $prefix, 'slug' => strtolower($prefix), 'profile' => ['menu_categories' => ['Mains']]]);
@@ -47,7 +47,7 @@ class DishCreationSafetyTest extends TestCase
         $this->disk->put($path, 'QA_RUN_original_model');
         DishAsset::create([
             'uuid' => (string) Str::uuid(), 'dish_id' => $this->reference->id, 'asset_type' => 'glb',
-            'storage_disk' => 'public', 'file_path' => $path, 'glb_path' => $path,
+            'storage_disk' => DishAsset::PROTECTED_DISK, 'file_path' => $path, 'glb_path' => $path,
             'file_url' => '', 'file_size' => 21, 'mime_type' => 'model/gltf-binary',
         ]);
         $this->payload = [
@@ -113,7 +113,7 @@ class DishCreationSafetyTest extends TestCase
 
             return $this->disk->putFileAs($directory, $file, $name, $options);
         });
-        Storage::set('public', $broken);
+        Storage::set(DishAsset::PROTECTED_DISK, $broken);
 
         $this->post('/api/dishes', $this->requestData(), ['Accept' => 'application/json'])->assertStatus(500);
         $this->assertNoPartialSave();
@@ -193,10 +193,10 @@ class DishCreationSafetyTest extends TestCase
 
             return $this->disk->putFileAs($directory, $file, $name, $options);
         });
-        Storage::set('public', $broken);
+        Storage::set(DishAsset::PROTECTED_DISK, $broken);
         $this->post('/api/dishes', $this->requestData(), ['Accept' => 'application/json'])->assertStatus(500);
         $this->assertNoPartialSave();
-        Storage::set('public', $this->disk);
+        Storage::set(DishAsset::PROTECTED_DISK, $this->disk);
 
         $this->post('/api/dishes', $this->requestData(), ['Accept' => 'application/json'])->assertCreated()->assertJsonCount(2, 'assets');
         $this->assertSame(1, Dish::where('name', $this->payload['name'])->count());
@@ -224,12 +224,12 @@ class DishCreationSafetyTest extends TestCase
 
             return $this->disk->putFileAs($directory, $file, $name, $options);
         });
-        Storage::set('public', $broken);
+        Storage::set(DishAsset::PROTECTED_DISK, $broken);
         $data = [...$this->requestData(), 'preview_file' => UploadedFile::fake()->image('QA_RUN_preview.jpg', 30, 30)];
 
         $this->post('/api/dishes', $data, ['Accept' => 'application/json'])->assertStatus(500);
         $this->assertNoPartialSave();
-        Storage::set('public', $this->disk);
+        Storage::set(DishAsset::PROTECTED_DISK, $this->disk);
         $response = $this->post('/api/dishes', $data, ['Accept' => 'application/json']);
         $response->assertCreated()->assertJsonCount(3, 'assets');
         $this->assertSame(1, Dish::where('name', $this->payload['name'])->count());

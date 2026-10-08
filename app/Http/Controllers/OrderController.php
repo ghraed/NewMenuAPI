@@ -21,13 +21,11 @@ use App\Models\TableSession;
 use App\Models\User;
 use App\Services\DishAlternativeSuggestionService;
 use App\Services\GuestMenuSessionService;
-use App\Services\MobilePushNotificationService;
 use App\Services\OrderInventoryDeductionService;
 use App\Services\OrderInvoiceCalculator;
 use App\Services\StaffCapabilityService;
 use App\Services\TableSessionAccessService;
 use App\Services\TenantRestaurantResolver;
-use App\Services\WebPushNotificationService;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -87,9 +85,7 @@ class OrderController extends Controller
             $invoiceCalculator
         );
 
-        if (! $result['replayed']) {
-            $this->dispatchPendingOrderCreatedAlerts($result['order']);
-        }
+        $this->dispatchPendingOrderCreatedAlerts($result['order']);
 
         return response()->json([
             'message' => __('messages.orders.created'),
@@ -120,9 +116,7 @@ class OrderController extends Controller
             $invoiceCalculator
         );
 
-        if (! $result['replayed']) {
-            $this->dispatchPendingOrderCreatedAlerts($result['order']);
-        }
+        $this->dispatchPendingOrderCreatedAlerts($result['order']);
 
         return response()->json([
             'message' => __('messages.orders.created'),
@@ -726,6 +720,23 @@ class OrderController extends Controller
                 ? $this->buildInventorySummaryForOrder($order)
                 : $this->emptyInventorySummary(),
         ]);
+    }
+
+    public function updateAndConfirm(Request $request, Order $order, OrderInvoiceCalculator $invoiceCalculator): JsonResponse
+    {
+        // Also atomic for unkeyed legacy clients; do not rely only on middleware.
+        return DB::transaction(function () use ($request, $order, $invoiceCalculator): JsonResponse {
+            $updated = $this->update($request, $order, $invoiceCalculator);
+            if ($updated->getStatusCode() >= 400) {
+                throw new HttpResponseException($updated);
+            }
+            $confirmed = $this->confirm($request, $order->fresh());
+            if ($confirmed->getStatusCode() >= 400) {
+                throw new HttpResponseException($confirmed);
+            }
+
+            return $confirmed;
+        }, 3);
     }
 
     public function cancel(Request $request, Order $order): JsonResponse
@@ -2559,23 +2570,7 @@ class OrderController extends Controller
 
     private function dispatchPendingOrderCreatedAlerts(Order $order): void
     {
-        try {
-            app(WebPushNotificationService::class)->notifyPendingOrderCreated($order);
-        } catch (Throwable $exception) {
-            Log::warning('Failed to send web push notifications for a pending order.', [
-                'order_id' => $order->id,
-                'message' => $exception->getMessage(),
-            ]);
-        }
-
-        try {
-            app(MobilePushNotificationService::class)->notifyPendingOrderCreated($order);
-        } catch (Throwable $exception) {
-            Log::warning('Failed to send mobile push notifications for a pending order.', [
-                'order_id' => $order->id,
-                'message' => $exception->getMessage(),
-            ]);
-        }
+        app(\App\Services\PendingOrderAlertOutbox::class)->deliver($order);
     }
 
     private function createOrderForTableContext(
@@ -2616,6 +2611,9 @@ class OrderController extends Controller
             $order->update([
                 'order_number' => $this->formatOrderNumber($order),
             ]);
+            DB::table('order_alert_outboxes')->insert([
+                'order_id' => $order->id, 'created_at' => now(), 'updated_at' => now(),
+            ]);
 
             return $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']);
         });
@@ -2649,6 +2647,13 @@ class OrderController extends Controller
 
             if ($keyHash !== null) {
                 $prior = DB::table('guest_order_idempotency')->where('table_session_id', $session->id)->where('key_hash', $keyHash)->first();
+                $compat = DB::table('guest_order_idempotencies')->where('table_session_id', $session->id)->where('key_hash', $keyHash)->lockForUpdate()->first();
+                if ($prior === null && $compat !== null) {
+                    if (! $compat->order_id) {
+                        throw new HttpResponseException(response()->json(['message' => 'The matching guest request requires review.'], 409));
+                    }
+                    $prior = $compat;
+                }
                 // Adopt a still-valid pre-upgrade cache record only after checking
                 // its payload and the original order's exact tenant/session scope.
                 $legacy = $prior === null ? Cache::get($scope) : null;
@@ -2661,10 +2666,12 @@ class OrderController extends Controller
                     }
                     $order = Order::query()->where('restaurant_id', $restaurant->id)->where('table_session_id', $session->id)
                         ->findOrFail($prior?->order_id ?? $legacy['order_id']);
-                    if ($prior === null) {
+                    if (DB::table('guest_order_idempotency')->where('table_session_id', $session->id)->where('key_hash', $keyHash)->doesntExist()) {
                         DB::table('guest_order_idempotency')->insert(['table_session_id' => $session->id, 'key_hash' => $keyHash,
                             'payload_hash' => $payloadHash, 'order_id' => $order->id, 'created_at' => now(), 'updated_at' => now()]);
                     }
+
+                    $this->mirrorLegacyGuestRequest($session->id, $keyHash, $payloadHash, $order->id);
 
                     return ['order' => $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']), 'replayed' => true];
                 }
@@ -2674,6 +2681,7 @@ class OrderController extends Controller
             if ($keyHash !== null) {
                 DB::table('guest_order_idempotency')->insert(['table_session_id' => $session->id, 'key_hash' => $keyHash,
                     'payload_hash' => $payloadHash, 'order_id' => $order->id, 'created_at' => now(), 'updated_at' => now()]);
+                $this->mirrorLegacyGuestRequest($session->id, $keyHash, $payloadHash, $order->id);
             }
 
             return ['order' => $order, 'replayed' => false];
@@ -2685,6 +2693,17 @@ class OrderController extends Controller
         }
 
         return $result;
+    }
+
+    private function mirrorLegacyGuestRequest(int $sessionId, string $keyHash, string $payloadHash, int $orderId): void
+    {
+        $row = DB::table('guest_order_idempotencies')->where('table_session_id', $sessionId)->where('key_hash', $keyHash)->lockForUpdate()->first();
+        if ($row !== null && (! hash_equals((string) $row->payload_hash, $payloadHash) || ($row->order_id !== null && (int) $row->order_id !== $orderId))) {
+            throw new HttpResponseException(response()->json(['message' => 'The legacy request identity does not match the settled request.'], 409));
+        }
+        DB::table('guest_order_idempotencies')->updateOrInsert(['table_session_id' => $sessionId, 'key_hash' => $keyHash], [
+            'payload_hash' => $payloadHash, 'order_id' => $orderId, 'created_at' => $row?->created_at ?? now(), 'updated_at' => now(),
+        ]);
     }
 
     private function extractIdempotencyKey(Request $request): ?string

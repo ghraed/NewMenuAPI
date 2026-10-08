@@ -82,6 +82,7 @@ class TenantDomainRoutingTest extends TestCase
             'pin' => $pin,
         ], [
             'X-Guest-Device-Id' => 'tenant-domain-test-device',
+            'X-Rozer-Auth-Mode' => 'bearer-v1',
         ]);
 
         $verify->assertOk();

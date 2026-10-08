@@ -20,7 +20,7 @@ class AuthSecurityTest extends TestCase
         $response = $this->postJson('/api/auth/login', [
             'email' => $user->email,
             'password' => 'secret-pass',
-        ]);
+        ], ['X-Rozer-Auth-Mode' => 'bearer-v1']);
 
         $response->assertOk()
             ->assertJsonPath('user.id', $user->id)
@@ -29,6 +29,18 @@ class AuthSecurityTest extends TestCase
 
         $this->assertIsString($response->json('token'));
         $this->assertNotSame('', $response->json('token'));
+    }
+
+    public function test_browser_login_does_not_expose_the_raw_token_in_json(): void
+    {
+        $user = $this->createUserWithRestaurant('browser-login@example.com', 'secret-pass');
+
+        $this->postJson('/api/auth/login', [
+            'email' => $user->email,
+            'password' => 'secret-pass',
+        ], ['Origin' => 'http://localhost'])
+            ->assertOk()
+            ->assertJsonMissingPath('token');
     }
 
     public function test_invalid_login_is_rejected(): void

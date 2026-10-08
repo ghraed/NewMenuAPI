@@ -17,14 +17,18 @@ return Application::configure(basePath: dirname(__DIR__))
         __DIR__.'/../routes/channels.php',
         [
             'prefix' => 'api',
-            'middleware' => ['api', 'auth:sanctum', 'active.user'],
+            'middleware' => ['api', 'auth:sanctum', 'active.user', 'cookie.identity'],
         ]
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Avoid route('login') dependency for unauthenticated requests.
         $middleware->redirectGuestsTo('/');
+        $middleware->prependToGroup('api', \App\Http\Middleware\AuthenticateFromHttpOnlyCookie::class);
+        $middleware->prependToGroup('api', \App\Http\Middleware\EnforceCredentialedOrigin::class);
         $middleware->appendToGroup('api', \App\Http\Middleware\SetRequestLocale::class);
         $middleware->alias([
+            'cookie.identity' => \App\Http\Middleware\EnsureCookieIdentity::class,
+            'idempotent.staff' => \App\Http\Middleware\IdempotentStaffMutation::class,
             'guest.table.access' => \App\Http\Middleware\EnsureGuestTableAccess::class,
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
             'saas_owner' => \App\Http\Middleware\EnsureSaasOwner::class,

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\FeatureFlagService;
+use App\Support\AuthCredentialCookie;
+use App\Support\AuthTokenResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -40,7 +42,7 @@ class AuthController extends Controller
         if (! $user || ! Hash::check($validated['password'], $user->password)) {
             return response()->json([
                 'message' => __('messages.auth.invalid_credentials'),
-            ], 401);
+            ], 401)->withCookie(AuthCredentialCookie::forget($request, AuthCredentialCookie::RESTAURANT));
         }
 
         if (! $user->is_active) {
@@ -66,10 +68,10 @@ class AuthController extends Controller
 
         $token = $user->createToken(($user->role ?? 'admin').'-token')->plainTextToken;
 
-        return response()->json([
-            'token' => $token,
+        return response()->json(array_filter([
+            'token' => AuthTokenResponse::requestedByNonBrowserClient($request) ? $token : null,
             'user' => $this->formatAuthenticatedUser($user, $restaurant),
-        ]);
+        ], static fn ($value): bool => $value !== null))->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::RESTAURANT, $token));
     }
 
     public function me(Request $request): JsonResponse
@@ -78,9 +80,12 @@ class AuthController extends Controller
         $user->loadMissing('restaurant', 'staffRestaurants');
         $restaurant = $user->currentRestaurant();
 
-        return response()->json([
-            'user' => $this->formatAuthenticatedUser($user, $restaurant),
-        ]);
+        $response = response()->json(['user' => $this->formatAuthenticatedUser($user, $restaurant)]);
+        if ($request->header('X-Rozer-Auth-Mode') === 'cookie-v1' && $request->bearerToken()) {
+            $response->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::RESTAURANT, $request->bearerToken()));
+        }
+
+        return $response;
     }
 
     public function logout(Request $request): JsonResponse
@@ -92,7 +97,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => __('messages.auth.logged_out'),
-        ]);
+        ])->withCookie(AuthCredentialCookie::forget($request, AuthCredentialCookie::RESTAURANT));
     }
 
     public function updateProfile(Request $request): JsonResponse

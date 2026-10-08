@@ -239,6 +239,27 @@ class OrderWorkflowTest extends TestCase
         $this->assertSame(2, $invoice->items()->count());
     }
 
+    public function test_confirmed_orders_on_independent_tables_receive_unique_id_based_invoice_numbers(): void
+    {
+        $restaurant = $this->createRestaurant();
+        $staff = $this->createStaffUser($restaurant, ['T04', 'T05']);
+        $firstOrder = $this->createPendingOrder($restaurant, 'T04');
+        $secondOrder = $this->createPendingOrder($restaurant, 'T05');
+
+        Sanctum::actingAs($staff);
+
+        $firstInvoiceNumber = $this->postJson("/api/orders/{$firstOrder->id}/confirm")
+            ->assertOk()
+            ->json('order.invoice_number');
+        $secondInvoiceNumber = $this->postJson("/api/orders/{$secondOrder->id}/confirm")
+            ->assertOk()
+            ->json('order.invoice_number');
+
+        $this->assertSame(sprintf('INV-20260115-%06d', $firstOrder->id), $firstInvoiceNumber);
+        $this->assertSame(sprintf('INV-20260115-%06d', $secondOrder->id), $secondInvoiceNumber);
+        $this->assertNotSame($firstInvoiceNumber, $secondInvoiceNumber);
+    }
+
     public function test_staff_can_complete_pos_checkout_in_one_step(): void
     {
         $restaurant = $this->createRestaurant();
@@ -963,7 +984,7 @@ class OrderWorkflowTest extends TestCase
     {
         $response = $this->postJson("/api/menu/table/{$tableNumber}/verify-pin", [
             'pin' => $pin,
-        ], $this->guestHeaders());
+        ], array_merge($this->guestHeaders(), ['X-Rozer-Auth-Mode' => 'bearer-v1']));
 
         $response->assertOk();
 

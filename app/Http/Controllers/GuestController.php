@@ -11,7 +11,6 @@ use App\Services\TenantRestaurantResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class GuestController extends Controller
@@ -362,24 +361,5 @@ class GuestController extends Controller
         }
 
         return 'unknown';
-    }
-
-    public function test(): int
-    {
-        return 2;
-    }
-
-    public function showTestDish(int $dishId)
-    {
-        $path = "dishes/{$dishId}/models/model.glb";
-        if (! Storage::disk('public')->exists($path)) {
-            abort(404);
-        }
-        $fullPath = Storage::disk('public')->path($path);
-
-        return response()->download($fullPath, "dish_{$dishId}.glb", [
-            'Content-Type' => 'model/gltf-binary',
-            'ngrok-skip-browser-warning' => 'true',
-        ]);
     }
 }

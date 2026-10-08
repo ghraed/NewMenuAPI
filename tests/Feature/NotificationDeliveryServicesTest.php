@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\EventReservation;
 use App\Models\MobilePushToken;
+use App\Models\Order;
 use App\Models\PushSubscription;
 use App\Models\Restaurant;
 use App\Models\User;
@@ -217,10 +218,46 @@ class NotificationDeliveryServicesTest extends TestCase
         });
 
         $this->assertNotNull($ownerToken->fresh()?->last_used_at);
-        $this->assertNotNull($chefToken->fresh()?->last_used_at);
+        $this->assertNull($chefToken->fresh()?->last_used_at);
         $this->assertNull($accountantToken->fresh()?->last_used_at);
         $this->assertNull($mutedToken->fresh()?->last_used_at);
         $this->assertNull($foreignToken->fresh()?->last_used_at);
+    }
+
+    public function test_pending_order_mobile_push_reports_partial_non_2xx_and_uses_a_stable_collapse_key(): void
+    {
+        Cache::flush();
+        $serviceAccountPath = $this->writeTempFcmServiceAccount();
+        config([
+            'services.fcm.service_account_json' => $serviceAccountPath,
+            'services.fcm.project_id' => 'rozer-test-project',
+        ]);
+        Http::fake([
+            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'fake-access-token'], 200),
+            'https://fcm.googleapis.com/v1/projects/rozer-test-project/messages:send' => Http::sequence()
+                ->push(['name' => 'accepted'], 200)
+                ->push(['error' => 'temporary'], 503),
+        ]);
+        $restaurant = $this->createRestaurant('mobile-order-outcome');
+        $first = MobilePushToken::query()->create([
+            'user_id' => $restaurant->user_id, 'token' => 'QA_RUN_REL-device-one', 'platform' => 'android', 'notify_order' => true,
+        ]);
+        $second = MobilePushToken::query()->create([
+            'user_id' => $restaurant->user_id, 'token' => 'QA_RUN_REL-device-two', 'platform' => 'android', 'notify_order' => true,
+        ]);
+        $order = Order::query()->create([
+            'uuid' => (string) Str::uuid(), 'restaurant_id' => $restaurant->id,
+            'status' => Order::STATUS_PENDING_STAFF_CONFIRMATION, 'table_reference' => 'QA_RUN_REL T01',
+            'guest_name' => 'QA_RUN_REL guest', 'currency' => 'USD', 'exchange_rate' => 1,
+        ]);
+
+        $result = app(MobilePushNotificationService::class)->notifyPendingOrderCreated($order);
+
+        $this->assertSame([(string) $first->id], $result['delivered']);
+        $this->assertSame([(string) $second->id], $result['retryable']);
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'messages:send')
+            ? ($request->data()['message']['android']['collapse_key'] ?? null) === 'pending-order-'.$order->id
+            : true);
     }
 
     private function createRestaurant(string $slugPrefix, ?User $owner = null): Restaurant

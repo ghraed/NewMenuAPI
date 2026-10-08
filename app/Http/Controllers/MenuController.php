@@ -95,7 +95,13 @@ class MenuController extends Controller
             $response['dishes'] = $this->localizeDishes($dishes, $ar3dEnabled, $animatedIngredientsEnabled);
         }
 
-        return response()->json($response);
+        $json = response()->json($response);
+        $legacyToken = trim((string) $request->header('X-Guest-Access-Token', ''));
+        if ($guestAccess && $legacyToken !== '' && $request->header('X-Rozer-Auth-Mode') === 'cookie-v1') {
+            $json->withCookie(\App\Support\AuthCredentialCookie::make($request, \App\Support\AuthCredentialCookie::guest($guestAccess->table_session_id), $legacyToken));
+        }
+
+        return $json;
     }
 
     private function resolveIncludeDishesMode(Request $request): string

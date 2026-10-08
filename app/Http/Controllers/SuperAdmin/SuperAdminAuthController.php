@@ -5,6 +5,8 @@ namespace App\Http\Controllers\SuperAdmin;
 use App\Http\Controllers\Controller;
 use App\Models\SuperAdmin;
 use App\Models\User;
+use App\Support\AuthCredentialCookie;
+use App\Support\AuthTokenResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -30,7 +32,7 @@ class SuperAdminAuthController extends Controller
         ) {
             return response()->json([
                 'message' => 'Invalid Super Admin credentials.',
-            ], 401);
+            ], 401)->withCookie(AuthCredentialCookie::forget($request, AuthCredentialCookie::OWNER));
         }
 
         $user = User::query()->updateOrCreate(
@@ -45,22 +47,22 @@ class SuperAdminAuthController extends Controller
 
         $token = $user->createToken('saas-owner-token')->plainTextToken;
 
-        return response()->json([
-            'token' => $token,
+        return response()->json(array_filter([
+            'token' => AuthTokenResponse::requestedByNonBrowserClient($request) ? $token : null,
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role,
             ],
-        ]);
+        ], static fn ($value): bool => $value !== null))->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::OWNER, $token));
     }
 
     public function me(Request $request): JsonResponse
     {
         $user = $request->user();
 
-        return response()->json([
+        $response = response()->json([
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -68,6 +70,11 @@ class SuperAdminAuthController extends Controller
                 'role' => $user->role,
             ],
         ]);
+        if ($request->header('X-Rozer-Auth-Mode') === 'cookie-v1' && $request->bearerToken()) {
+            $response->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::OWNER, $request->bearerToken()));
+        }
+
+        return $response;
     }
 
     public function logout(Request $request): JsonResponse
@@ -80,6 +87,6 @@ class SuperAdminAuthController extends Controller
 
         return response()->json([
             'message' => 'Super Admin logged out successfully.',
-        ]);
+        ])->withCookie(AuthCredentialCookie::forget($request, AuthCredentialCookie::OWNER));
     }
 }

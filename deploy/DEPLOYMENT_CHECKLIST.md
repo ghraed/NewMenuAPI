@@ -58,6 +58,20 @@ docker exec -it menu_api_app php artisan seed:prod
 
 ## 6) Frontend build + deploy
 
+Before the first deploy containing protected dish storage, preview the legacy
+asset migration and then run it after taking a storage/database backup:
+
+```bash
+php artisan dish-assets:migrate-to-protected --dry-run
+php artisan dish-assets:migrate-to-protected
+```
+
+The deployed Apache/nginx rules deny `/storage/dishes/*` immediately. Existing
+`public` disk records remain available through signed or same-tenant
+`/api/assets/{asset}/file` requests until the migration moves them to the
+private `dish_assets` disk. A non-zero migration exit must block release until
+the reported missing or unreadable files are reconciled.
+
 ```bash
 cd Menu_React
 printf 'VITE_API_URL=https://your-domain/api\n' > .env.production
@@ -78,7 +92,7 @@ sudo certbot --apache -d your-domain -d www.your-domain --redirect
 ## 8) Verify
 
 - `https://your-domain`
-- `https://your-domain/api/test`
+- `https://your-domain/up`
 
 ## 9) Tenant Domains (Multi-tenant Host Routing)
 
