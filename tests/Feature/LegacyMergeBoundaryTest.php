@@ -3,11 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Invoice;
-use App\Models\Restaurant;
 use App\Models\User;
 use App\Support\AuthCredentialCookie;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Str;
 use Tests\Feature\Concerns\BuildsRestaurantOrderFlow;
 use Tests\TestCase;
 

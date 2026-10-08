@@ -73,6 +73,7 @@ class SuperAdminAuthController extends Controller
         if ($request->header('X-Rozer-Auth-Mode') === 'cookie-v1' && $request->bearerToken()) {
             $response->withCookie(AuthCredentialCookie::make($request, AuthCredentialCookie::OWNER, $request->bearerToken()));
         }
+
         return $response;
     }
 
