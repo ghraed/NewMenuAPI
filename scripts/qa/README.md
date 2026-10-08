@@ -238,3 +238,23 @@ API behavior under a guest-write drain. Old API code restores the cache-eviction
 risk, and worker v4 restores shared protected caches/offline reload failures. For a
 frontend rollback, keep the durable API and deploy a worker that still purges v4
 protected caches. Never drop the request table or rewrite orders to roll back code.
+
+## Task 10 performance and accessibility matrix
+
+From `Menu_React`, install the pinned optional engines with
+`npx playwright install --with-deps firefox webkit`. Then use the complete paired
+command above with `--browser-matrix`. This requires Firefox/WebKit accessibility
+cases in addition to desktop/mobile Google Chrome and the original offline project;
+no browser or skipped case is counted passed when unavailable. A custom
+`PLAYWRIGHT_BROWSERS_PATH` is forwarded only in explicitly selected matrix mode.
+For focused iteration, use `--browser-only --runtime-only --e2e-spec
+task10-accessibility.spec.ts --browser-matrix --react-root ../Menu_React`, or select
+the guest-accessibility, performance or runtime spec. These are partial runs, not
+replacements for the complete launch gate. Production-build measurements and
+budgets are in `Menu_React/tests/fixtures/performance-budgets.json`; the frontend's
+`node scripts/qa/check-performance.mjs <measurement.json>` checks retained samples.
+
+The current operating/provisioning model, feature/role matrix, asset-cache rollout,
+restore/rollback, monitoring and remaining infrastructure limits are documented in
+`Menu_React/docs/operations.md`. Task 10 makes no backend business/schema/financial
+change. Its paired API changes extend QA/CI/browser documentation only.
