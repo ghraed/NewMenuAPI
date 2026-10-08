@@ -19,6 +19,31 @@ class Invoice extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    public const TERMINAL_STATUSES = [self::STATUS_PAID, self::STATUS_CANCELLED];
+
+    /**
+     * Issued invoices may be settled or cancelled. Paid and cancelled statuses
+     * are terminal; corrections belong in the adjustment/refund flow.
+     *
+     * @var array<string, array<int, string>>
+     */
+    public const ALLOWED_STATUS_TRANSITIONS = [
+        self::STATUS_DRAFT => [self::STATUS_DRAFT, self::STATUS_ISSUED, self::STATUS_CANCELLED],
+        self::STATUS_ISSUED => [self::STATUS_ISSUED, self::STATUS_PAID, self::STATUS_CANCELLED],
+        self::STATUS_PAID => [self::STATUS_PAID],
+        self::STATUS_CANCELLED => [self::STATUS_CANCELLED],
+    ];
+
+    public function canTransitionTo(string $nextStatus): bool
+    {
+        return in_array($nextStatus, self::ALLOWED_STATUS_TRANSITIONS[$this->status] ?? [], true);
+    }
+
+    public function hasTerminalStatus(): bool
+    {
+        return in_array($this->status, self::TERMINAL_STATUSES, true);
+    }
+
     protected $fillable = [
         'uuid',
         'restaurant_id',

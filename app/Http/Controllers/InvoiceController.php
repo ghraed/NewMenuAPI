@@ -192,8 +192,37 @@ class InvoiceController extends Controller
         $hasFinancialInputs = $this->hasFinancialInputs($validated);
 
         $invoice = DB::transaction(function () use ($invoice, $validated, $hasItems, $hasFinancialInputs, $normalizedItems): Invoice {
+            $invoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail();
             $invoice->loadMissing('items', 'restaurant');
             $nextStatus = $validated['status'] ?? $invoice->status;
+
+            $terminalMutationFields = array_values(array_intersect(array_keys($validated), [
+                'invoice_date',
+                'vat_rate',
+                'service_charge_rate',
+                'discount_type',
+                'discount_value',
+                'currency',
+                'exchange_rate',
+                'payment_method',
+                'payment_reference',
+                'items',
+            ]));
+
+            if ($invoice->hasTerminalStatus() && $terminalMutationFields !== []) {
+                throw ValidationException::withMessages(collect($terminalMutationFields)
+                    ->mapWithKeys(fn (string $field): array => [
+                        $field => "{$field} cannot be changed after an invoice is {$invoice->status}. Add a note or use the complaint adjustment/refund flow.",
+                    ])
+                    ->all());
+            }
+
+            if (! $invoice->canTransitionTo($nextStatus)) {
+                throw ValidationException::withMessages([
+                    'status' => "Invoice status cannot transition from {$invoice->status} to {$nextStatus}. Use the complaint adjustment/refund flow for corrections to terminal invoices.",
+                ]);
+            }
+
             $isTransitioningToPaid = $invoice->status !== Invoice::STATUS_PAID && $nextStatus === Invoice::STATUS_PAID;
             $isTransitioningOutOfPaid = $invoice->status === Invoice::STATUS_PAID && $nextStatus !== Invoice::STATUS_PAID;
 
@@ -295,9 +324,23 @@ class InvoiceController extends Controller
             ->get()
             ->keyBy('bucket');
 
+        $refundRows = PosComplaintAdjustment::query()
+            ->where('restaurant_id', $restaurant->id)
+            ->where('status', 'posted')
+            ->whereBetween('posted_at', [$from->toDateTimeString(), $to->toDateTimeString()])
+            ->selectRaw(match ($range) {
+                'daily' => "DATE_FORMAT(posted_at, '%Y-%m-%d') AS bucket, SUM(refund_amount) AS refunds",
+                'yearly' => "DATE_FORMAT(posted_at, '%Y') AS bucket, SUM(refund_amount) AS refunds",
+                default => "DATE_FORMAT(posted_at, '%Y-%m') AS bucket, SUM(refund_amount) AS refunds",
+            })
+            ->groupBy('bucket')
+            ->get()
+            ->keyBy('bucket');
+
         $points = collect($this->generateBuckets($range, $from, $to))
-            ->map(function (string $bucket) use ($rows, $labelFormat): array {
+            ->map(function (string $bucket) use ($rows, $refundRows, $labelFormat): array {
                 $row = $rows->get($bucket);
+                $refunds = round((float) ($refundRows->get($bucket)->refunds ?? 0), 2);
                 $referenceDate = match (strlen($bucket)) {
                     4 => Carbon::createFromFormat('Y', $bucket)->startOfYear(),
                     7 => Carbon::createFromFormat('Y-m', $bucket)->startOfMonth(),
@@ -307,7 +350,9 @@ class InvoiceController extends Controller
                 return [
                     'bucket' => $bucket,
                     'label' => $referenceDate->format($labelFormat),
-                    'revenue' => round((float) ($row->revenue ?? 0), 2),
+                    'gross_revenue' => round((float) ($row->revenue ?? 0), 2),
+                    'refunds' => $refunds,
+                    'revenue' => round((float) ($row->revenue ?? 0) - $refunds, 2),
                     'invoice_count' => (int) ($row->invoice_count ?? 0),
                 ];
             })
