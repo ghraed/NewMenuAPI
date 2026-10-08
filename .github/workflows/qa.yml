@@ -13,7 +13,7 @@ permissions:
 jobs:
   api:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: Menu_API
@@ -59,8 +59,10 @@ jobs:
       - run: npm ci
       - run: npm ci
         working-directory: Menu_React
+      - run: npx playwright install --with-deps firefox webkit
+        working-directory: Menu_React
       - name: Required API, real lifecycle, operational and recovery launch gates
-        run: python3 scripts/qa/run.py --launch --react-root ../Menu_React --run-id "ci_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}" --evidence "$RUNNER_TEMP/menu-api-evidence"
+        run: python3 scripts/qa/run.py --launch --browser-matrix --react-root ../Menu_React --run-id "ci_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}" --evidence "$RUNNER_TEMP/menu-api-evidence"
       - name: Publish audit and formatting gate results in the job summary
         if: always()
         env:

@@ -31,6 +31,7 @@ def main():
     parser.add_argument('--react-root', type=Path, help='Also run frontend/browser gates')
     parser.add_argument('--api-filter', help='Focused PHPUnit filter; partial verification only')
     parser.add_argument('--browser-only', action='store_true', help='Only run frontend/browser gates')
+    parser.add_argument('--browser-matrix', action='store_true', help='Also require Task 10 Firefox/WebKit accessibility checks; install the pinned browser runtimes first')
     parser.add_argument('--launch', action='store_true', help='Require real realtime, lifecycle and operational recovery gates')
     parser.add_argument('--e2e-spec', help='Run one existing browser spec for iteration; never a complete launch verification')
     parser.add_argument('--runtime-only', action='store_true', help='Focused iteration: omit lint/unit checks, still build owned runtime')
@@ -41,6 +42,8 @@ def main():
         parser.error('Run ID must contain 1-40 letters, digits or underscores.')
     if args.api_filter and args.launch:
         parser.error('--api-filter is partial verification and cannot be combined with --launch')
+    if args.browser_matrix and not args.react_root:
+        parser.error('--browser-matrix requires --react-root')
     if args.browser_only and not args.react_root:
         parser.error('--browser-only requires --react-root')
     if args.launch and not args.react_root:
@@ -81,6 +84,10 @@ def main():
                 'VITE_GUEST_RESTAURANT_SLUG': 'qa-run-'+args.run_id.lower().replace('_', '-'),
                 'FRONTEND_URL': web_url, 'VITE_REVERB_APP_KEY': '', 'VITE_PUSHER_APP_KEY': '',
                 'LARAVEL_STORAGE_PATH': str(runtime/'storage'), 'TMPDIR': str(runtime/'tmp')})
+    if args.browser_matrix:
+        env['QA_BROWSER_MATRIX'] = '1'
+        if os.environ.get('PLAYWRIGHT_BROWSERS_PATH'):
+            env['PLAYWRIGHT_BROWSERS_PATH'] = os.environ['PLAYWRIGHT_BROWSERS_PATH']
     # Suppress every known credential even when .env.testing is loaded by PHPUnit's app.
     sources = [*API.glob('.env*'), *API.glob('config/*.php'), API/'app/Providers/TestingSafetyServiceProvider.php']
     for source in sources:
@@ -143,6 +150,26 @@ def main():
             if checks[-1]['skipped']:
                 checks[-1]['status'] = 'SKIPPED'
                 raise RuntimeError(f'{name} contains skipped tests; the complete baseline is unverified.')
+            if args.browser_matrix and name == 'react-e2e' and not args.e2e_spec:
+                required_ui = {
+                    'login keyboard skips decoration and announces real authentication errors',
+                    *[f'Arabic POS complaint and settled report remain localized in {theme}' for theme in ['light', 'dark']],
+                    'room plan can be positioned without dragging and persists coordinates',
+                    *[f'guest related-dish modal keeps keyboard focus and restores it in {theme}' for theme in ['light', 'dark']],
+                    'paid bilingual receipt stays readable with toolbar hidden in print media',
+                }
+                for project in ['mobile-chrome', 'firefox', 'webkit', 'chromium']:
+                    matrix_cases = [case for suite in report.iter('testsuite') if suite.get('hostname') == project
+                                    for case in suite.iter('testcase') if 'task10-' in case.get('classname', '')
+                                    and case.get('name') in required_ui]
+                    if len(matrix_cases) != len(required_ui) or {case.get('name') for case in matrix_cases} != required_ui:
+                        checks[-1]['status'] = 'FAIL'
+                        raise RuntimeError(f'Required Task 10 {project} UI matrix did not execute; verify the paired frontend ref.')
+                for spec, title in [('task10-performance.spec.ts', 'throttled phone measures guest catalog and admin deep links'),
+                                    ('task10-runtime.spec.ts', 'finance deep link reload and demand-loaded spreadsheet export work from built assets')]:
+                    if len([case for case in cases if case.get('classname', '').endswith(spec) and case.get('name') == title]) != 1:
+                        checks[-1]['status'] = 'FAIL'
+                        raise RuntimeError(f'Required Task 10 {spec} did not execute.')
             if args.launch and name == 'react-e2e' and not args.e2e_spec:
                 lifecycle = [case for case in cases if case.get('name') ==
                              'real PIN, staff, kitchen, paid receipt and finance lifecycle isolates two tenants and denied roles'
