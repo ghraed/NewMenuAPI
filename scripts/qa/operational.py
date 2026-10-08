@@ -137,6 +137,9 @@ def main():
             raise RuntimeError('Unknown custom host unexpectedly resolved.')
         outcomes.append({'check': 'isolated-custom-host-http', 'status': 'PASS', 'mapped_status': 200, 'unmapped_status': 404})
 
+        def request_fixture(action):
+            return command('request-'+action, ['php', 'scripts/qa/task9-operational-fixtures.php', action], True)
+        request_seed = request_fixture('seed')
         before = fixture('fingerprint')
         db = env['DB_DATABASE']
         sql = runtime/'synthetic-backup.sql'
@@ -152,8 +155,15 @@ def main():
             backup.add(disks, arcname='disks')
         key_hash = hashlib.sha256(env['APP_KEY'].encode()).hexdigest()
         command('migration-down', ['php', 'scripts/qa/console.php', 'migrate:rollback', '--step=1', '--force'])
-        down = fixture('rollback-check')
+        request_down = request_fixture('down')
         command('migration-up', ['php', 'scripts/qa/console.php', 'migrate', '--force'])
+        request_up = request_fixture('up')
+        # Preserve Task 8's exact rollback assertions against its named migration.
+        finalization_path = 'database/migrations/2026_10_06_000200_add_finalized_invoice_to_table_sessions.php'
+        command('task8-migration-down', ['php', 'scripts/qa/console.php', 'migrate:rollback',
+                f"--batch={request_seed['task8_batch']}", f'--path={finalization_path}', '--force'])
+        down = fixture('rollback-check')
+        command('task8-migration-up', ['php', 'scripts/qa/console.php', 'migrate', f'--path={finalization_path}', '--force'])
         # Down/up is not a data restore: finalized_invoice_id values were dropped. Restore must recover them.
         command('wipe-owned-schema', ['php', 'scripts/qa/console.php', 'db:wipe', '--force'])
         shutil.rmtree(disks)
@@ -170,6 +180,7 @@ def main():
         restored_hashes = {str(p.relative_to(disks)): hashlib.sha256(p.read_bytes()).hexdigest() for p in disks.rglob('*') if p.is_file()}
         if before != after or file_hashes != restored_hashes or hashlib.sha256(env['APP_KEY'].encode()).hexdigest() != key_hash:
             raise RuntimeError('Restored rows/storage/key do not match the synthetic backup.')
+        request_restore = request_fixture('restore')
         receipt = fixture('restore-check')
         # Keep the invoice's paid state separate from the QA outcome status.
         receipt['invoice_status'] = receipt.pop('status')
@@ -193,7 +204,8 @@ def main():
         if invoice['total'] != '25.30' or invoice['status'] != 'paid' or finance['revenue']['value'] != 25.3 or finance['invoice_count']['value'] != 1:
             raise RuntimeError('Post-restore HTTP invoice/finance invariants failed.')
         outcomes.extend([
-            {'check': 'latest-migration-down-up', 'status': 'PASS', **down, 'data_restore_required': 'finalized_invoice_id links are lost by down(); recovered from backup'},
+            {'check': 'latest-request-migration-down-up', 'status': 'PASS', **request_down, **request_up, **request_restore},
+            {'check': 'task8-finalization-migration-down-up', 'status': 'PASS', **down, 'data_restore_required': 'finalized_invoice_id links are lost by down(); recovered from backup'},
             {'check': 'synthetic-backup-destruction-restore', 'status': 'PASS', 'table_fingerprints': after,
              'storage_sha256': restored_hashes, 'runtime_key_preserved': True, **receipt},
             {'check': 'post-restore-authenticated-finance-http', 'status': 'PASS', 'login_status': 200,

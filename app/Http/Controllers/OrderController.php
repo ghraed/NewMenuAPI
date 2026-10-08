@@ -2633,80 +2633,55 @@ class OrderController extends Controller
         OrderInvoiceCalculator $invoiceCalculator
     ): array {
         $idempotencyKey = $this->extractIdempotencyKey($request);
-
-        if (! $tableSession || $idempotencyKey === null) {
-            return [
-                'order' => $this->createOrderForTableContext(
-                    $restaurant,
-                    $restaurantTable,
-                    $tableSession,
-                    $validated,
-                    $invoiceCalculator
-                ),
-                'replayed' => false,
-            ];
+        if (! $tableSession) {
+            return ['order' => $this->createOrderForTableContext($restaurant, $restaurantTable, null, $validated, $invoiceCalculator), 'replayed' => false];
         }
 
-        $payloadHash = hash(
-            'sha256',
-            json_encode($this->normalizeOrderIdempotencyPayload($validated), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
-        );
-        $scope = sprintf(
-            'guest-order:idempotency:%d:%s',
-            $tableSession->id,
-            hash('sha256', $idempotencyKey)
-        );
-        $lock = Cache::lock($scope.':lock', 10);
+        $payloadHash = hash('sha256', json_encode($this->normalizeOrderIdempotencyPayload($validated), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $keyHash = $idempotencyKey !== null ? hash('sha256', $idempotencyKey) : null;
+        $scope = sprintf('guest-order:idempotency:%d:%s', $tableSession->id, $keyHash);
 
-        $result = $lock->get(function () use (
-            $scope,
-            $payloadHash,
-            $restaurant,
-            $restaurantTable,
-            $tableSession,
-            $validated,
-            $invoiceCalculator
-        ): array {
-            $cached = Cache::get($scope);
+        $result = DB::transaction(function () use ($request, $restaurant, $restaurantTable, $tableSession, $validated, $invoiceCalculator, $payloadHash, $keyHash, $scope): array {
+            // Finalization and order submission serialize on the same session row.
+            // Recheck authorization after acquiring it: route models can be stale.
+            $session = TableSession::query()->whereKey($tableSession->id)->lockForUpdate()->firstOrFail();
+            $this->tableSessionAccessService->authorizeRequestForSession($request, $session);
 
-            if (is_array($cached) && isset($cached['payload_hash'], $cached['order_id'])) {
-                if (! hash_equals((string) $cached['payload_hash'], $payloadHash)) {
-                    throw new HttpResponseException(response()->json([
-                        'message' => 'The idempotency key was already used for a different guest order payload.',
-                    ], 409));
+            if ($keyHash !== null) {
+                $prior = DB::table('guest_order_idempotency')->where('table_session_id', $session->id)->where('key_hash', $keyHash)->first();
+                // Adopt a still-valid pre-upgrade cache record only after checking
+                // its payload and the original order's exact tenant/session scope.
+                $legacy = $prior === null ? Cache::get($scope) : null;
+                if ($prior !== null || (is_array($legacy) && isset($legacy['payload_hash'], $legacy['order_id']))) {
+                    $priorHash = $prior?->payload_hash ?? $legacy['payload_hash'];
+                    if (! hash_equals((string) $priorHash, $payloadHash)) {
+                        throw new HttpResponseException(response()->json([
+                            'message' => 'The idempotency key was already used for a different guest order payload.',
+                        ], 409));
+                    }
+                    $order = Order::query()->where('restaurant_id', $restaurant->id)->where('table_session_id', $session->id)
+                        ->findOrFail($prior?->order_id ?? $legacy['order_id']);
+                    if ($prior === null) {
+                        DB::table('guest_order_idempotency')->insert(['table_session_id' => $session->id, 'key_hash' => $keyHash,
+                            'payload_hash' => $payloadHash, 'order_id' => $order->id, 'created_at' => now(), 'updated_at' => now()]);
+                    }
+
+                    return ['order' => $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']), 'replayed' => true];
                 }
-
-                $order = Order::query()->findOrFail((int) $cached['order_id']);
-
-                return [
-                    'order' => $order->fresh(['restaurant', 'restaurantTable', 'tableSession', 'items']),
-                    'replayed' => true,
-                ];
             }
 
-            $order = $this->createOrderForTableContext(
-                $restaurant,
-                $restaurantTable,
-                $tableSession,
-                $validated,
-                $invoiceCalculator
-            );
+            $order = $this->createOrderForTableContext($restaurant, $restaurantTable, $session, $validated, $invoiceCalculator);
+            if ($keyHash !== null) {
+                DB::table('guest_order_idempotency')->insert(['table_session_id' => $session->id, 'key_hash' => $keyHash,
+                    'payload_hash' => $payloadHash, 'order_id' => $order->id, 'created_at' => now(), 'updated_at' => now()]);
+            }
 
-            Cache::put($scope, [
-                'order_id' => $order->id,
-                'payload_hash' => $payloadHash,
-            ], now()->addDay());
+            return ['order' => $order, 'replayed' => false];
+        }, 3);
 
-            return [
-                'order' => $order,
-                'replayed' => false,
-            ];
-        });
-
-        if ($result === false) {
-            throw new HttpResponseException(response()->json([
-                'message' => 'Another guest order with the same idempotency key is already being processed.',
-            ], 409));
+        if ($keyHash !== null) {
+            // Retain the old cache contract during a coordinated fleet upgrade.
+            Cache::put($scope, ['order_id' => $result['order']->id, 'payload_hash' => $payloadHash], now()->addDay());
         }
 
         return $result;

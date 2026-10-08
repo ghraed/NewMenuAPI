@@ -29,6 +29,7 @@ def free_port():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--react-root', type=Path, help='Also run frontend/browser gates')
+    parser.add_argument('--api-filter', help='Focused PHPUnit filter; partial verification only')
     parser.add_argument('--browser-only', action='store_true', help='Only run frontend/browser gates')
     parser.add_argument('--launch', action='store_true', help='Require real realtime, lifecycle and operational recovery gates')
     parser.add_argument('--e2e-spec', help='Run one existing browser spec for iteration; never a complete launch verification')
@@ -38,6 +39,8 @@ def main():
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9_]{1,40}', args.run_id):
         parser.error('Run ID must contain 1-40 letters, digits or underscores.')
+    if args.api_filter and args.launch:
+        parser.error('--api-filter is partial verification and cannot be combined with --launch')
     if args.browser_only and not args.react_root:
         parser.error('--browser-only requires --react-root')
     if args.launch and not args.react_root:
@@ -131,7 +134,7 @@ def main():
             except (ValueError, KeyError):
                 checks[-1]['status'] = 'FAIL'
                 raise RuntimeError(f'{name} did not return verified environment JSON.')
-        junit = {'api-full': 'api-junit.xml', 'react-unit': 'react-junit.xml', 'react-e2e': 'browser-junit.xml'}.get(name)
+        junit = {'api-full': 'api-junit.xml', 'api-focused': 'api-junit.xml', 'react-unit': 'react-junit.xml', 'react-e2e': 'browser-junit.xml'}.get(name)
         if junit:
             report = ET.parse(evidence/junit).getroot()
             cases = list(report.iter('testcase'))
@@ -140,13 +143,25 @@ def main():
             if checks[-1]['skipped']:
                 checks[-1]['status'] = 'SKIPPED'
                 raise RuntimeError(f'{name} contains skipped tests; the complete baseline is unverified.')
-            if args.launch and name == 'react-e2e':
+            if args.launch and name == 'react-e2e' and not args.e2e_spec:
                 lifecycle = [case for case in cases if case.get('name') ==
                              'real PIN, staff, kitchen, paid receipt and finance lifecycle isolates two tenants and denied roles'
                              and case.get('classname', '').endswith('real-order-lifecycle.spec.ts')]
                 if len(lifecycle) != 1:
                     checks[-1]['status'] = 'FAIL'
                     raise RuntimeError('Required real lifecycle case did not execute; verify the paired frontend ref.')
+                offline = [case for case in cases if case.get('classname', '').endswith('offline-recovery.spec.ts')]
+                expected_offline = {
+                    'service worker keeps public offline menu while token-sensitive responses bypass shared caches',
+                    'lost acknowledgement survives reload, application upgrade and competing tabs with one server order',
+                    'interrupted network submit before server commit survives reload and reconnect',
+                    'reload during an unacknowledged committed submit recovers the queued intent instead of sending a new cart',
+                    *[f'offline interrupted submit requires review after session {action}' for action in ['expire', 'close', 'disable']],
+                }
+                if len(offline) != len(expected_offline) or {case.get('name') for case in offline} != expected_offline:
+                    checks[-1]['status'] = 'FAIL'
+                    raise RuntimeError('Required Task 9 offline cases did not execute; verify the paired frontend ref.')
+
 
     def background(name, cmd, cwd=API):
         log = (evidence/f'{name}.log').open('w')
@@ -199,13 +214,15 @@ def main():
         command('api-environment', ['php', 'scripts/qa/environment.php'])
         if not args.browser_only:
             command('api-migrations', ['php', 'artisan', 'migrate:fresh', '--env=testing', '--force'])
-            command('api-full', ['php', 'artisan', 'test', '--log-junit', str(evidence/'api-junit.xml')])
+            command('api-focused' if args.api_filter else 'api-full', ['php', 'artisan', 'test', '--log-junit', str(evidence/'api-junit.xml'), *(['--filter', args.api_filter] if args.api_filter else [])])
             command('api-build', ['npm', 'run', 'build'])
             command('api-tooling', ['npm', 'run', 'test:tooling'])
             command('composer-validate', ['composer', 'validate', '--no-check-publish'])
             command('api-pint', ['vendor/bin/pint', '--test'])
             command('composer-audit', ['composer', 'audit', '--format=json'])
             command('api-npm-audit', ['npm', 'audit', '--json'])
+        if args.api_filter:
+            checks.append({'check': 'complete-api-suite', 'status': 'NOT EXECUTED', 'required': False, 'reason': 'Explicit focused PHPUnit filter.'})
         if react:
             env['DB_DATABASE'] = browser_db
             if args.launch:
