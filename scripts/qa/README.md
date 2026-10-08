@@ -192,3 +192,49 @@ restore logs; effective environment and paired Git commits. No skipped or blocke
 is counted as passing. Use the runner's owned-process cleanup, never a global kill/wipe.
 
 Focused iteration only: `--browser-only --runtime-only --e2e-spec real-order-lifecycle.spec.ts --launch --react-root ../Menu_React` omits lint/unit gates and other browser specs, reporting them NOT EXECUTED. CI never uses these focused options.
+
+## Concurrency and offline recovery (roadmap Task 9)
+
+The complete paired `--launch` command now requires the original real lifecycle
+and all seven cases in the separate `offline-chromium` Playwright project. That
+project permits the application's actual service worker; the existing Chromium
+project continues blocking it. HTTP faults interrupt real requests and never
+replace server business responses. Evidence includes offline HTTP status ledgers,
+retained browser traces/screenshots, separate MySQL connection IDs and persisted
+contention outcomes. Staff membership remains single-restaurant: the existing
+unique `restaurant_user.user_id` constraint intentionally rejects a second link.
+
+For iteration only, use `--api-filter 'Task9ContentionTest|StaffMembershipBoundaryTest'`
+or `--browser-only --runtime-only --e2e-spec offline-recovery.spec.ts --react-root ../Menu_React`.
+Focused API output is named `api-focused`; omitted suites are NOT EXECUTED. An API
+filter cannot be combined with the complete `--launch` gate. A browser spec filter
+with `--launch` rehearses operations but remains a partial browser run, explicitly
+marked NOT EXECUTED for complete-browser-launch. Run the full paired command before
+completion. Required full launch checks reject a companion frontend missing any
+of the seven offline cases, as well as absent lifecycle cases or skipped tests.
+
+Recovery now rehearses both Task 9's latest request-identity migration and Task 8's
+explicitly named finalization-link migration. Task 8's original assertions remain
+unchanged. The new table is seeded with a synthetic request/order pair for backup
+integrity, separate from the real guest browser scenarios. Down/up preserves the
+order but loses request identities; the backup restores the exact original key,
+payload and order link. The existing rehearsal still verifies all table/file
+fingerprints, runtime key decryption, finalization links and real paid finance HTTP.
+Dropping either table/column is a destructive data rollback, not a release recipe.
+
+Deployment compatibility: apply the new additive migration, quiesce/drain guest
+writes while replacing the API fleet, then deploy the frontend/worker v5. New API
+requests persist hashed keys and payload identities with the order transaction and
+serialize on the session row; sessions/access are reauthorized under that lock.
+Existing unkeyed clients remain accepted but cannot claim replay deduplication.
+Known pre-upgrade cache entries are adopted only after tenant/session/payload checks.
+A pre-upgrade request whose cache/key is already lost cannot be inferred safely;
+review those ambiguous requests before replay. Mixed old cache-only/new durable
+writers are not verified as safe under contention, so do not serve concurrent guest
+writes through a partially upgraded fleet. Financial and stock rules are unchanged.
+
+Rollback: retain the additive request table and its rows; revert only Task 9 client/
+API behavior under a guest-write drain. Old API code restores the cache-eviction
+risk, and worker v4 restores shared protected caches/offline reload failures. For a
+frontend rollback, keep the durable API and deploy a worker that still purges v4
+protected caches. Never drop the request table or rewrite orders to roll back code.
