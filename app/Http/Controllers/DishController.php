@@ -663,8 +663,8 @@ class DishController extends Controller
         $directory = "dishes/{$dish->id}";
         $fileName = $type.'-'.Str::uuid().'.'.strtolower($file->getClientOriginalExtension());
         $path = "{$directory}/{$fileName}";
-        $trackFile('public', $path);
-        if ($file->storeAs($directory, $fileName, 'public') === false) {
+        $trackFile(DishAsset::PROTECTED_DISK, $path);
+        if ($file->storeAs($directory, $fileName, DishAsset::PROTECTED_DISK) === false) {
             throw new RuntimeException('Failed to store the uploaded asset.');
         }
 
@@ -672,7 +672,7 @@ class DishController extends Controller
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $type,
-            'storage_disk' => 'public',
+            'storage_disk' => DishAsset::PROTECTED_DISK,
             'file_path' => $path,
             'glb_path' => $type === 'glb' ? $path : null,
             'usdz_path' => $type === 'usdz' ? $path : null,
@@ -711,17 +711,31 @@ class DishController extends Controller
             $extension = $sourceAsset->asset_type;
         }
         $destinationPath = "dishes/{$dish->id}/{$sourceAsset->asset_type}-".Str::uuid().".{$extension}";
-        $trackFile($disk, $destinationPath);
+        $trackFile(DishAsset::PROTECTED_DISK, $destinationPath);
 
-        if (! $storage->copy($sourcePath, $destinationPath)) {
-            throw new RuntimeException('Failed to copy the selected model asset.');
+        if ($disk === DishAsset::PROTECTED_DISK) {
+            if (! $storage->copy($sourcePath, $destinationPath)) {
+                throw new RuntimeException('Failed to copy the selected model asset.');
+            }
+        } else {
+            $stream = $storage->readStream($sourcePath);
+            if (! is_resource($stream)) {
+                throw new RuntimeException('Failed to read the selected model asset.');
+            }
+            try {
+                if (! Storage::disk(DishAsset::PROTECTED_DISK)->writeStream($destinationPath, $stream)) {
+                    throw new RuntimeException('Failed to copy the selected model asset.');
+                }
+            } finally {
+                fclose($stream);
+            }
         }
 
         return [
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $sourceAsset->asset_type,
-            'storage_disk' => $disk,
+            'storage_disk' => DishAsset::PROTECTED_DISK,
             'file_path' => $destinationPath,
             'glb_path' => $sourceAsset->asset_type === 'glb' ? $destinationPath : null,
             'usdz_path' => $sourceAsset->asset_type === 'usdz' ? $destinationPath : null,

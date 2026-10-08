@@ -31,7 +31,7 @@ class AssetReplacementSafetyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->disk = Storage::fake('public');
+        $this->disk = Storage::fake(DishAsset::PROTECTED_DISK);
         $prefix = 'QA_RUN_20261006_'.bin2hex(random_bytes(4));
         $user = User::factory()->admin()->create(['name' => $prefix, 'email' => $prefix.'@example.invalid']);
         $this->restaurant = Restaurant::factory()->for($user)->create(['name' => $prefix, 'slug' => strtolower($prefix)]);
@@ -55,7 +55,7 @@ class AssetReplacementSafetyTest extends TestCase
 
         return DishAsset::create([
             'uuid' => (string) Str::uuid(), 'dish_id' => $dish->id, 'asset_type' => $type,
-            'storage_disk' => 'public', 'file_path' => $path,
+            'storage_disk' => DishAsset::PROTECTED_DISK, 'file_path' => $path,
             'glb_path' => $type === 'glb' ? $path : null, 'usdz_path' => $type === 'usdz' ? $path : null,
             'file_url' => '', 'file_size' => 32,
             'mime_type' => match ($type) {
@@ -101,7 +101,7 @@ class AssetReplacementSafetyTest extends TestCase
         } else {
             $expectation->andReturn(false);
         }
-        Storage::set('public', $broken);
+        Storage::set(DishAsset::PROTECTED_DISK, $broken);
 
         $this->post("/api/dishes/{$this->target->id}/assets", ['type' => $type, 'file' => $this->upload($type)], ['Accept' => 'application/json'])
             ->assertStatus(500);
@@ -140,7 +140,7 @@ class AssetReplacementSafetyTest extends TestCase
             $this->disk->put("{$directory}/{$name}", 'QA_RUN_partial_file');
             throw new RuntimeException('QA_RUN interrupted file write');
         });
-        Storage::set('public', $broken);
+        Storage::set(DishAsset::PROTECTED_DISK, $broken);
 
         $this->post("/api/dishes/{$this->target->id}/assets", ['type' => 'glb', 'file' => $this->upload('glb')], ['Accept' => 'application/json'])
             ->assertStatus(500);
@@ -294,7 +294,7 @@ class AssetReplacementSafetyTest extends TestCase
         $old = $this->asset($this->target, 'glb');
         $broken = Mockery::mock($this->disk)->makePartial();
         $broken->shouldReceive('delete')->with($old->file_path)->andThrow(new RuntimeException('QA_RUN cleanup unavailable'));
-        Storage::set('public', $broken);
+        Storage::set(DishAsset::PROTECTED_DISK, $broken);
 
         $response = $this->post("/api/dishes/{$this->target->id}/assets", ['type' => 'glb', 'file' => $this->upload('glb')], ['Accept' => 'application/json']);
         $response->assertCreated();

@@ -99,7 +99,7 @@ class AssetController extends Controller
             'uuid' => (string) Str::uuid(),
             'dish_id' => $dish->id,
             'asset_type' => $type,
-            'storage_disk' => 'public',
+            'storage_disk' => DishAsset::PROTECTED_DISK,
             'file_url' => '',
             'file_size' => $file?->getSize() ?? $sourceIngredient?->file_size ?? 0,
             'mime_type' => $this->resolveMimeType($file, $type, $sourceIngredient),
@@ -113,8 +113,8 @@ class AssetController extends Controller
                 $directory = "dishes/{$dish->id}";
                 $storedName = $type.'-'.Str::uuid().'.'.strtolower($file->getClientOriginalExtension());
                 $path = "{$directory}/{$storedName}";
-                $trackFile('public', $path);
-                if ($file->storeAs($directory, $storedName, 'public') === false) {
+                $trackFile(DishAsset::PROTECTED_DISK, $path);
+                if ($file->storeAs($directory, $storedName, DishAsset::PROTECTED_DISK) === false) {
                     throw new RuntimeException('Failed to store the replacement asset.');
                 }
 
@@ -341,7 +341,7 @@ class AssetController extends Controller
         $path = "dishes/{$dish->id}/ingredients/".Str::uuid().'-'.$originalName;
 
         if ($file) {
-            return $file->storeAs("dishes/{$dish->id}/ingredients", basename($path), 'public');
+            return $file->storeAs("dishes/{$dish->id}/ingredients", basename($path), DishAsset::PROTECTED_DISK);
         }
 
         if (! $sourceIngredient?->file_path) {
@@ -350,7 +350,7 @@ class AssetController extends Controller
 
         $sourceDisk = $sourceIngredient->storage_disk ?: 'public';
         $contents = Storage::disk($sourceDisk)->get($sourceIngredient->file_path);
-        Storage::disk('public')->put($path, $contents);
+        Storage::disk(DishAsset::PROTECTED_DISK)->put($path, $contents);
 
         return $path;
     }

@@ -20,7 +20,7 @@ class IngredientImageAssetTest extends TestCase
 
     public function test_authenticated_admin_can_upload_multiple_ingredient_images_without_replacing_previous_layers(): void
     {
-        Storage::fake('public');
+        Storage::fake(DishAsset::PROTECTED_DISK);
 
         $user = User::factory()->create();
         $restaurant = $this->createRestaurant($user);
@@ -68,13 +68,15 @@ class IngredientImageAssetTest extends TestCase
 
         foreach ($ingredientAssets as $asset) {
             $this->assertStringStartsWith("/api/assets/{$asset->id}/file", $asset->file_url);
-            Storage::disk('public')->assertExists($asset->file_path);
+            $this->assertSame(DishAsset::PROTECTED_DISK, $asset->storage_disk);
+            Storage::disk(DishAsset::PROTECTED_DISK)->assertExists($asset->file_path);
         }
     }
 
     public function test_authenticated_admin_can_update_existing_ingredient_image_labels(): void
     {
         Storage::fake('public');
+        Storage::fake(DishAsset::PROTECTED_DISK);
 
         $user = User::factory()->create();
         $restaurant = $this->createRestaurant($user);
@@ -126,6 +128,7 @@ class IngredientImageAssetTest extends TestCase
     public function test_authenticated_admin_can_create_dish_ingredient_from_saved_library_image(): void
     {
         Storage::fake('public');
+        Storage::fake(DishAsset::PROTECTED_DISK);
 
         $user = User::factory()->create();
         $restaurant = $this->createRestaurant($user);
@@ -167,7 +170,8 @@ class IngredientImageAssetTest extends TestCase
             ->firstOrFail();
 
         $this->assertNotSame($ingredient->file_path, $asset->file_path);
-        Storage::disk('public')->assertExists($asset->file_path);
+        $this->assertSame(DishAsset::PROTECTED_DISK, $asset->storage_disk);
+        Storage::disk(DishAsset::PROTECTED_DISK)->assertExists($asset->file_path);
         $this->assertSame('fresh mint leaves', $asset->metadata['label'] ?? null);
         $this->assertSame($ingredient->id, $asset->metadata['ingredient_library_id'] ?? null);
     }

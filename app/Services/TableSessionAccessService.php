@@ -8,6 +8,7 @@ use App\Models\Restaurant;
 use App\Models\TableGuestAccess;
 use App\Models\TableSession;
 use App\Models\TableWave;
+use App\Support\AuthCredentialCookie;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -112,7 +113,7 @@ class TableSessionAccessService
 
     public function findRequestGuestAccess(Request $request, TableSession $expectedSession, bool $touch = true): ?TableGuestAccess
     {
-        $token = $this->extractAccessToken($request);
+        $token = $this->extractAccessToken($request, $expectedSession);
 
         if (! $token) {
             return null;
@@ -123,7 +124,7 @@ class TableSessionAccessService
 
     public function authorizeRequestForSession(Request $request, TableSession $expectedSession): TableGuestAccess
     {
-        $token = $this->extractAccessToken($request);
+        $token = $this->extractAccessToken($request, $expectedSession);
 
         if (! $token) {
             throw $this->authorizationException();
@@ -573,15 +574,16 @@ class TableSessionAccessService
         return $prefix.str_pad((string) $nextSequence, 4, '0', STR_PAD_LEFT);
     }
 
-    public function buildGuestAccessPayload(TableGuestAccess $access, string $token): array
+    public function buildGuestAccessPayload(TableGuestAccess $access, ?string $token = null): array
     {
-        return [
+        return array_filter([
+            'cache_key' => $access->token_hash,
             'token' => $token,
             'verified' => true,
             'joined_at' => $access->joined_at?->toIso8601String(),
             'last_seen_at' => $access->last_seen_at?->toIso8601String(),
             'expires_at' => $access->expires_at?->toIso8601String(),
-        ];
+        ], static fn ($value): bool => $value !== null);
     }
 
     private function resolveValidAccess(Request $request, string $token, TableSession $expectedSession, bool $touch): ?TableGuestAccess
@@ -593,6 +595,11 @@ class TableSessionAccessService
 
         if (! $access || ! $access->tableSession || $access->table_session_id !== $expectedSession->id) {
             return null;
+        }
+
+        $expectedCacheKey = trim((string) $request->header('X-Guest-Cache-Key', ''));
+        if ($expectedCacheKey !== '' && ! hash_equals((string) $access->token_hash, $expectedCacheKey)) {
+            throw $this->authorizationException();
         }
 
         if (! $this->matchesRequestDeviceFingerprint($request, $access)) {
@@ -681,9 +688,16 @@ class TableSessionAccessService
             ]);
     }
 
-    private function extractAccessToken(Request $request): ?string
+    private function extractAccessToken(Request $request, ?TableSession $expectedSession = null): ?string
     {
         $token = trim((string) $request->header(self::TOKEN_HEADER, ''));
+
+        if ($token === '') {
+            $tableSession = $expectedSession ?? $request->route('tableSession');
+            if ($tableSession instanceof TableSession) {
+                $token = trim((string) $request->cookie(AuthCredentialCookie::guest($tableSession->id), ''));
+            }
+        }
 
         return $token === '' ? null : $token;
     }

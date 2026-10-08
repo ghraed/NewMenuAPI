@@ -79,10 +79,11 @@ class MobilePushNotificationService
         ]);
     }
 
-    public function notifyPendingOrderCreated(Order $order): void
+    /** @return array{delivered:array<int,string>,retryable:array<int,string>} */
+    public function notifyPendingOrderCreated(Order $order, ?array $onlyIdentifiers = null): array
     {
         if (! $this->isConfigured()) {
-            return;
+            return ['delivered' => [], 'retryable' => []];
         }
 
         $order->loadMissing([
@@ -98,13 +99,13 @@ class MobilePushNotificationService
             ->values();
 
         if ($recipients->isEmpty()) {
-            return;
+            return ['delivered' => [], 'retryable' => []];
         }
 
         $tableReference = $order->table_reference ?: ($order->restaurantTable?->name ?? 'Table');
         $orderNumber = $order->order_number ?: ('#'.$order->id);
 
-        $this->dispatchToRecipients(
+        return $this->dispatchToRecipients(
             $recipients,
             'notify_order',
             "New order from {$tableReference}",
@@ -116,7 +117,9 @@ class MobilePushNotificationService
                 'table_reference' => (string) $tableReference,
                 'target_path' => self::STAFF_ORDERS_URL,
                 'channel' => 'staff_orders',
-            ]
+                'delivery_key' => 'pending-order-'.$order->id,
+            ],
+            $onlyIdentifiers
         );
     }
 
@@ -174,17 +177,21 @@ class MobilePushNotificationService
         string $preferenceField,
         string $title,
         string $body,
-        array $data
-    ): void {
+        array $data,
+        ?array $onlyIdentifiers = null
+    ): array {
         /** @var Collection<int, MobilePushToken> $tokens */
         $tokens = $recipients
             ->flatMap(fn (User $user) => $user->mobilePushTokens)
             ->filter(fn (MobilePushToken $token) => (bool) ($token->{$preferenceField} ?? true))
             ->unique('token')
+            ->when($onlyIdentifiers !== null, fn (Collection $items) => $items->filter(
+                fn (MobilePushToken $token): bool => in_array((string) $token->id, $onlyIdentifiers, true)
+            ))
             ->values();
 
         if ($tokens->isEmpty()) {
-            return;
+            return ['delivered' => [], 'retryable' => []];
         }
 
         $credentials = $this->loadServiceAccountCredentials();
@@ -192,8 +199,11 @@ class MobilePushNotificationService
         $accessToken = $this->getAccessToken($credentials);
 
         if ($projectId === null || $accessToken === null) {
-            return;
+            return ['delivered' => [], 'retryable' => $tokens->pluck('id')->map(fn ($id) => (string) $id)->all()];
         }
+
+        $delivered = [];
+        $retryable = [];
 
         foreach ($tokens as $pushToken) {
             if (! is_string($pushToken->token) || $pushToken->token === '') {
@@ -224,11 +234,13 @@ class MobilePushNotificationService
                         'android' => [
                             'priority' => 'HIGH',
                             'ttl' => '120s',
+                            'collapse_key' => $data['delivery_key'] ?? null,
                         ],
                     ],
                 ]);
 
                 if (! $response->ok()) {
+                    $retryable[] = (string) $pushToken->id;
                     Log::warning('FCM v1 push request failed.', [
                         'token_id' => $pushToken->id,
                         'token_suffix' => $tokenSuffix,
@@ -236,6 +248,7 @@ class MobilePushNotificationService
                         'body' => $response->body(),
                     ]);
                 } else {
+                    $delivered[] = (string) $pushToken->id;
                     Log::info('FCM dispatch success.', [
                         'token_id' => $pushToken->id,
                         'token_suffix' => $tokenSuffix,
@@ -244,6 +257,7 @@ class MobilePushNotificationService
                     ]);
                 }
             } catch (\Throwable $exception) {
+                $retryable[] = (string) $pushToken->id;
                 Log::warning('FCM v1 push request threw an exception.', [
                     'token_id' => $pushToken->id,
                     'token_suffix' => $tokenSuffix,
@@ -252,11 +266,13 @@ class MobilePushNotificationService
             }
         }
 
-        $tokens->each(function (MobilePushToken $token): void {
+        $tokens->filter(fn (MobilePushToken $token): bool => in_array((string) $token->id, $delivered, true))->each(function (MobilePushToken $token): void {
             $token->forceFill([
                 'last_used_at' => now(),
             ])->save();
         });
+
+        return ['delivered' => $delivered, 'retryable' => array_values(array_unique($retryable))];
     }
 
     private function resolveServiceAccountPath(): ?string

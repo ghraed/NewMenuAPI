@@ -85,10 +85,11 @@ class WebPushNotificationService
         $this->dispatchPayloadToRecipients($recipients, $payload);
     }
 
-    public function notifyPendingOrderCreated(Order $order): void
+    /** @return array{delivered:array<int,string>,retryable:array<int,string>} */
+    public function notifyPendingOrderCreated(Order $order, ?array $onlyIdentifiers = null): array
     {
         if (! $this->isConfigured()) {
-            return;
+            return ['delivered' => [], 'retryable' => []];
         }
 
         $order->loadMissing([
@@ -104,7 +105,7 @@ class WebPushNotificationService
             ->values();
 
         if ($recipients->isEmpty()) {
-            return;
+            return ['delivered' => [], 'retryable' => []];
         }
 
         $tableReference = $order->table_reference ?: ($order->restaurantTable?->name ?? 'Table');
@@ -128,10 +129,10 @@ class WebPushNotificationService
         ]);
 
         if (! is_string($payload)) {
-            return;
+            return ['delivered' => [], 'retryable' => []];
         }
 
-        $this->dispatchPayloadToRecipients($recipients, $payload);
+        return $this->dispatchPayloadToRecipients($recipients, $payload, $onlyIdentifiers);
     }
 
     /**
@@ -195,7 +196,7 @@ class WebPushNotificationService
     /**
      * @param  Collection<int, User>  $recipients
      */
-    private function dispatchPayloadToRecipients(Collection $recipients, string $payload): void
+    private function dispatchPayloadToRecipients(Collection $recipients, string $payload, ?array $onlyIdentifiers = null): array
     {
         $webPush = new WebPush([
             'VAPID' => [
@@ -209,7 +210,15 @@ class WebPushNotificationService
         $subscriptions = $recipients
             ->flatMap(fn (User $user) => $user->pushSubscriptions)
             ->unique('endpoint')
+            ->when($onlyIdentifiers !== null, fn (Collection $items) => $items->filter(
+                fn (PushSubscription $subscription): bool => in_array(hash('sha256', $subscription->endpoint), $onlyIdentifiers, true)
+            ))
             ->values();
+
+        $pending = $subscriptions->mapWithKeys(fn (PushSubscription $subscription) => [
+            hash('sha256', $subscription->endpoint) => true,
+        ])->all();
+        $delivered = [];
 
         foreach ($subscriptions as $storedSubscription) {
             $webPush->queueNotification(
@@ -232,6 +241,9 @@ class WebPushNotificationService
             }
 
             if ($report->isSuccess()) {
+                $identifier = hash('sha256', $endpoint);
+                unset($pending[$identifier]);
+                $delivered[] = $identifier;
                 $storedSubscription->forceFill([
                     'last_used_at' => now(),
                 ])->save();
@@ -247,8 +259,11 @@ class WebPushNotificationService
             ]);
 
             if ($report->isSubscriptionExpired()) {
+                unset($pending[hash('sha256', $endpoint)]);
                 $storedSubscription->delete();
             }
         }
+
+        return ['delivered' => $delivered, 'retryable' => array_keys($pending)];
     }
 }

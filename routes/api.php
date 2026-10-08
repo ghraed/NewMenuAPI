@@ -62,8 +62,6 @@ Route::prefix('ai-chat')
     });
 Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, 'throttle:chat-orders'])
     ->post('/chat/orders', [OrderController::class, 'storeChatOrder'])->middleware('new.commerce:chat');
-Route::get('/test', [GuestController::class, 'test']);
-Route::get('/test/{dish}', [GuestController::class, 'showTestDish']);
 Route::get('/menu/dishes', [GuestController::class, 'listDishes'])->middleware('feature:qr_menu');
 Route::get('/menu/dish/{dish_id}', [GuestController::class, 'showDish'])->middleware('feature:qr_menu');
 Route::get('/menu/tables', [GuestController::class, 'listTables'])->middleware('feature:qr_menu');
@@ -101,7 +99,7 @@ Route::get('/assets/{asset}/file', [AssetFileController::class, 'show'])
     ->name('api.assets.show');
 Route::post('/analytics/track', [AnalyticsController::class, 'track']);
 
-Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->group(function () {
+Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface', 'cookie.identity'])->group(function () {
     Route::prefix('owner')->middleware('saas_owner')->group(function () {
         Route::get('/auth/me', [SuperAdminAuthController::class, 'me']);
         Route::post('/auth/logout', [SuperAdminAuthController::class, 'logout']);
@@ -145,10 +143,11 @@ Route::middleware(['auth:sanctum', 'active.user', 'restrict_chef_surface'])->gro
     Route::middleware('role:admin,staff,chef,stock_manager')->group(function () {
         Route::middleware('feature:realtime_staff_orders')->group(function () {
             Route::get('/orders/pending-confirmation', [OrderController::class, 'pendingConfirmation']);
-            Route::patch('/orders/{order}', [OrderController::class, 'update']);
-            Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm']);
-            Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
-            Route::post('/orders/{order}/served', [OrderController::class, 'markServed']);
+            Route::patch('/orders/{order}', [OrderController::class, 'update'])->middleware('idempotent.staff');
+            Route::post('/orders/{order}/update-and-confirm', [OrderController::class, 'updateAndConfirm'])->middleware('idempotent.staff');
+            Route::post('/orders/{order}/confirm', [OrderController::class, 'confirm'])->middleware('idempotent.staff');
+            Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel'])->middleware('idempotent.staff');
+            Route::post('/orders/{order}/served', [OrderController::class, 'markServed'])->middleware('idempotent.staff');
             Route::post('/orders/{order}/undo-served', [OrderController::class, 'undoMarkServed']);
             Route::get('/table-sessions/active', [TableSessionController::class, 'index']);
             Route::post('/table-sessions/activate', [TableSessionController::class, 'activate'])->middleware('new.commerce:staff');

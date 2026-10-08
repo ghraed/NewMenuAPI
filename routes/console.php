@@ -69,6 +69,7 @@ Artisan::command('seed:prod', function () {
 
 Schedule::command('dishes:cleanup-deleted-assets')->dailyAt('02:00');
 Schedule::command('events:send-planning-reminders')->everyFifteenMinutes();
+Schedule::command('orders:deliver-pending-alerts')->everyMinute()->withoutOverlapping();
 
 Artisan::command('dishes:purge-dummy', function () {
     $dummyDishes = Dish::query()
