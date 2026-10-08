@@ -3,7 +3,7 @@
 Run from `Menu_API`, with `Menu_React` beside it:
 
 ```sh
-python3 scripts/qa/run.py --react-root ../Menu_React --run-id QA_20261007_example --evidence /tmp/menu-evidence-QA_20261007_example
+python3 scripts/qa/run.py --launch --react-root ../Menu_React --run-id QA_20261007_example --evidence /tmp/menu-evidence-QA_20261007_example
 ```
 
 Choose a new run ID and evidence directory each time. Evidence directories cannot already exist. No normal `.env` file is edited. The runner records both branches, commits and working trees before execution. A dirty working tree is recorded, never discarded.
@@ -17,7 +17,7 @@ The runner requires no Docker daemon or DB administrator access. It initializes 
 
 The empty database password is confined to this disposable loopback instance; it is never a credential for the normal database. The private socket and runtime directory are owner-only. No existing MySQL process, schema or Compose stack is used. `restaurantdb`, production Compose files, live domains and `.env.production` are excluded from execution.
 
-Before migrations, the runner boots the QA preflight and records effective `APP_ENV=testing`, URL, MySQL host/port/schema, isolated storage and safe transport drivers. The guarded QA HTTP entrypoint uses a file cache under this run's isolated storage so POS idempotency can be verified across real requests; fixture cleanup flushes only that owned cache. PHPUnit retains its safe array-cache default. Credentials inherited from the shell are discarded. Known mail/payment/SMS/AI/push/storage credentials are blanked, the testing safety provider remains active, and QA HTTP requests cannot make stray Laravel HTTP calls. The frontend is built with `VITE_API_URL=/api`, blank realtime keys, a synthetic guest slug and a proxy to only this run's API. It serves the resulting build, not an existing developer server.
+Before migrations, the runner boots the QA preflight and records effective `APP_ENV=testing`, URL, MySQL host/port/schema, isolated storage and safe transport drivers. The guarded QA HTTP entrypoint uses a file cache under this run's isolated storage so POS idempotency can be verified across real requests; fixture cleanup flushes only that owned cache. PHPUnit retains its safe array-cache default. Credentials inherited from the shell are discarded. Known mail/payment/SMS/AI/push/storage credentials are blanked, the testing safety provider remains active, and QA HTTP requests cannot make stray Laravel HTTP calls. The frontend is built with `VITE_API_URL=/api`, synthetic loopback realtime keys in launch mode (blank otherwise), a synthetic guest slug and a proxy to only this run's API. It serves the resulting build, not an existing developer server.
 
 Actual commands executed: `php artisan migrate:fresh --env=testing --force`, `php artisan test --log-junit ...`, API `npm run build`, `npm run test:tooling`, `composer validate --no-check-publish`, `vendor/bin/pint --test`, `composer audit --format=json`, and `npm audit --json`. With the frontend selected: `npm run lint`, `npm run test:unit` with JUnit reporting, `npm run build -- --mode qa --outDir ...`, `npm run preview` with loopback/strict port, and `npm run test:e2e`. No dependency versions are changed.
 
@@ -27,7 +27,7 @@ Every browser scenario verifies the QA marker through both API and frontend orig
 
 Each scenario has its own synthetic account suffix and password. External browser requests are blocked; only the optional Google Fonts CSS is fulfilled with an empty stylesheet so local fallback fonts can render without a remote request. API behavior is not mocked by this network guard. Successful dashboard navigation is asserted with Playwright's final-URL expectation: the existing login implementation issues overlapping redirects, and waiting on the first document's load can fail with `ERR_ABORTED` even when the final dashboard loads. Response statuses, persistence, totals, guest network assertions and all other scenario expectations remain intact.
 
-Evidence includes `repository-environment.json`, effective environment logs, API/frontend/browser JUnit, build/lint/audit logs, `checks.json`, browser HTML report and failure screenshots/traces. Synthetic credentials and bearer tokens are redacted from retained text and trace archives. The original mocked guest lifecycle remains a fast UI regression; five other browser scenarios use the real QA API. Full guest-to-kitchen-to-invoice coverage belongs to Task 8.
+Evidence includes `repository-environment.json`, effective environment logs, API/frontend/browser JUnit, build/lint/audit logs, `checks.json`, browser HTML report and failure screenshots/traces. Synthetic credentials and bearer tokens are redacted from retained text and trace archives. The original mocked guest lifecycle remains a fast UI regression; five other browser scenarios use the real QA API. The additional Task 8 scenario uses real guest PIN, staff/chef transitions, finalization, PDF and finance with separate users and two tenants. Use `--launch` for paired browser runs; the new release scenario fails closed without its owned realtime runtime.
 
 The runner stops owned API/frontend processes, shuts MySQL down through **its private socket**, and removes only its runtime directory, databases and storage. This also handles ordinary errors and Ctrl+C. If shutdown fails it exits nonzero, records a blocker and retains the owned runtime for diagnosis instead of removing active data. Never stop another MySQL instance to resolve a cleanup issue. SIGKILL or host power loss cannot guarantee automatic cleanup; use the retained owner file and recorded private socket to identify this run before manual cleanup.
 
@@ -41,7 +41,7 @@ Integrate the API QA tooling first, then the frontend changes, or use a reviewed
 
 API CI similarly uses workflow input `react_ref`, repository variable `MENU_QA_REACT_REF`, then frontend `main`. For initial paired rollout, configure both reviewed companion refs or run against local branches until both halves have been integrated. An old frontend without the guarded fixture/config changes cannot satisfy the new paired QA contract. This affects QA tooling only, not old/new production API clients.
 
-After reviewing actual remote executions, configure repository branch protection for `API QA / api`, `Frontend QA / frontend` and `Frontend QA / browser`. This local task does not change GitHub settings, push branches, merge or trigger a remote workflow. YAML parsing locally is not proof of a hosted Actions run.
+After reviewing actual remote executions, configure repository branch protection for `api` (API repository), `frontend` and `browser` (frontend repository). This local task does not change GitHub settings, push branches, merge or trigger a remote workflow. YAML parsing locally is not proof of a hosted Actions run.
 
 Rollback: revert only the paired Task 0 tooling changes after review. No application routes, money rules, deployed migrations, settled invoices, tenant permissions or dependency locks change. Remove the QA CI checks from branch protection first if intentionally withdrawing the tooling. Production Docker secret/PDF packaging remains Tasks 6/7 and is not verified by these host-based QA checks.
 
@@ -117,3 +117,78 @@ Task 7 security dependency decisions and scoped shell-quote override review: see
 `Menu_React/docs/testing/task-7-2026-10-07/`. The override is restricted to
 concurrently and can be removed when upstream pins a safe version and the audit
 and argument/cleanup regressions pass. Frontend unit tooling requires Node >=22.12.
+
+
+## Task 8 launch lifecycle and disposable operational staging
+
+The required paired CI jobs now use `--launch` and retain failure artifacts for 14 days.
+Run the same gate locally with a fresh ID/evidence directory:
+
+```sh
+python3 scripts/qa/run.py --launch --react-root ../Menu_React --run-id task8_example --evidence /tmp/menu-launch-task8-example
+```
+
+For iteration after a passing API suite, `--launch --browser-only --react-root ../Menu_React`
+runs frontend checks, all browser scenarios and the operational/recovery gates. This is
+not a replacement for the full paired release run. No skipped cases can satisfy either gate. Launch mode also requires the named real
+lifecycle case in browser JUnit, so an older companion frontend cannot silently pass
+the launch gate with only the 16 pre-existing scenarios.
+The mocked guest regression is preserved unchanged. The added real browser scenario
+requires launch mode, real PIN verification, separate guest/staff/chef/admin contexts,
+two tenants, denied unassigned staff and finance roles, foreign session/order/invoice/PDF
+and broadcast authorization, disabled ordering/chat/custom-host behavior, a paid receipt
+and independently calculated USD 25.30 finance revenue (25.00 less 2.00 plus 2.30 VAT).
+
+The existing safety provider remains unchanged. Guarded QA-only bootstrap code first
+verifies testing configuration and the run-owned browser schema, storage, bridge and
+Reverb port, then permits database queues and a synthetic Reverb application bound to
+loopback. It re-registers the existing application channel policies on the local
+Reverb driver after the safety provider initially registered them on the null driver. Reverb scaling is off; live notification credentials stay blank. No production
+router includes these QA entrypoints. All API response assertions remain real. The
+realtime test proxies genuine server frames, replays the same application event twice
+through Reverb, interrupts/reconnects the transport, then holds it down while the real
+8-second kitchen poll reconciles a served order. No API response or event is fabricated.
+
+The operations runner creates synthetic fixtures only after browser fixture cleanup.
+A separate actual queue worker must consume a pending application domain job and persist
+its verified domain mapping with no failed jobs. The domain-provisioner bridge receives
+an explicit synthetic acknowledgement; public DNS, TLS issuance and external provisioning
+are NOT tested. HTTP Host headers for reserved `*.qa.invalid` names target only loopback;
+unknown/disabled hosts must fail. Never substitute a public domain or edit host DNS here.
+An actual `schedule:work` daemon must spawn the guarded `schedule:run` and persist the
+T-1 reminder logs for due events only. The due-time clock is fixed only in schedule:run;
+the worker daemon uses wall-clock time. A repeated invocation must preserve the same
+12 role/channel logs, with no draft/future event deliveries. Push endpoints are disabled.
+
+Recovery rehearsal backs up only the owned browser schema with `mysqldump`, plus the
+synthetic private/public disk tree and its file checksums. Writers are quiesced first.
+It runs the latest real migration down/up, checks the settled invoice survives, wipes
+only that owned schema/disk tree, restores both backups, and compares every table's row
+count/hash and every file hash. It checks paid invoice total, session finalization link,
+private storage, decryption of backed-up encrypted content with the retained runtime key,
+no pending migrations and real authenticated HTTP invoice/finance and host routing.
+Raw backups and key remain in the disposable runtime and are deleted on cleanup;
+evidence keeps hashes/outcomes, not raw credential-bearing SQL or storage archives.
+
+The latest `add_finalized_invoice_to_table_sessions` down migration drops finalization
+links. An up migration cannot recover those values. A data rollback therefore requires
+a matching verified backup and a maintenance window with writers stopped. In a real
+release, prefer rolling back application images while retaining compatible additive
+schema and settled data. This synthetic rehearsal is not approval to restore production,
+roll back all historical migrations, or claim an old deployed image is known working.
+Task 8 introduces QA tooling only; application code, deployed schema and image behavior
+are unchanged. Fleet image rollback, public TLS provisioning and hosted branch-protection
+settings require separately verified infrastructure. The workflows fail the existing
+API/frontend/browser jobs on any launch-gate failure. On 7 October 2026, the actual
+GitHub check identifiers were read from successful runs on both current main heads,
+and required branch protection was configured for API `api` and frontend `frontend`
+plus `browser`, with strict up-to-date checks and administrator enforcement. The
+Task 8 source changes still need paired integration and their own hosted execution;
+local YAML validation and local tests do not prove that future hosted run.
+
+Evidence: real-lifecycle-http.json, feature/role attachment, receipt PDF, finance screenshot,
+browser JUnit/HTML/screenshots/traces; operational-checks.json; worker/scheduler/migration/
+restore logs; effective environment and paired Git commits. No skipped or blocked work
+is counted as passing. Use the runner's owned-process cleanup, never a global kill/wipe.
+
+Focused iteration only: `--browser-only --runtime-only --e2e-spec real-order-lifecycle.spec.ts --launch --react-root ../Menu_React` omits lint/unit gates and other browser specs, reporting them NOT EXECUTED. CI never uses these focused options.

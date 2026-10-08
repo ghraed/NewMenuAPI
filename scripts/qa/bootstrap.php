@@ -42,4 +42,10 @@ $app['config']->set([
     'cache.stores.file.lock_path' => $runtime.'/storage/framework/cache/data',
 ]);
 
+// Opt in ONLY after all normal safety and run-ownership checks have succeeded.
+// Real transports are confined to this runner's disposable schema and loopback port.
+if (getenv('QA_OPERATIONAL') === '1') {
+    require __DIR__.'/operational-config.php';
+}
+
 return $app;

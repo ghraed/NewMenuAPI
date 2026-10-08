@@ -30,6 +30,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--react-root', type=Path, help='Also run frontend/browser gates')
     parser.add_argument('--browser-only', action='store_true', help='Only run frontend/browser gates')
+    parser.add_argument('--launch', action='store_true', help='Require real realtime, lifecycle and operational recovery gates')
+    parser.add_argument('--e2e-spec', help='Run one existing browser spec for iteration; never a complete launch verification')
+    parser.add_argument('--runtime-only', action='store_true', help='Focused iteration: omit lint/unit checks, still build owned runtime')
     parser.add_argument('--run-id', default=time.strftime('%Y%m%d')+'_'+uuid.uuid4().hex[:8])
     parser.add_argument('--evidence', type=Path, required=True, help='New evidence directory (must not exist)')
     args = parser.parse_args()
@@ -37,16 +40,23 @@ def main():
         parser.error('Run ID must contain 1-40 letters, digits or underscores.')
     if args.browser_only and not args.react_root:
         parser.error('--browser-only requires --react-root')
+    if args.launch and not args.react_root:
+        parser.error('--launch requires --react-root')
+    if args.e2e_spec and (not args.react_root or not re.fullmatch(r'[a-z0-9-]+\.spec\.ts', args.e2e_spec)
+                         or not (args.react_root/'tests/e2e'/args.e2e_spec).is_file()):
+        parser.error('--e2e-spec requires an existing browser spec basename and --react-root')
+    if args.runtime_only and (not args.browser_only or not args.e2e_spec):
+        parser.error('--runtime-only requires --browser-only and --e2e-spec; not a release gate')
     react = args.react_root.resolve() if args.react_root else None
     evidence = args.evidence.resolve()
+    ports = [free_port() for _ in range(4)]
+    if len(set(ports)) != 4:
+        raise RuntimeError('Port allocation collision; start another run.')
     evidence.mkdir(parents=True, exist_ok=False)
     runtime = Path(tempfile.mkdtemp(prefix='menu-qa-'))
     processes, handles, checks = [], [], []
     mysql, client = None, None
-    ports = [free_port() for _ in range(3)]
-    if len(set(ports)) != 3:
-        raise RuntimeError('Port allocation collision; start another run.')
-    db_port, api_port, web_port = ports
+    db_port, api_port, web_port, reverb_port = ports
     api_url, web_url = f'http://127.0.0.1:{api_port}', f'http://127.0.0.1:{web_port}'
 
     # Keep only OS/toolchain settings. No inherited credentials, DB URLs or VITE values.
@@ -85,6 +95,12 @@ def main():
     for folder in ['tmp', 'storage/logs', 'storage/framework/cache/data', 'storage/framework/sessions', 'storage/framework/views']:
         (runtime/folder).mkdir(parents=True, exist_ok=True)
     (runtime/'owner.json').write_text(json.dumps({'run_id': args.run_id, 'db_port': db_port}))
+    if args.launch:
+        env.update({'QA_REVERB_PORT': str(reverb_port),
+                    'VITE_REVERB_APP_KEY': 'qa-'+args.run_id, 'VITE_REVERB_HOST': '127.0.0.1',
+                    'VITE_REVERB_PORT': str(reverb_port), 'VITE_REVERB_SCHEME': 'http',
+                    'DOMAIN_PROVISIONING_BRIDGE_DIR': str(runtime/'bridge')})
+        (runtime/'owner.json').write_text(json.dumps({'run_id': args.run_id, 'db_port': db_port, 'reverb_port': reverb_port}))
     (runtime/'.env').write_text('')
 
     def command(name, cmd, cwd=API, required=True):
@@ -105,6 +121,16 @@ def main():
         print(f'{name}: {checks[-1]["status"]}', flush=True)
         if required and result.returncode:
             raise RuntimeError(f'{name} failed; see its retained log.')
+        if name in ['api-environment', 'browser-environment']:
+            try:
+                target = json.loads((evidence/f'{name}.log').read_text())
+                if (target['environment'] != 'testing' or target['run_id'] != args.run_id
+                    or target['database'] != env['DB_DATABASE'] or target['host'] != '127.0.0.1'
+                    or target['port'] != db_port):
+                    raise ValueError('Effective target mismatch')
+            except (ValueError, KeyError):
+                checks[-1]['status'] = 'FAIL'
+                raise RuntimeError(f'{name} did not return verified environment JSON.')
         junit = {'api-full': 'api-junit.xml', 'react-unit': 'react-junit.xml', 'react-e2e': 'browser-junit.xml'}.get(name)
         if junit:
             report = ET.parse(evidence/junit).getroot()
@@ -114,6 +140,13 @@ def main():
             if checks[-1]['skipped']:
                 checks[-1]['status'] = 'SKIPPED'
                 raise RuntimeError(f'{name} contains skipped tests; the complete baseline is unverified.')
+            if args.launch and name == 'react-e2e':
+                lifecycle = [case for case in cases if case.get('name') ==
+                             'real PIN, staff, kitchen, paid receipt and finance lifecycle isolates two tenants and denied roles'
+                             and case.get('classname', '').endswith('real-order-lifecycle.spec.ts')]
+                if len(lifecycle) != 1:
+                    checks[-1]['status'] = 'FAIL'
+                    raise RuntimeError('Required real lifecycle case did not execute; verify the paired frontend ref.')
 
     def background(name, cmd, cwd=API):
         log = (evidence/f'{name}.log').open('w')
@@ -175,17 +208,34 @@ def main():
             command('api-npm-audit', ['npm', 'audit', '--json'])
         if react:
             env['DB_DATABASE'] = browser_db
+            if args.launch:
+                env['QA_OPERATIONAL'] = '1'
+                reverb = background('reverb-server', ['php', 'scripts/qa/console.php', 'reverb:start', '--host=127.0.0.1', f'--port={reverb_port}'])
+                def probe_reverb():
+                    with socket.create_connection(('127.0.0.1', reverb_port), timeout=2):
+                        pass
+                wait_ready(reverb, probe_reverb)
             command('browser-environment', ['php', 'scripts/qa/environment.php'])
             command('browser-migrations', ['php', 'artisan', 'migrate:fresh', '--env=testing', '--force'])
-            command('react-lint', ['npm', 'run', 'lint'], react)
-            command('react-unit', ['npm', 'run', 'test:unit', '--', '--reporter=default', '--reporter=junit', f'--outputFile={evidence}/react-junit.xml'], react)
+            if not args.runtime_only:
+                command('react-lint', ['npm', 'run', 'lint'], react)
+                command('react-unit', ['npm', 'run', 'test:unit', '--', '--reporter=default', '--reporter=junit', f'--outputFile={evidence}/react-junit.xml'], react)
+            else:
+                checks.extend([{'check': name, 'status': 'NOT EXECUTED', 'required': False,
+                                'reason': 'Explicit focused runtime iteration, not a release gate.'}
+                               for name in ['react-lint', 'react-unit']])
             command('react-build', ['npm', 'run', 'build', '--', '--mode', 'qa', '--outDir', str(runtime/'frontend')], react)
             # Vite preview proxies only to this owned API; no reuse of existing dev servers.
             api = background('api-server', ['php', '-S', f'127.0.0.1:{api_port}', 'scripts/qa/router.php'])
             wait_ready(api, lambda: urllib.request.urlopen(api_url+'/api/__qa/environment', timeout=2).close())
             web = background('react-server', ['npm', 'run', 'preview', '--', '--mode', 'qa', '--host', '127.0.0.1', '--port', str(web_port), '--strictPort', '--outDir', str(runtime/'frontend')], react)
             wait_ready(web, lambda: urllib.request.urlopen(web_url+'/api/__qa/environment', timeout=2).close())
-            command('react-e2e', ['npm', 'run', 'test:e2e'], react)
+            if args.launch:
+                command('operational-recovery', ['python3', 'scripts/qa/operational.py'])
+            command('react-e2e', ['npm', 'run', 'test:e2e', *(['--', args.e2e_spec] if args.e2e_spec else [])], react)
+            if args.e2e_spec:
+                checks.append({'check': 'complete-browser-launch', 'status': 'NOT EXECUTED', 'required': False,
+                               'reason': 'Focused iteration only; all other specs must run before launch.'})
             command('react-npm-audit', ['npm', 'audit', '--json'], react)
     except (Exception, KeyboardInterrupt) as error:
         exit_code = 1
@@ -228,6 +278,8 @@ def main():
             content = re.sub(r'(QA_RUN_password_[0-9]+)', '[REDACTED]', content)
             content = re.sub(r'QA_RUN_[a-f0-9]{8}-[a-f0-9-]{27,}', '[REDACTED]', content)
             content = re.sub(r'(\d+\|[A-Za-z0-9]{30,})', '[REDACTED]', content)
+            content = re.sub(r'(?<![A-Za-z0-9])[A-Za-z0-9]{80}(?![A-Za-z0-9])', '[REDACTED_GUEST_TOKEN]', content)
+            content = re.sub(r'qa-[A-Za-z0-9_]+:[a-f0-9]{64}', '[REDACTED_CHANNEL_SIGNATURE]', content)
             return content
 
         for artifact in evidence.rglob('*'):
