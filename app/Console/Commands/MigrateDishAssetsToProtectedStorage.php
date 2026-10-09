@@ -105,6 +105,18 @@ class MigrateDishAssetsToProtectedStorage extends Command
             $asset->forceFill(['storage_disk' => DishAsset::PROTECTED_DISK])->saveOrFail();
             $databaseSwitched = true;
 
+            // Legacy records can share one physical object. Keep its verified public
+            // source until all references have switched, including later chunks.
+            $remainingPublicReference = DishAsset::query()
+                ->whereIn('file_path', [$path, '/'.$path])
+                ->where(function ($query): void {
+                    $query->whereNull('storage_disk')->orWhere('storage_disk', 'public');
+                })
+                ->exists();
+            if ($remainingPublicReference) {
+                return true;
+            }
+
             $deleted = $public->delete($path);
             $sourceStillExists = $public->exists($path);
             if ($sourceStillExists) {
