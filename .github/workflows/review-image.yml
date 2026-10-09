@@ -1,5 +1,7 @@
 name: Reviewed release image
 on:
+  push:
+    branches: [qa/server-image-20261009]
   workflow_dispatch:
     inputs:
       source_commit:
@@ -15,11 +17,11 @@ jobs:
     steps:
       - name: Validate reviewed source
         env:
-          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_COMMIT: ${{ inputs.source_commit || 'f7079d481f238feba48ab356143078fcf6c4021c' }}
         run: test "$SOURCE_COMMIT" = f7079d481f238feba48ab356143078fcf6c4021c
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.source_commit }}
+          ref: ${{ inputs.source_commit || 'f7079d481f238feba48ab356143078fcf6c4021c' }}
           persist-credentials: false
       - name: Install verification tools
         run: |
