@@ -1,0 +1,63 @@
+name: Reviewed release image
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact already reviewed API commit
+        required: true
+        default: f7079d481f238feba48ab356143078fcf6c4021c
+permissions:
+  contents: read
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Validate reviewed source
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: test "$SOURCE_COMMIT" = f7079d481f238feba48ab356143078fcf6c4021c
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
+      - name: Install verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+          docker pull mysql:8.0
+      - name: Build image without runtime configuration
+        run: docker build --progress=plain -t menu-api-reviewed-20261009:ci .
+      - name: Required isolated image runtime and private PDF verification
+        run: python3 scripts/qa/release.py --image menu-api-reviewed-20261009:ci --run-id "review_image_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}" --evidence "$RUNNER_TEMP/image-evidence"
+      - name: Export immutable verified image and identity
+        env:
+          ARTIFACT_ROOT: ${{ runner.temp }}/verified-image
+        run: |
+          mkdir -p "$ARTIFACT_ROOT"
+          docker image inspect menu-api-reviewed-20261009:ci > "$ARTIFACT_ROOT/image-inspect.json"
+          docker save menu-api-reviewed-20261009:ci | gzip -1 > "$ARTIFACT_ROOT/verified-api-image.tar.gz"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          p=Path(os.environ['ARTIFACT_ROOT'])
+          d=json.loads((p/'image-inspect.json').read_text())[0]
+          h=hashlib.sha256()
+          with (p/'verified-api-image.tar.gz').open('rb') as stream:
+              for chunk in iter(lambda: stream.read(1024*1024), b''): h.update(chunk)
+          identity={'source_commit':'f7079d481f238feba48ab356143078fcf6c4021c','tag':'menu-api-reviewed-20261009:ci','image_id':d['Id'],'architecture':d['Architecture'],'os':d['Os'],'rootfs':d['RootFS']['Layers'],'config_sha256':hashlib.sha256(json.dumps(d['Config'],sort_keys=True,separators=(',',':')).encode()).hexdigest(),'archive_sha256':h.hexdigest(),'archive_bytes':(p/'verified-api-image.tar.gz').stat().st_size}
+          (p/'image-identity.json').write_text(json.dumps(identity,indent=2))
+          (p/'image-inspect.json').unlink()
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reviewed-image-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/image-evidence
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verified-release-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verified-image
+          compression-level: 0
+          retention-days: 7
