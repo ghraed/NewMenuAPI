@@ -21,6 +21,8 @@ return Application::configure(basePath: dirname(__DIR__))
         ]
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Trust only the protocol from explicitly configured ingress addresses.
+        $middleware->trustProxies(headers: \Illuminate\Http\Request::HEADER_X_FORWARDED_PROTO);
         // Avoid route('login') dependency for unauthenticated requests.
         $middleware->redirectGuestsTo('/');
         $middleware->prependToGroup('api', \App\Http\Middleware\AuthenticateFromHttpOnlyCookie::class);
