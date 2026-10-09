@@ -7,7 +7,7 @@ on:
       source_commit:
         description: Exact already reviewed API commit
         required: true
-        default: a8a473bf4cc89697836d6df4eca7ba2382716ab9
+        default: 078445c0de263e923a0eeec148e3a9d1595e0cb4
 permissions:
   contents: read
 jobs:
@@ -17,11 +17,11 @@ jobs:
     steps:
       - name: Validate reviewed source
         env:
-          SOURCE_COMMIT: ${{ inputs.source_commit || 'a8a473bf4cc89697836d6df4eca7ba2382716ab9' }}
-        run: test "$SOURCE_COMMIT" = a8a473bf4cc89697836d6df4eca7ba2382716ab9
+          SOURCE_COMMIT: ${{ inputs.source_commit || '078445c0de263e923a0eeec148e3a9d1595e0cb4' }}
+        run: test "$SOURCE_COMMIT" = 078445c0de263e923a0eeec148e3a9d1595e0cb4
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.source_commit || 'a8a473bf4cc89697836d6df4eca7ba2382716ab9' }}
+          ref: ${{ inputs.source_commit || '078445c0de263e923a0eeec148e3a9d1595e0cb4' }}
           persist-credentials: false
       - name: Install verification tools
         run: |
@@ -47,7 +47,7 @@ jobs:
           h=hashlib.sha256()
           with (p/'verified-api-image.tar.gz').open('rb') as stream:
               for chunk in iter(lambda: stream.read(1024*1024), b''): h.update(chunk)
-          identity={'source_commit':'a8a473bf4cc89697836d6df4eca7ba2382716ab9','tag':'menu-api-reviewed-20261009:ci','image_id':d['Id'],'architecture':d['Architecture'],'os':d['Os'],'rootfs':d['RootFS']['Layers'],'config_sha256':hashlib.sha256(json.dumps(d['Config'],sort_keys=True,separators=(',',':')).encode()).hexdigest(),'archive_sha256':h.hexdigest(),'archive_bytes':(p/'verified-api-image.tar.gz').stat().st_size}
+          identity={'source_commit':'078445c0de263e923a0eeec148e3a9d1595e0cb4','tag':'menu-api-reviewed-20261009:ci','image_id':d['Id'],'architecture':d['Architecture'],'os':d['Os'],'rootfs':d['RootFS']['Layers'],'config_sha256':hashlib.sha256(json.dumps(d['Config'],sort_keys=True,separators=(',',':')).encode()).hexdigest(),'archive_sha256':h.hexdigest(),'archive_bytes':(p/'verified-api-image.tar.gz').stat().st_size}
           (p/'image-identity.json').write_text(json.dumps(identity,indent=2))
           (p/'image-inspect.json').unlink()
           PY
