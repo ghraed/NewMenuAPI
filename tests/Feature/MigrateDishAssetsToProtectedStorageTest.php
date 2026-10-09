@@ -97,6 +97,48 @@ class MigrateDishAssetsToProtectedStorageTest extends TestCase
         $this->assertSame('QA_RUN_PROTECTED_ASSET', Storage::disk(DishAsset::PROTECTED_DISK)->get($path));
     }
 
+    public function test_shared_file_is_retained_until_every_asset_reference_is_protected(): void
+    {
+        [$first, $path] = $this->createLegacyPublicAsset();
+        $second = $first->replicate();
+        $second->uuid = (string) Str::uuid();
+        $second->file_path = '/'.$path;
+        $second->saveOrFail();
+
+        $this->artisan('dish-assets:migrate-to-protected')->assertSuccessful();
+
+        $this->assertSame(DishAsset::PROTECTED_DISK, $first->fresh()->storage_disk);
+        $this->assertSame(DishAsset::PROTECTED_DISK, $second->fresh()->storage_disk);
+        $this->assertSame(2, DishAsset::query()->count());
+        Storage::disk('public')->assertMissing($path);
+        $this->assertSame('QA_RUN_PROTECTED_ASSET', Storage::disk(DishAsset::PROTECTED_DISK)->get($path));
+    }
+
+    public function test_shared_file_delete_failure_preserves_both_references_and_retries_safely(): void
+    {
+        [$first, $path] = $this->createLegacyPublicAsset();
+        $second = $first->replicate();
+        $second->uuid = (string) Str::uuid();
+        $second->saveOrFail();
+        $public = Storage::disk('public');
+        $failing = Mockery::mock($public)->makePartial();
+        $failing->shouldReceive('delete')->once()->with($path)->andReturn(false);
+        Storage::getFacadeRoot()->set('public', $failing);
+
+        $this->artisan('dish-assets:migrate-to-protected')->assertFailed();
+        $this->assertSame(DishAsset::PROTECTED_DISK, $first->fresh()->storage_disk);
+        $this->assertSame('public', $second->fresh()->storage_disk);
+        $this->assertSame('QA_RUN_PROTECTED_ASSET', $public->get($path));
+        $this->assertSame('QA_RUN_PROTECTED_ASSET', Storage::disk(DishAsset::PROTECTED_DISK)->get($path));
+
+        Storage::getFacadeRoot()->set('public', $public);
+        $this->artisan('dish-assets:migrate-to-protected')->assertSuccessful();
+        $this->assertSame(DishAsset::PROTECTED_DISK, $first->fresh()->storage_disk);
+        $this->assertSame(DishAsset::PROTECTED_DISK, $second->fresh()->storage_disk);
+        $this->assertSame(2, DishAsset::query()->count());
+        $this->assertFalse($public->exists($path));
+    }
+
     /**
      * @return array{DishAsset, string}
      */
