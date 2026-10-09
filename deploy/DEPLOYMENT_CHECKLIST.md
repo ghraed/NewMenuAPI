@@ -11,6 +11,8 @@
   - `APP_URL=https://your-domain`
   - DB settings (`DB_*`)
   - `SESSION_DOMAIN=your-domain`
+  - `TRUSTED_PROXIES`: exact ingress gateway IPs reaching the app (comma-separated;
+    discover the gateway for the existing Docker network, do not use `*`)
 - Update `docker/db.env` to match DB values
 
 ## 3) Start backend
@@ -54,6 +56,11 @@ docker exec -it menu_api_app php artisan seed:prod
 
 - Copy `deploy/apache-proxy.conf` to `/etc/apache2/sites-available/your-domain.conf`
 - Update domain + DocumentRoot
+- On TLS-terminating menu vhosts, overwrite `X-Forwarded-Proto` with `https`
+  before proxying to the API. On plain HTTP vhosts use `http`; preserve the Host.
+  Include the same header in future custom-domain vhost templates. The API trusts
+  only this protocol header from configured ingress IPs; it ignores forwarded Host
+  and client-IP headers.
 - Enable site and reload Apache
 
 ## 6) Frontend build + deploy
