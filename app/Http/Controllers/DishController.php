@@ -70,7 +70,10 @@ class DishController extends Controller
             'description_ar' => 'nullable|string',
             'price' => 'required|numeric|min:0',
             'currency' => 'nullable|in:USD,LBP,SYP,SAR,AED,EUR,QAR',
-            'calories' => 'nullable|integer|min:0',
+            'calories' => 'nullable|numeric|min:0',
+            'protein' => 'nullable|numeric|min:0',
+            'carbs' => 'nullable|numeric|min:0',
+            'fat' => 'nullable|numeric|min:0',
             'category' => ['required', 'string', 'max:100'],
             'category_ar' => 'nullable|string|max:100',
             'status' => 'nullable|in:draft,published',
@@ -97,6 +100,7 @@ class DishController extends Controller
             'recipe_ingredients.*.quantity_required' => 'required|numeric|gt:0',
             'recipe_ingredients.*.order_index' => 'nullable|integer|min:0',
             'recipe_ingredients.*.show_in_animation' => 'nullable|boolean',
+            'nutrition_reviewed' => 'sometimes|boolean',
             'glb_file' => [
                 'nullable',
                 'file',
@@ -139,6 +143,7 @@ class DishController extends Controller
         $suggestedDishIds = array_values(array_unique(array_map('intval', $validated['suggested_dish_ids'] ?? [])));
         $relatedDishIds = array_values(array_unique(array_map('intval', $validated['related_dish_ids'] ?? [])));
         $recipeIngredients = $validated['recipe_ingredients'] ?? null;
+        unset($validated['nutrition_reviewed']);
         unset($validated['suggested_dish_ids']);
         unset($validated['related_dish_ids']);
         unset($validated['recipe_ingredients']);
@@ -207,20 +212,29 @@ class DishController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100'],
-            'calories' => ['nullable', 'integer', 'min:0'],
+            'calories' => ['nullable', 'numeric', 'min:0'],
             'recipe_ingredients' => ['required', 'array', 'min:1'],
             'recipe_ingredients.*.ingredient_id' => ['required', 'integer', 'exists:ingredients,id'],
             'recipe_ingredients.*.ingredient_name' => ['nullable', 'string', 'max:255'],
             'recipe_ingredients.*.quantity_required' => ['required', 'numeric', 'gt:0'],
             'recipe_ingredients.*.unit' => ['required', 'string', 'max:20'],
             'recipe_ingredients.*.order_index' => ['nullable', 'integer', 'min:0'],
+            'recipe_ingredients.*.show_in_animation' => ['nullable', 'boolean'],
             'target_languages' => ['required', 'array', 'min:1'],
             'target_languages.*' => ['required', 'string', 'in:en,ar'],
         ]);
 
         $this->validateCategoryForRestaurant($request, $restaurant);
 
-        $rows = $validated['recipe_ingredients'];
+        $rows = array_values(array_filter(
+            $validated['recipe_ingredients'],
+            fn (array $row): bool => ($row['show_in_animation'] ?? true) !== false
+        ));
+        if ($rows === []) {
+            throw ValidationException::withMessages([
+                'recipe_ingredients' => 'At least one customer-visible ingredient is required to generate a description.',
+            ]);
+        }
         $ingredientIds = array_values(array_unique(array_map(
             fn (array $row): int => (int) $row['ingredient_id'],
             $rows
@@ -444,7 +458,10 @@ class DishController extends Controller
             'description_ar' => 'nullable|string',
             'price' => 'sometimes|numeric|min:0',
             'currency' => 'sometimes|in:USD,LBP,SYP,SAR,AED,EUR,QAR',
-            'calories' => 'nullable|integer|min:0',
+            'calories' => 'nullable|numeric|min:0',
+            'protein' => 'nullable|numeric|min:0',
+            'carbs' => 'nullable|numeric|min:0',
+            'fat' => 'nullable|numeric|min:0',
             'category' => 'sometimes|string|max:100',
             'category_ar' => 'nullable|string|max:100',
             'status' => 'sometimes|in:draft,published',
@@ -471,6 +488,7 @@ class DishController extends Controller
             'recipe_ingredients.*.quantity_required' => 'required|numeric|gt:0',
             'recipe_ingredients.*.order_index' => 'nullable|integer|min:0',
             'recipe_ingredients.*.show_in_animation' => 'nullable|boolean',
+            'nutrition_reviewed' => 'sometimes|boolean',
         ]);
 
         if (array_key_exists('category', $validated)) {
@@ -493,6 +511,27 @@ class DishController extends Controller
         if (array_key_exists('recipe_ingredients', $validated)) {
             $recipeIngredients = $validated['recipe_ingredients'] ?? [];
             unset($validated['recipe_ingredients']);
+        }
+
+        $nutritionReviewed = (bool) ($validated['nutrition_reviewed'] ?? false);
+        unset($validated['nutrition_reviewed']);
+        if ($recipeIngredients !== null) {
+            $previousVisibility = $dish->dishIngredients()->pluck('show_in_animation', 'ingredient_id')
+                ->map(fn ($visible): bool => (bool) $visible)->all();
+            $newVisibility = [];
+            foreach ($recipeIngredients as $row) {
+                $newVisibility[(int) $row['ingredient_id']] = ! array_key_exists('show_in_animation', $row)
+                    || filter_var($row['show_in_animation'], FILTER_VALIDATE_BOOLEAN);
+            }
+            $visibilityChanged = collect($previousVisibility)->contains(fn ($visible, $id): bool => isset($newVisibility[$id]) && $newVisibility[$id] !== $visible
+            );
+            $hasNutrition = collect(['calories', 'protein', 'carbs', 'fat'])->contains(fn ($field): bool => (array_key_exists($field, $validated) ? $validated[$field] : $dish->{$field}) !== null
+            );
+            if ($visibilityChanged && $hasNutrition && ! $nutritionReviewed) {
+                throw ValidationException::withMessages([
+                    'nutrition_reviewed' => 'Review the nutrition totals for the visible ingredients before saving.',
+                ]);
+            }
         }
 
         $effectiveItemType = $validated['item_type'] ?? $dish->item_type ?? Dish::ITEM_TYPE_PREPARED_DISH;

@@ -21,7 +21,8 @@ if ($mode === 'seed') {
         'order_id' => $order->id, 'created_at' => now(), 'updated_at' => now(),
     ]);
     $batch = Illuminate\Support\Facades\DB::table('migrations')->where('migration', '2026_10_06_000200_add_finalized_invoice_to_table_sessions')->value('batch');
-    echo json_encode(['task8_batch' => $batch, 'synthetic_request_rows' => 1]);
+    $requestBatch = Illuminate\Support\Facades\DB::table('migrations')->where('migration', '2026_10_08_120000_create_guest_order_idempotency_table')->value('batch');
+    echo json_encode(['task8_batch' => $batch, 'request_batch' => $requestBatch, 'synthetic_request_rows' => 1]);
 } elseif ($mode === 'down') {
     if (Illuminate\Support\Facades\Schema::hasTable('guest_order_idempotency')
         || ! $session->finalized_invoice_id

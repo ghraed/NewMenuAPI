@@ -151,6 +151,7 @@ class GuestController extends Controller
                         'quantity',
                         'unit',
                         'order_index',
+                        'show_in_animation',
                     ])
                     ->orderBy('order_index'),
                 'dishIngredients.ingredient' => fn ($query) => $query->select([
@@ -171,6 +172,9 @@ class GuestController extends Controller
             $seenIngredients = [];
 
             foreach ($dish->dishIngredients as $row) {
+                if (! $row->show_in_animation) {
+                    continue;
+                }
                 $ingredient = $row->ingredient;
                 if (! $ingredient) {
                     continue;

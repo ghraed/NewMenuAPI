@@ -154,9 +154,11 @@ def main():
         with tarfile.open(archive, 'w') as backup:
             backup.add(disks, arcname='disks')
         key_hash = hashlib.sha256(env['APP_KEY'].encode()).hexdigest()
-        command('migration-down', ['php', 'scripts/qa/console.php', 'migrate:rollback', '--step=1', '--force'])
+        request_migration_path = 'database/migrations/2026_10_08_120000_create_guest_order_idempotency_table.php'
+        command('migration-down', ['php', 'scripts/qa/console.php', 'migrate:rollback',
+                f"--batch={request_seed['request_batch']}", f'--path={request_migration_path}', '--force'])
         request_down = request_fixture('down')
-        command('migration-up', ['php', 'scripts/qa/console.php', 'migrate', '--force'])
+        command('migration-up', ['php', 'scripts/qa/console.php', 'migrate', f'--path={request_migration_path}', '--force'])
         request_up = request_fixture('up')
         # Preserve Task 8's exact rollback assertions against its named migration.
         finalization_path = 'database/migrations/2026_10_06_000200_add_finalized_invoice_to_table_sessions.php'
@@ -204,7 +206,7 @@ def main():
         if invoice['total'] != '25.30' or invoice['status'] != 'paid' or finance['revenue']['value'] != 25.3 or finance['invoice_count']['value'] != 1:
             raise RuntimeError('Post-restore HTTP invoice/finance invariants failed.')
         outcomes.extend([
-            {'check': 'latest-request-migration-down-up', 'status': 'PASS', **request_down, **request_up, **request_restore},
+            {'check': 'request-migration-down-up', 'status': 'PASS', **request_down, **request_up, **request_restore},
             {'check': 'task8-finalization-migration-down-up', 'status': 'PASS', **down, 'data_restore_required': 'finalized_invoice_id links are lost by down(); recovered from backup'},
             {'check': 'synthetic-backup-destruction-restore', 'status': 'PASS', 'table_fingerprints': after,
              'storage_sha256': restored_hashes, 'runtime_key_preserved': True, **receipt},

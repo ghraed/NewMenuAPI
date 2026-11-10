@@ -15,6 +15,55 @@ class DishManagementApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_optional_nutrition_can_be_saved_cleared_and_requires_review_after_visibility_changes(): void
+    {
+        [$admin, $restaurant] = $this->adminContext(['Main Courses']);
+        $ingredient = $this->createIngredient($restaurant, 'QA_RUN_visible');
+        Sanctum::actingAs($admin);
+
+        $dishId = (int) $this->postJson('/api/menu-items', [
+            'name' => 'QA_RUN_nutrition',
+            'price' => 12,
+            'category' => 'Main Courses',
+            'status' => 'published',
+            'recipe_ingredients' => [[
+                'ingredient_id' => $ingredient->id,
+                'quantity_required' => 1,
+                'show_in_animation' => true,
+            ]],
+        ])->assertCreated()->assertJsonPath('calories', null)->json('id');
+
+        $this->patchJson("/api/menu-items/{$dishId}", [
+            'calories' => 0,
+            'protein' => 12.5,
+            'carbs' => null,
+            'fat' => 3.25,
+        ])->assertOk()->assertJsonPath('calories', 0)
+            ->assertJsonPath('protein', 12.5)->assertJsonPath('carbs', null);
+
+        $changedRecipe = [[
+            'ingredient_id' => $ingredient->id,
+            'quantity_required' => 2,
+            'show_in_animation' => false,
+        ]];
+        $this->patchJson("/api/menu-items/{$dishId}", ['recipe_ingredients' => $changedRecipe])
+            ->assertUnprocessable()->assertJsonValidationErrors('nutrition_reviewed');
+        $this->patchJson("/api/menu-items/{$dishId}", [
+            'recipe_ingredients' => $changedRecipe,
+            'nutrition_reviewed' => true,
+            'protein' => 10.5,
+        ])->assertOk()->assertJsonPath('protein', 10.5);
+
+        $changedRecipe[0]['quantity_required'] = 99;
+        $this->patchJson("/api/menu-items/{$dishId}", ['recipe_ingredients' => $changedRecipe])
+            ->assertOk()->assertJsonPath('protein', 10.5);
+
+        $this->patchJson("/api/menu-items/{$dishId}", ['protein' => null])
+            ->assertOk()->assertJsonPath('protein', null);
+        $this->patchJson("/api/menu-items/{$dishId}", ['fat' => -1])
+            ->assertUnprocessable()->assertJsonValidationErrors('fat');
+    }
+
     public function test_admin_can_create_update_and_delete_multilingual_dishes_with_relationships(): void
     {
         [$admin, $restaurant] = $this->adminContext(['Main Courses', 'Desserts']);

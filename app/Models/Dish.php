@@ -41,6 +41,9 @@ class Dish extends Model
         'price',
         'currency',
         'calories',
+        'protein',
+        'carbs',
+        'fat',
         'category',
         'category_ar',
         'status',
@@ -64,7 +67,10 @@ class Dish extends Model
         'uuid' => 'string',
         'price' => 'decimal:2',
         'currency' => 'string',
-        'calories' => 'integer',
+        'calories' => 'decimal:3',
+        'protein' => 'decimal:3',
+        'carbs' => 'decimal:3',
+        'fat' => 'decimal:3',
         'direct_stock_ingredient_id' => 'integer',
         'direct_stock_quantity_per_sale' => 'decimal:3',
         'is_anchor' => 'boolean',
@@ -76,6 +82,20 @@ class Dish extends Model
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    public function toArray(): array
+    {
+        $attributes = parent::toArray();
+
+        foreach (['calories', 'protein', 'carbs', 'fat'] as $field) {
+            if ($this->{$field} !== null) {
+                $value = (float) $this->{$field};
+                $attributes[$field] = floor($value) === $value ? (int) $value : $value;
+            }
+        }
+
+        return $attributes;
+    }
 
     public function restaurant(): BelongsTo
     {
