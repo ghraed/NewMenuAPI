@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Dish;
+use App\Models\DishIngredient;
 use App\Models\Feature;
+use App\Models\Ingredient;
 use App\Models\Restaurant;
 use App\Models\RestaurantFeature;
 use App\Models\User;
@@ -14,6 +16,46 @@ use Tests\TestCase;
 class PublicMenuApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_public_nutrition_and_ingredient_response_excludes_hidden_recipe_rows(): void
+    {
+        $restaurant = $this->createRestaurant('qa-run-nutrition-'.Str::lower(Str::random(6)));
+        $this->enableFeature($restaurant, 'qr_menu');
+        $dish = Dish::factory()->for($restaurant)->published()->create([
+            'name' => 'QA_RUN_public_nutrition',
+            'calories' => null,
+            'protein' => '12.000',
+            'carbs' => null,
+            'fat' => '0.000',
+        ]);
+        $visible = Ingredient::factory()->for($restaurant)->create(['name' => 'QA_RUN_listed']);
+        $hidden = Ingredient::factory()->for($restaurant)->create(['name' => 'QA_RUN_secret']);
+        foreach ([[$visible, true], [$hidden, false]] as [$ingredient, $shown]) {
+            DishIngredient::query()->create([
+                'dish_id' => $dish->id,
+                'ingredient_id' => $ingredient->id,
+                'quantity' => '1.000',
+                'unit' => $ingredient->stock_unit,
+                'show_in_animation' => $shown,
+            ]);
+        }
+
+        $endpoint = "/api/menu/{$restaurant->slug}/dish/{$dish->id}";
+        $response = $this->getJson($endpoint)->assertOk()
+            ->assertJsonPath('calories', null)
+            ->assertJsonPath('protein', 12)
+            ->assertJsonPath('fat', 0)
+            ->assertJsonCount(1, 'dish_ingredients');
+        $this->assertStringNotContainsString('QA_RUN_secret', $response->getContent());
+        $indexResponse = $this->getJson("/api/menu/{$restaurant->slug}/dishes?include_index=1")->assertOk();
+        $this->assertStringNotContainsString('QA_RUN_secret', $indexResponse->getContent());
+
+        $dish->dishIngredients()->where('ingredient_id', $hidden->id)->update(['quantity' => '99.000']);
+        $this->getJson($endpoint)->assertOk()->assertJsonPath('protein', 12);
+
+        $dish->update(['protein' => null, 'fat' => null]);
+        $this->getJson($endpoint)->assertOk()->assertJsonPath('protein', null)->assertJsonPath('fat', null);
+    }
 
     public function test_public_slug_menu_returns_only_published_dishes_with_arabic_localization_and_tenant_isolation(): void
     {

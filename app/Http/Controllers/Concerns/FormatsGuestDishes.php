@@ -20,6 +20,13 @@ trait FormatsGuestDishes
         bool $animatedIngredientsEnabled = true
     ): array {
         $localized = $dish->toLocalizedArray();
+        $localized['nutrition_targets'] = config('nutrition.daily_targets');
+        if (isset($localized['dish_ingredients']) && is_array($localized['dish_ingredients'])) {
+            $localized['dish_ingredients'] = array_values(array_filter(
+                $localized['dish_ingredients'],
+                fn ($row): bool => is_array($row) && ($row['show_in_animation'] ?? true) !== false
+            ));
+        }
 
         if ($dish->relationLoaded('suggestedDishes')) {
             $localized['suggested_dishes'] = $this->localizeDishes(
