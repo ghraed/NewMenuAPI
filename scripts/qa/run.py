@@ -240,6 +240,7 @@ def main():
         env['DB_DATABASE'] = suite_db
         command('api-environment', ['php', 'scripts/qa/environment.php'])
         if not args.browser_only:
+            command('nutrition-upgrade', ['php', 'scripts/qa/nutrition-upgrade.php'])
             command('api-migrations', ['php', 'artisan', 'migrate:fresh', '--env=testing', '--force'])
             command('api-focused' if args.api_filter else 'api-full', ['php', 'artisan', 'test', '--log-junit', str(evidence/'api-junit.xml'), *(['--filter', args.api_filter] if args.api_filter else [])])
             command('api-build', ['npm', 'run', 'build'])

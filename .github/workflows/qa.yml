@@ -61,6 +61,8 @@ jobs:
         working-directory: Menu_React
       - run: npx playwright install --with-deps firefox webkit
         working-directory: Menu_React
+      - name: Deployment hook and image configuration regressions
+        run: python3 -m unittest discover -s scripts/qa/release-tests -v
       - name: Required API, real lifecycle, operational and recovery launch gates
         run: python3 scripts/qa/run.py --launch --browser-matrix --react-root ../Menu_React --run-id "ci_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}" --evidence "$RUNNER_TEMP/menu-api-evidence"
       - name: Publish audit and formatting gate results in the job summary

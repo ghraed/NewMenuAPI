@@ -1,5 +1,11 @@
 # Deployment Checklist (Production)
 
+The server's bare Git repository runs `hooks/post-receive` on a `main` push and
+automatically rebuilds the production Compose stack. The versioned hook is
+`deploy/post-receive-api.sh`; install it in the bare repository's `hooks` directory
+only as part of a reviewed deployment. Its disposable Git regression runs with
+`python3 -m unittest discover -s scripts/qa/release-tests -v`.
+
 ## 1) Docker and Apache
 
 - Install Docker + Compose (official repo)
